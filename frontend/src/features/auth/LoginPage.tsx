@@ -8,9 +8,10 @@ import {
   LuEyeOff,
   LuFingerprint,
   LuLock,
-  LuShieldCheck,
   LuUser,
+  LuUsers,
 } from 'react-icons/lu'
+import CashierLoginDialog, { type Cashier } from './CashierLoginDialog'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -92,12 +93,15 @@ function BrandPanel() {
     <div className="relative hidden w-[46%] shrink-0 overflow-hidden bg-neutral-900 lg:block">
       {/* Fallback backdrop shown until the photo loads */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#4a3320] via-[#2a1c0f] to-[#100a04]" />
-      <img
-        src="/images/menu/IMG_6957.JPG"
-        alt=""
-        onError={(e) => (e.currentTarget.style.display = 'none')}
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+      <picture>
+        <source srcSet="/images/login-bg.webp" type="image/webp" />
+        <img
+          src="/images/login-bg.jpg"
+          alt=""
+          onError={(e) => (e.currentTarget.style.display = 'none')}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      </picture>
       <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/30 to-black/70" />
 
       <div className="relative z-10 flex h-full flex-col items-center px-10 pt-24 text-center">
@@ -120,8 +124,16 @@ function BrandPanel() {
   )
 }
 
-export default function LoginPage() {
+export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) => void }) {
   const [showPassword, setShowPassword] = useState(false)
+  const [cashierDialogOpen, setCashierDialogOpen] = useState(false)
+  const [username, setUsername] = useState('')
+
+  function handleSignIn(e: React.FormEvent) {
+    e.preventDefault()
+    // TODO: authenticate against the backend once the API exists.
+    onLogin?.({ id: 'admin', name: username.trim() || 'Administrator', role: 'Manager' })
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#e9ebee] p-4 lg:p-6">
@@ -137,7 +149,7 @@ export default function LoginPage() {
             <h2 className="text-center text-4xl font-bold text-neutral-900">Welcome Back!</h2>
             <p className="mt-3 text-center text-lg text-neutral-500">Please sign in to continue</p>
 
-            <form className="mt-11 space-y-6" onSubmit={(e) => e.preventDefault()}>
+            <form className="mt-11 space-y-6" onSubmit={handleSignIn}>
               <div>
                 <label htmlFor="username" className="mb-2.5 block font-semibold text-neutral-800">
                   Username
@@ -147,6 +159,8 @@ export default function LoginPage() {
                   <input
                     id="username"
                     type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     autoComplete="username"
                     placeholder="Enter your username"
                     className="h-14 w-full rounded-xl border border-neutral-200 bg-white pl-12 pr-4 text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-primary focus:ring-2 focus:ring-primary/25"
@@ -208,10 +222,11 @@ export default function LoginPage() {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   type="button"
+                  onClick={() => setCashierDialogOpen(true)}
                   className="flex h-14 items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white font-semibold text-neutral-800 transition hover:bg-neutral-50"
                 >
-                  <LuShieldCheck className="h-5 w-5" />
-                  Staff Card
+                  <LuUsers className="h-5 w-5" />
+                  Cashier Login
                 </button>
                 <button
                   type="button"
@@ -229,6 +244,10 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {cashierDialogOpen && (
+        <CashierLoginDialog onClose={() => setCashierDialogOpen(false)} onLoggedIn={onLogin} />
+      )}
     </div>
   )
 }
