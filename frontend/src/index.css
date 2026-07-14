@@ -9,3 +9,8 @@
 body {
   @apply font-sans antialiased;
 }
+
+button:not(:disabled),
+[role="button"]:not(:disabled) {
+  cursor: pointer;
+}
