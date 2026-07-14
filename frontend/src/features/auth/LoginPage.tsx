@@ -1,16 +1,16 @@
 import { useState } from 'react'
 import {
-  ArrowRight,
-  Check,
-  ChefHat,
-  ChevronDown,
-  Eye,
-  EyeOff,
-  Fingerprint,
-  Lock,
-  ShieldCheck,
-  User,
-} from 'lucide-react'
+  LuArrowRight,
+  LuCheck,
+  LuChefHat,
+  LuChevronDown,
+  LuEye,
+  LuEyeOff,
+  LuFingerprint,
+  LuLock,
+  LuShieldCheck,
+  LuUser,
+} from 'react-icons/lu'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -60,7 +60,7 @@ function LanguageSelect() {
       >
         <FlagIcon code={lang.code} />
         {lang.label}
-        <ChevronDown className={`h-4 w-4 text-neutral-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <LuChevronDown className={`h-4 w-4 text-neutral-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -90,10 +90,10 @@ function LanguageSelect() {
 function BrandPanel() {
   return (
     <div className="relative hidden w-[46%] shrink-0 overflow-hidden bg-neutral-900 lg:block">
-      {/* Fallback backdrop shown until a real photo is dropped in public/images/login-bg.jpg */}
+      {/* Fallback backdrop shown until the photo loads */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#4a3320] via-[#2a1c0f] to-[#100a04]" />
       <img
-        src="/images/login-bg.jpg"
+        src="/images/menu/IMG_6957.JPG"
         alt=""
         onError={(e) => (e.currentTarget.style.display = 'none')}
         className="absolute inset-0 h-full w-full object-cover"
@@ -102,7 +102,7 @@ function BrandPanel() {
 
       <div className="relative z-10 flex h-full flex-col items-center px-10 pt-24 text-center">
         <div>
-          <ChefHat className="mx-auto h-14 w-14 text-white" strokeWidth={1.6} />
+          <LuChefHat className="mx-auto h-14 w-14 text-white" />
           <div className="mx-auto -mt-1 flex h-10 w-[76px] items-center rounded-xl border-[3px] border-white bg-black/20 px-2.5">
             <div className="h-1.5 w-6 rounded-full bg-white/90" />
             <div className="ml-auto h-2.5 w-2.5 rounded-full bg-white/90" />
@@ -143,7 +143,7 @@ export default function LoginPage() {
                   Username
                 </label>
                 <div className="relative">
-                  <User className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-400" />
+                  <LuUser className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-400" />
                   <input
                     id="username"
                     type="text"
@@ -159,7 +159,7 @@ export default function LoginPage() {
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-400" />
+                  <LuLock className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-400" />
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
@@ -173,7 +173,7 @@ export default function LoginPage() {
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 transition hover:text-neutral-600"
                   >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    {showPassword ? <LuEyeOff className="h-5 w-5" /> : <LuEye className="h-5 w-5" />}
                   </button>
                 </div>
               </div>
@@ -182,7 +182,7 @@ export default function LoginPage() {
                 <label className="flex cursor-pointer select-none items-center gap-3 text-neutral-700">
                   <input type="checkbox" defaultChecked className="peer sr-only" />
                   <span className="flex h-5 w-5 items-center justify-center rounded-md border border-neutral-300 bg-white text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
-                    <Check className="h-3.5 w-3.5" strokeWidth={3.5} />
+                    <LuCheck className="h-3.5 w-3.5" strokeWidth={3.5} />
                   </span>
                   Remember me
                 </label>
@@ -196,7 +196,7 @@ export default function LoginPage() {
                 className="mt-2 flex h-14 w-full items-center justify-center gap-2.5 rounded-xl bg-primary text-lg font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary-dark active:scale-[0.99]"
               >
                 Sign In
-                <ArrowRight className="h-5 w-5" />
+                <LuArrowRight className="h-5 w-5" />
               </button>
 
               <div className="flex items-center gap-4 pt-1 text-sm text-neutral-500">
@@ -210,14 +210,14 @@ export default function LoginPage() {
                   type="button"
                   className="flex h-14 items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white font-semibold text-neutral-800 transition hover:bg-neutral-50"
                 >
-                  <ShieldCheck className="h-5 w-5" />
+                  <LuShieldCheck className="h-5 w-5" />
                   Staff Card
                 </button>
                 <button
                   type="button"
                   className="flex h-14 items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white font-semibold text-neutral-800 transition hover:bg-neutral-50"
                 >
-                  <Fingerprint className="h-5 w-5" />
+                  <LuFingerprint className="h-5 w-5" />
                   Fingerprint
                 </button>
               </div>

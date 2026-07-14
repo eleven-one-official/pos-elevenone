@@ -1,0 +1,45 @@
+<?php
+
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\MenuItemController;
+use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\TableController;
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| Public routes
+|--------------------------------------------------------------------------
+*/
+Route::post('/login', [AuthController::class, 'login']);
+
+/*
+|--------------------------------------------------------------------------
+| Protected routes (require a valid Sanctum bearer token)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function () {
+    // Auth
+    Route::get('/me', [AuthController::class, 'me']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Menu
+    Route::apiResource('categories', CategoryController::class);
+    Route::apiResource('menu-items', MenuItemController::class);
+
+    // Tables
+    Route::apiResource('tables', TableController::class);
+
+    // Orders & payments
+    Route::apiResource('orders', OrderController::class);
+    // Payments are immutable once recorded (refund by creating a new record), so no update route.
+    Route::apiResource('payments', PaymentController::class)->except(['update']);
+
+    // Reports
+    Route::get('/reports/dashboard', [ReportController::class, 'dashboard']);
+    Route::get('/reports/daily-sales', [ReportController::class, 'dailySales']);
+    Route::get('/reports/top-items', [ReportController::class, 'topItems']);
+});
