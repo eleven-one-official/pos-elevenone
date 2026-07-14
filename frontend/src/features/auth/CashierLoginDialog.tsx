@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LuArrowLeft, LuArrowRight, LuEye, LuEyeOff, LuLock, LuX } from 'react-icons/lu'
+import { LuArrowLeft, LuArrowRight, LuDelete, LuEye, LuEyeOff, LuLock, LuX } from 'react-icons/lu'
 
 export type Cashier = {
   id: string
@@ -63,6 +63,23 @@ export default function CashierLoginDialog({
     // TODO: verify the cashier's password against the backend once the API exists.
     setError('')
     onLoggedIn?.(selected)
+  }
+
+  // On-screen keypad — the cashier taps digits on the touchscreen rather than
+  // using a physical keyboard.
+  function pressDigit(digit: string) {
+    setPassword((prev) => prev + digit)
+    if (error) setError('')
+  }
+
+  function backspace() {
+    setPassword((prev) => prev.slice(0, -1))
+    if (error) setError('')
+  }
+
+  function clearPassword() {
+    setPassword('')
+    if (error) setError('')
   }
 
   return (
@@ -152,6 +169,7 @@ export default function CashierLoginDialog({
                   id="cashier-password"
                   type={showPassword ? 'text' : 'password'}
                   autoFocus
+                  inputMode="none"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value)
@@ -176,9 +194,45 @@ export default function CashierLoginDialog({
               {error && <p className="mt-2 text-sm text-rose-500">{error}</p>}
             </div>
 
+            {/* On-screen numeric keypad for touchscreen use */}
+            <div className="mt-5 grid grid-cols-3 gap-2.5">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => pressDigit(digit)}
+                  className="flex h-14 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-xl font-semibold text-neutral-800 transition hover:border-primary hover:bg-primary/[0.04] active:scale-95"
+                >
+                  {digit}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={clearPassword}
+                className="flex h-14 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-sm font-semibold text-neutral-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-500 active:scale-95"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => pressDigit('0')}
+                className="flex h-14 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-xl font-semibold text-neutral-800 transition hover:border-primary hover:bg-primary/[0.04] active:scale-95"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                onClick={backspace}
+                aria-label="Backspace"
+                className="flex h-14 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-600 transition hover:border-primary hover:bg-primary/[0.04] active:scale-95"
+              >
+                <LuDelete className="h-6 w-6" />
+              </button>
+            </div>
+
             <button
               type="submit"
-              className="mt-7 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-white transition hover:bg-primary-dark active:scale-[0.99]"
+              className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-white transition hover:bg-primary-dark active:scale-[0.99]"
             >
               Login
               <LuArrowRight className="h-4.5 w-4.5" />

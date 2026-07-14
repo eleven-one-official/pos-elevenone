@@ -1,17 +1,30 @@
 import { useMemo, useState } from 'react'
 import {
   LuArrowRightLeft,
+  LuBeef,
+  LuCake,
+  LuCakeSlice,
   LuChevronLeft,
   LuChevronRight,
+  LuCitrus,
+  LuCoffee,
+  LuCupSoda,
   LuDelete,
   LuFileText,
+  LuFish,
+  LuGlassWater,
   LuHouse,
+  LuIceCreamBowl,
   LuKeyboard,
   LuMenu,
   LuNotebookPen,
+  LuPizza,
   LuReceipt,
   LuRotateCcw,
+  LuSalad,
+  LuSandwich,
   LuSearch,
+  LuSoup,
   LuSplit,
   LuStar,
   LuStickyNote,
@@ -35,36 +48,37 @@ type Product = {
   id: string
   name: string
   price: number
-  emoji: string
+  icon: IconType
   category: Category
 }
 
-// Placeholder catalog — swap the emoji tiles for photos in /public/images/menu
-// and wire prices to the backend once the product API exists.
+// Placeholder catalog — each tile shows a real photo from /public/images/menu
+// (named by product id), falling back to the react-icon if the photo is missing.
+// Wire products and prices to the backend once the product API exists.
 const PRODUCTS: Product[] = [
-  { id: 'bacon-burger', name: 'Bacon Burger', price: 8.63, emoji: '🍔', category: 'Food' },
-  { id: 'cheese-burger', name: 'Cheese Burger', price: 8.05, emoji: '🍔', category: 'Food' },
-  { id: 'chicken-curry-sandwich', name: 'Chicken Curry Sandwich', price: 3.45, emoji: '🥪', category: 'Food' },
-  { id: 'club-sandwich', name: 'Club Sandwich', price: 3.91, emoji: '🥪', category: 'Food' },
-  { id: 'funghi', name: 'Funghi', price: 8.05, emoji: '🍕', category: 'Food' },
-  { id: 'lunch-maki-18pc', name: 'Lunch Maki 18pc', price: 13.8, emoji: '🍣', category: 'Food' },
-  { id: 'lunch-salmon-20pc', name: 'Lunch Salmon 20pc', price: 15.87, emoji: '🍣', category: 'Food' },
-  { id: 'lunch-temaki-mix-3pc', name: 'Lunch Temaki mix 3pc', price: 16.1, emoji: '🍣', category: 'Food' },
-  { id: 'margherita', name: 'Margherita', price: 8.05, emoji: '🍕', category: 'Food' },
-  { id: 'mozzarella-sandwich', name: 'Mozzarella Sandwich', price: 4.49, emoji: '🥪', category: 'Food' },
-  { id: 'pasta-4-formaggi', name: 'Pasta 4 formaggi', price: 6.33, emoji: '🍝', category: 'Food' },
-  { id: 'pasta-bolognese', name: 'Pasta Bolognese', price: 5.18, emoji: '🍝', category: 'Food' },
-  { id: 'salmon-and-avocado', name: 'Salmon and Avocado', price: 10.64, emoji: '🥗', category: 'Food' },
-  { id: 'spicy-tuna-sandwich', name: 'Spicy Tuna Sandwich', price: 3.45, emoji: '🥪', category: 'Food' },
-  { id: 'vegetarian', name: 'Vegetarian', price: 8.05, emoji: '🥗', category: 'Food' },
-  { id: 'ice-tea', name: 'Ice Tea', price: 2.53, emoji: '🧋', category: 'Drinks' },
-  { id: 'coca-cola', name: 'Coca-Cola', price: 2.2, emoji: '🥤', category: 'Drinks' },
-  { id: 'sparkling-water', name: 'Sparkling Water', price: 1.5, emoji: '💧', category: 'Drinks' },
-  { id: 'coffee', name: 'Coffee', price: 2.8, emoji: '☕', category: 'Drinks' },
-  { id: 'orange-juice', name: 'Orange Juice', price: 3.1, emoji: '🧃', category: 'Drinks' },
-  { id: 'tiramisu', name: 'Tiramisu', price: 4.5, emoji: '🍰', category: 'Desserts' },
-  { id: 'ice-cream', name: 'Ice Cream', price: 3.2, emoji: '🍨', category: 'Desserts' },
-  { id: 'cheesecake', name: 'Cheesecake', price: 4.8, emoji: '🧁', category: 'Desserts' },
+  { id: 'bacon-burger', name: 'Bacon Burger', price: 8.63, icon: LuBeef, category: 'Food' },
+  { id: 'cheese-burger', name: 'Cheese Burger', price: 8.05, icon: LuBeef, category: 'Food' },
+  { id: 'chicken-curry-sandwich', name: 'Chicken Curry Sandwich', price: 3.45, icon: LuSandwich, category: 'Food' },
+  { id: 'club-sandwich', name: 'Club Sandwich', price: 3.91, icon: LuSandwich, category: 'Food' },
+  { id: 'funghi', name: 'Funghi', price: 8.05, icon: LuPizza, category: 'Food' },
+  { id: 'lunch-maki-18pc', name: 'Lunch Maki 18pc', price: 13.8, icon: LuFish, category: 'Food' },
+  { id: 'lunch-salmon-20pc', name: 'Lunch Salmon 20pc', price: 15.87, icon: LuFish, category: 'Food' },
+  { id: 'lunch-temaki-mix-3pc', name: 'Lunch Temaki mix 3pc', price: 16.1, icon: LuFish, category: 'Food' },
+  { id: 'margherita', name: 'Margherita', price: 8.05, icon: LuPizza, category: 'Food' },
+  { id: 'mozzarella-sandwich', name: 'Mozzarella Sandwich', price: 4.49, icon: LuSandwich, category: 'Food' },
+  { id: 'pasta-4-formaggi', name: 'Pasta 4 formaggi', price: 6.33, icon: LuSoup, category: 'Food' },
+  { id: 'pasta-bolognese', name: 'Pasta Bolognese', price: 5.18, icon: LuSoup, category: 'Food' },
+  { id: 'salmon-and-avocado', name: 'Salmon and Avocado', price: 10.64, icon: LuSalad, category: 'Food' },
+  { id: 'spicy-tuna-sandwich', name: 'Spicy Tuna Sandwich', price: 3.45, icon: LuSandwich, category: 'Food' },
+  { id: 'vegetarian', name: 'Vegetarian', price: 8.05, icon: LuSalad, category: 'Food' },
+  { id: 'ice-tea', name: 'Ice Tea', price: 2.53, icon: LuCupSoda, category: 'Drinks' },
+  { id: 'coca-cola', name: 'Coca-Cola', price: 2.2, icon: LuCupSoda, category: 'Drinks' },
+  { id: 'sparkling-water', name: 'Sparkling Water', price: 1.5, icon: LuGlassWater, category: 'Drinks' },
+  { id: 'coffee', name: 'Coffee', price: 2.8, icon: LuCoffee, category: 'Drinks' },
+  { id: 'orange-juice', name: 'Orange Juice', price: 3.1, icon: LuCitrus, category: 'Drinks' },
+  { id: 'tiramisu', name: 'Tiramisu', price: 4.5, icon: LuCakeSlice, category: 'Desserts' },
+  { id: 'ice-cream', name: 'Ice Cream', price: 3.2, icon: LuIceCreamBowl, category: 'Desserts' },
+  { id: 'cheesecake', name: 'Cheesecake', price: 4.8, icon: LuCake, category: 'Desserts' },
 ]
 
 const CATEGORIES: Category[] = ['Food', 'Drinks', 'Desserts']
@@ -98,6 +112,23 @@ type NumpadMode = 'qty' | 'disc' | 'price'
 // ---------------------------------------------------------------------------
 
 type Control = { icon: IconType; label: string; badge?: number; active?: boolean; span2?: boolean }
+
+// Product thumbnail — shows the real photo from /public/images/menu, and falls
+// back to the product's react-icon if the image is missing or fails to load
+// (no broken-image glyph, no emoji).
+function ProductThumb({ product }: { product: Product }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <product.icon className="h-12 w-12" />
+  return (
+    <img
+      src={`/images/menu/${product.id}.jpg`}
+      alt={product.name}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="absolute inset-0 h-full w-full object-cover"
+    />
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -165,7 +196,7 @@ export default function OrderPage({
 
     const current = entry ?? String(lines.find((l) => l.id === selectedId)?.qty ?? 0)
     let next: string
-    if (key === '⌫') next = current.slice(0, -1)
+    if (key === 'del') next = current.slice(0, -1)
     else if (key === '+/-') next = current.startsWith('-') ? current.slice(1) : `-${current}`
     else if (key === '.') next = current.includes('.') ? current : `${current}.`
     else next = (entry === null ? '' : current) + key
@@ -193,7 +224,7 @@ export default function OrderPage({
     { k: '1' }, { k: '2' }, { k: '3' }, { k: 'Qty', mode: 'qty' },
     { k: '4' }, { k: '5' }, { k: '6' }, { k: '% Disc', mode: 'disc' },
     { k: '7' }, { k: '8' }, { k: '9' }, { k: 'Price', mode: 'price' },
-    { k: '+/-' }, { k: '0' }, { k: '.' }, { k: '⌫', icon: LuDelete },
+    { k: '+/-' }, { k: '0' }, { k: '.' }, { k: 'del', icon: LuDelete },
   ]
 
   return (
@@ -396,8 +427,8 @@ export default function OrderPage({
                     onClick={() => addProduct(product)}
                     className="group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md"
                   >
-                    <div className="relative flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-neutral-100 to-neutral-200 text-5xl">
-                      <span>{product.emoji}</span>
+                    <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-gradient-to-br from-neutral-100 to-neutral-200 text-neutral-400">
+                      <ProductThumb product={product} />
                       <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-white/85 text-[11px] font-bold italic text-neutral-500 shadow-sm">
                         i
                       </span>
