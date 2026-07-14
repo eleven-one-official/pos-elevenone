@@ -10,23 +10,22 @@ import {
   LuCoffee,
   LuCupSoda,
   LuDelete,
-  LuFileText,
   LuFish,
   LuGlassWater,
   LuHouse,
   LuIceCreamBowl,
-  LuKeyboard,
+  LuInfo,
   LuMenu,
   LuNotebookPen,
+  LuPercent,
   LuPizza,
-  LuReceipt,
+  LuPrinter,
   LuRotateCcw,
   LuSalad,
   LuSandwich,
   LuSearch,
   LuSoup,
   LuSplit,
-  LuStar,
   LuStickyNote,
   LuUser,
   LuUsers,
@@ -35,6 +34,8 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import PaymentPage, { type PaymentResult } from './PaymentPage'
+import ReceiptPage from './ReceiptPage'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { PosTable } from './TableFloorPage'
 
@@ -88,7 +89,7 @@ const TAX_RATE = 0.1
 // Order state
 // ---------------------------------------------------------------------------
 
-type OrderLine = {
+export type OrderLine = {
   id: string // one line per product — same id as the product
   name: string
   price: number
@@ -149,6 +150,10 @@ export default function OrderPage({
   const [entry, setEntry] = useState<string | null>(null)
   const [category, setCategory] = useState<Category>('Food')
   const [search, setSearch] = useState('')
+  const [screen, setScreen] = useState<'order' | 'payment' | 'receipt'>('order')
+  const [payment, setPayment] = useState<PaymentResult | null>(null)
+  // Placeholder order number — swap for the backend-issued reference once wired.
+  const [orderNo] = useState(() => String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'))
 
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + l.qty * l.price, 0), [lines])
   const taxes = subtotal * TAX_RATE
@@ -190,7 +195,7 @@ export default function OrderPage({
 
   function pressKey(key: string) {
     if (key === 'Qty') return switchMode('qty')
-    if (key === '% Disc') return switchMode('disc')
+    if (key === 'Disc') return switchMode('disc')
     if (key === 'Price') return switchMode('price')
     if (!selectedId || mode !== 'qty') return // only quantity editing is wired up
 
@@ -207,25 +212,52 @@ export default function OrderPage({
   }
 
   const CONTROLS: Control[] = [
+    { icon: LuInfo, label: 'Info' },
     { icon: LuRotateCcw, label: 'Refund' },
-    { icon: LuUser, label: 'Alexa Laza', active: true },
-    { icon: LuStickyNote, label: 'Customer Note' },
     { icon: LuNotebookPen, label: 'Internal Note' },
-    { icon: LuReceipt, label: 'Bill' },
+    { icon: LuUsers, label: 'Guests', badge: guests },
+    { icon: LuPrinter, label: 'Bill' },
     { icon: LuSplit, label: 'Split' },
-    { icon: LuUsers, label: 'Dine-in Guests', badge: guests },
     { icon: LuArrowRightLeft, label: 'Transfer' },
-    { icon: LuKeyboard, label: 'Enter Code' },
-    { icon: LuStar, label: 'Reward' },
-    { icon: LuFileText, label: 'Quotation/Order', span2: true },
+    { icon: LuPercent, label: 'Discount All', span2: true },
   ]
 
   const NUMPAD: { k: string; mode?: NumpadMode; icon?: IconType }[] = [
     { k: '1' }, { k: '2' }, { k: '3' }, { k: 'Qty', mode: 'qty' },
-    { k: '4' }, { k: '5' }, { k: '6' }, { k: '% Disc', mode: 'disc' },
+    { k: '4' }, { k: '5' }, { k: '6' }, { k: 'Disc', mode: 'disc' },
     { k: '7' }, { k: '8' }, { k: '9' }, { k: 'Price', mode: 'price' },
     { k: '+/-' }, { k: '0' }, { k: '.' }, { k: 'del', icon: LuDelete },
   ]
+
+  if (screen === 'payment') {
+    return (
+      <PaymentPage
+        cashier={cashier}
+        table={table}
+        total={total}
+        onBack={() => setScreen('order')}
+        onValidate={(result) => {
+          setPayment(result)
+          setScreen('receipt')
+        }}
+      />
+    )
+  }
+
+  if (screen === 'receipt' && payment) {
+    return (
+      <ReceiptPage
+        cashier={cashier}
+        table={table}
+        lines={lines}
+        orderNo={orderNo}
+        serviceRate={TAX_RATE}
+        payment={payment}
+        onBackToTables={onBack}
+        onSeeOrder={() => setScreen('order')}
+      />
+    )
+  }
 
   return (
     <div className="flex h-screen flex-col bg-[#f3f4f6]">
@@ -329,22 +361,24 @@ export default function OrderPage({
 
           {/* Payment + numpad */}
           <div className="flex border-t border-neutral-200">
-            {/* Payment / order name */}
+            {/* Customer + payment */}
             <div className="flex w-[26%] min-w-[110px] flex-col border-r border-neutral-200">
               <button
                 type="button"
                 className="flex items-center gap-1.5 border-b border-neutral-200 px-3 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
               >
-                <LuChevronRight className="h-4 w-4" />
-                Payment
+                <LuUser className="h-4 w-4 shrink-0" />
+                Customer
               </button>
               <button
                 type="button"
-                className="flex flex-1 flex-col items-center justify-center gap-1.5 bg-[#2b2138] px-2 py-4 text-center text-white transition hover:bg-[#37294a]"
+                onClick={() => setScreen('payment')}
+                className="flex flex-1 flex-col items-center justify-center gap-2 bg-white px-2 py-4 text-center transition hover:bg-neutral-50"
               >
-                <LuUtensils className="h-6 w-6" />
-                <span className="text-xs font-medium opacity-80">Order</span>
-                <span className="text-sm font-bold">Table {table.label}</span>
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2b2138] text-white">
+                  <LuChevronRight className="h-6 w-6" />
+                </span>
+                <span className="text-sm font-bold text-neutral-800">Payment</span>
               </button>
             </div>
 

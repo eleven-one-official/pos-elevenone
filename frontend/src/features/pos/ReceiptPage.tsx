@@ -1,0 +1,359 @@
+import { useState } from 'react'
+import {
+  LuArrowLeftRight,
+  LuCheck,
+  LuChevronsLeft,
+  LuClipboardList,
+  LuFileText,
+  LuLock,
+  LuMail,
+  LuPower,
+  LuPrinter,
+  LuRefreshCw,
+  LuStore,
+  LuUtensils,
+} from 'react-icons/lu'
+import type { IconType } from 'react-icons'
+import ElevenOneLogo from '../../components/ElevenOneLogo'
+import type { Cashier } from '../auth/CashierLoginDialog'
+import type { OrderLine } from './OrderPage'
+import { KHR_RATE, type PaymentResult } from './PaymentPage'
+import type { PosTable } from './TableFloorPage'
+
+// Placeholder store details — replace with the venue's configured info once the
+// backend exposes it. Kept here so the printed receipt mirrors the reference.
+const STORE = {
+  name: 'Elevenone Restaurant',
+  address: 'Street 123, Phnom Penh, Cambodia',
+  phone: '012 345 678',
+}
+
+const money = (n: number) => `$${n.toFixed(2)}`
+const riel = (usd: number) => `៛ ${Math.round(usd * KHR_RATE).toLocaleString('en-US')}`
+
+// DD/MM/YYYY hh:mm AM/PM — matches the reference receipt.
+function formatDateTime(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  let hours = d.getHours()
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  hours = hours % 12 || 12
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(hours)}:${pad(
+    d.getMinutes(),
+  )} ${ampm}`
+}
+
+// ---------------------------------------------------------------------------
+// Receipt building blocks
+// ---------------------------------------------------------------------------
+
+const Dashed = () => <div className="my-4 border-t border-dashed border-neutral-300" />
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex text-sm">
+      <span className="w-20 shrink-0 text-neutral-500">{label}</span>
+      <span className="text-neutral-400">:</span>
+      <span className="ml-3 font-medium text-neutral-800">{value}</span>
+    </div>
+  )
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-neutral-500">{label}</span>
+      <span className="font-medium text-neutral-800">{value}</span>
+    </div>
+  )
+}
+
+function ActionButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: IconType
+  label: string
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-neutral-100 py-3.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-200 active:scale-[0.99]"
+    >
+      <Icon className="h-5 w-5 text-neutral-500" />
+      {label}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function ReceiptPage({
+  cashier,
+  table,
+  lines,
+  orderNo,
+  serviceRate,
+  discount = 0,
+  payment,
+  onBackToTables,
+  onSeeOrder,
+}: {
+  cashier: Cashier
+  table: PosTable
+  lines: OrderLine[]
+  orderNo: string
+  /** Service-charge rate applied to the subtotal (e.g. 0.05 for 5%). */
+  serviceRate: number
+  discount?: number
+  payment: PaymentResult
+  onBackToTables: () => void
+  onSeeOrder: () => void
+}) {
+  // Freeze the printed timestamp at the moment the receipt is shown.
+  const [printedAt] = useState(() => new Date())
+
+  const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0)
+  const serviceCharge = subtotal * serviceRate
+  const total = subtotal + serviceCharge - discount
+
+  const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
+  const guests = table.guests > 0 ? table.guests : 2
+  const orders = table.orders
+
+  const printReceipt = () => window.print()
+
+  return (
+    <div className="flex h-screen flex-col bg-[#f3f4f6]">
+      {/* Top toolbar — mirrors the Payment screen so the session stays put */}
+      <header className="flex h-16 shrink-0 items-center gap-1 bg-[#2b2138] px-4 text-white shadow-md">
+        <ElevenOneLogo />
+        <div className="mx-3 h-8 w-px bg-white/15" />
+
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-white/90 transition hover:bg-white/10"
+        >
+          <LuArrowLeftRight className="h-5 w-5" />
+          <span className="text-sm font-medium">Cash In/Out</span>
+        </button>
+        <button
+          type="button"
+          className="relative flex items-center gap-2 rounded-lg px-3 py-2 text-white/90 transition hover:bg-white/10"
+        >
+          <LuClipboardList className="h-5 w-5" />
+          <span className="text-sm font-medium">Orders</span>
+          {orders > 0 && (
+            <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-white">
+              {orders}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={onBackToTables}
+          className="ml-2 flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+        >
+          <LuChevronsLeft className="h-5 w-5" />
+          {table.label}
+        </button>
+
+        <div className="ml-auto flex items-center gap-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
+              {initials}
+            </span>
+            <div className="leading-tight">
+              <div className="text-[11px] uppercase tracking-wide text-white/55">Cashier</div>
+              <div className="text-sm font-semibold">{cashier.name}</div>
+            </div>
+          </div>
+          <div className="h-8 w-px bg-white/15" />
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="flex w-[68px] flex-col items-center gap-0.5 rounded-lg py-1.5 text-white/85 transition hover:bg-white/10 hover:text-white"
+          >
+            <LuRefreshCw className="h-5 w-5" />
+            <span className="text-[11px] font-medium">Reload</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBackToTables}
+            className="flex w-[68px] flex-col items-center gap-0.5 rounded-lg py-1.5 text-white/85 transition hover:bg-white/10 hover:text-white"
+          >
+            <LuLock className="h-5 w-5" />
+            <span className="text-[11px] font-medium">Lock</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBackToTables}
+            className="flex w-[68px] flex-col items-center gap-0.5 rounded-lg py-1.5 text-white/85 transition hover:bg-white/10 hover:text-rose-300"
+          >
+            <LuPower className="h-5 w-5" />
+            <span className="text-[11px] font-medium">Close</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Sub-toolbar: Back to Tables / title / Print Receipt */}
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-4">
+        <button
+          type="button"
+          onClick={onBackToTables}
+          className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-4 py-2.5 font-semibold text-neutral-700 transition hover:bg-neutral-100"
+        >
+          <LuChevronsLeft className="h-5 w-5" />
+          Back to Tables
+        </button>
+        <h1 className="text-xl font-bold text-neutral-900">Receipt</h1>
+        <button
+          type="button"
+          onClick={printReceipt}
+          className="flex items-center gap-2 rounded-lg bg-[#2b2138] px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-[#37294a]"
+        >
+          <LuPrinter className="h-5 w-5" />
+          Print Receipt
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 gap-6 overflow-auto p-6">
+        {/* Left — printed receipt */}
+        <div className="flex-1 rounded-2xl border border-neutral-200 bg-white p-8 text-neutral-800 shadow-sm">
+          {/* Store header */}
+          <div className="flex items-start gap-4">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#2b2138] text-white">
+              <LuUtensils className="h-7 w-7" />
+            </span>
+            <div className="leading-snug">
+              <h2 className="text-xl font-bold text-neutral-900">{STORE.name}</h2>
+              <p className="text-sm text-neutral-500">{STORE.address}</p>
+              <p className="text-sm text-neutral-500">Tel: {STORE.phone}</p>
+            </div>
+          </div>
+
+          <Dashed />
+
+          <div className="text-center">
+            <h3 className="text-lg font-bold tracking-wide text-neutral-900">RECEIPT</h3>
+            <p className="text-sm text-neutral-500">Order # {orderNo}</p>
+          </div>
+
+          {/* Order meta */}
+          <div className="mt-4 space-y-1.5">
+            <MetaRow label="Table" value={table.label} />
+            <MetaRow label="Cashier" value={cashier.name} />
+            <MetaRow label="Date" value={formatDateTime(printedAt)} />
+            <MetaRow label="Guests" value={String(guests)} />
+          </div>
+
+          <Dashed />
+
+          {/* Line items */}
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-neutral-200 text-neutral-500">
+                <th className="pb-2 text-left font-medium">Item</th>
+                <th className="pb-2 text-center font-medium">Qty</th>
+                <th className="pb-2 text-right font-medium">Unit Price</th>
+                <th className="pb-2 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {lines.map((line) => (
+                <tr key={line.id} className="border-b border-neutral-50">
+                  <td className="py-1.5 text-left text-neutral-800">{line.name}</td>
+                  <td className="py-1.5 text-center text-neutral-600">{line.qty}</td>
+                  <td className="py-1.5 text-right text-neutral-600">{money(line.price)}</td>
+                  <td className="py-1.5 text-right font-medium text-neutral-800">
+                    {money(line.qty * line.price)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <Dashed />
+
+          {/* Summary */}
+          <div className="space-y-1.5 text-sm tabular-nums">
+            <SummaryRow label="Subtotal" value={money(subtotal)} />
+            <SummaryRow
+              label={`Service Charge (${Math.round(serviceRate * 100)}%)`}
+              value={money(serviceCharge)}
+            />
+            <SummaryRow label="Discount" value={money(discount)} />
+          </div>
+
+          <div className="mt-3 border-t border-neutral-200 pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-bold text-neutral-900">Total</span>
+              <span className="text-2xl font-bold text-neutral-900 tabular-nums">{money(total)}</span>
+            </div>
+            <div className="mt-0.5 text-right text-sm font-semibold text-neutral-500 tabular-nums">
+              {riel(total)}
+            </div>
+          </div>
+
+          {/* Tender */}
+          <div className="mt-4 space-y-1.5 text-sm tabular-nums">
+            <SummaryRow label="Paid By" value={payment.methodName} />
+            <div className="flex items-center justify-between">
+              <span className="text-neutral-500">Cash Received</span>
+              <span className="text-right">
+                <span className="font-medium text-neutral-800">{money(payment.cashReceived)}</span>
+                <span className="ml-2 text-neutral-400">{riel(payment.cashReceived)}</span>
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-neutral-500">Change</span>
+              <span className="text-right">
+                <span className="font-semibold text-emerald-600">{money(payment.change)}</span>
+                <span className="ml-2 text-emerald-500/70">{riel(payment.change)}</span>
+              </span>
+            </div>
+          </div>
+
+          <Dashed />
+
+          <div className="text-center text-sm text-neutral-500">
+            <p className="font-medium text-neutral-700">Thank you!</p>
+            <p>Please come again.</p>
+          </div>
+        </div>
+
+        {/* Right — payment confirmation */}
+        <div className="flex w-[38%] min-w-[360px] max-w-[520px] flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
+          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
+            <LuCheck className="h-11 w-11" strokeWidth={3} />
+          </span>
+          <h2 className="mt-6 text-2xl font-bold text-neutral-900">Payment Successful</h2>
+          <p className="mt-2 text-3xl font-bold text-emerald-600 tabular-nums">{money(total)}</p>
+          <p className="text-sm font-semibold text-neutral-400 tabular-nums">{riel(total)}</p>
+          <p className="mt-2 text-sm text-neutral-500">Receipt has been printed successfully.</p>
+
+          <div className="mt-8 flex w-full max-w-xs flex-col gap-3">
+            <ActionButton icon={LuPrinter} label="Print Again" onClick={printReceipt} />
+            {/* Email delivery is a placeholder until the backend exposes it. */}
+            <ActionButton icon={LuMail} label="Email Receipt" />
+            <ActionButton icon={LuFileText} label="See Order" onClick={onSeeOrder} />
+            <button
+              type="button"
+              onClick={onBackToTables}
+              className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#2b2138] py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#37294a] active:scale-[0.99]"
+            >
+              <LuStore className="h-5 w-5" />
+              Back to Tables
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
