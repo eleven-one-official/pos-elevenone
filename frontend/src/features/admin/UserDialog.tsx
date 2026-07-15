@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LuLoaderCircle } from 'react-icons/lu'
+import { Loader } from '../../components/ui/Loader'
 import Modal from '../../components/ui/Modal'
 import { ApiError } from '../../services/api/client'
 import {
@@ -91,7 +91,7 @@ export default function UserDialog({
             disabled={saving}
             className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary-dark disabled:opacity-60"
           >
-            {saving && <LuLoaderCircle className="h-4 w-4 animate-spin" />}
+            {saving && <Loader size="sm" />}
             {editing ? 'Save Changes' : 'Add Staff'}
           </button>
         </div>

@@ -1,6 +1,5 @@
 import {
   LuCrown,
-  LuLoaderCircle,
   LuLock,
   LuPower,
   LuRefreshCw,
@@ -11,6 +10,7 @@ import {
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import { SectionHeading, TableCard, type PosTable } from '../pos/TableFloorPage'
+import { LoadingState } from '../../components/ui/Loader'
 import { useTables } from '../../hooks/useTables'
 import type { Waiter } from './WaiterLoginDialog'
 
@@ -98,9 +98,8 @@ export default function WaiterFloorPage({
       </header>
 
       {loading && (
-        <main className="flex flex-1 items-center justify-center gap-2 text-neutral-400">
-          <LuLoaderCircle className="h-6 w-6 animate-spin" />
-          Loading tables…
+        <main className="flex flex-1 items-center justify-center">
+          <LoadingState label="Loading tables…" />
         </main>
       )}
 

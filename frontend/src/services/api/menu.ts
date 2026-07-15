@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, assetUrl } from './client'
 import { iconForCategory, type Category, type Product } from '../../features/pos/catalog'
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ function toProduct(item: ApiMenuItem): Product {
     icon: iconForCategory(category),
     category,
     slug: item.slug,
-    image: item.image,
+    image: assetUrl(item.image), // stored as /storage/… relative to the backend
   }
 }
 

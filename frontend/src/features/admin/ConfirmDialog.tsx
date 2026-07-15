@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { LuLoaderCircle, LuTriangleAlert } from 'react-icons/lu'
+import { LuTriangleAlert } from 'react-icons/lu'
 import Modal from '../../components/ui/Modal'
+import { Loader } from '../../components/ui/Loader'
 
 /**
  * Confirm/cancel dialog for destructive admin actions. `onConfirm` may be async;
@@ -55,7 +56,7 @@ export default function ConfirmDialog({
             disabled={busy}
             className="flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
           >
-            {busy && <LuLoaderCircle className="h-4 w-4 animate-spin" />}
+            {busy && <Loader size="sm" />}
             {confirmLabel}
           </button>
         </div>

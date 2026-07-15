@@ -3,7 +3,6 @@ import {
   LuArrowLeftRight,
   LuClipboardList,
   LuCrown,
-  LuLoaderCircle,
   LuLock,
   LuPower,
   LuRefreshCw,
@@ -16,6 +15,7 @@ import type { IconType } from 'react-icons'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
+import { LoadingState } from '../../components/ui/Loader'
 import { useTables } from '../../hooks/useTables'
 
 // ---------------------------------------------------------------------------
@@ -246,9 +246,8 @@ export default function TableFloorPage({
       />
 
       {loading && (
-        <main className="flex flex-1 items-center justify-center gap-2 text-neutral-400">
-          <LuLoaderCircle className="h-6 w-6 animate-spin" />
-          Loading tables…
+        <main className="flex flex-1 items-center justify-center">
+          <LoadingState label="Loading tables…" />
         </main>
       )}
 

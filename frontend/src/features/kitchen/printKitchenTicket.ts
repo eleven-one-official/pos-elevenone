@@ -173,61 +173,73 @@ export function buildTicketHtml(ticket: SingleTicket): string {
 </html>`
 }
 
-// Render one docket into an off-screen iframe and open the print dialog for it.
-// window.print() is modal/synchronous, so calling this once per station prints
-// the dockets one after another rather than racing.
-function printTicket(ticket: SingleTicket): void {
-  const iframe = document.createElement('iframe')
-  iframe.setAttribute('aria-hidden', 'true')
-  iframe.style.position = 'fixed'
-  iframe.style.right = '0'
-  iframe.style.bottom = '0'
-  iframe.style.width = '0'
-  iframe.style.height = '0'
-  iframe.style.border = '0'
-  document.body.appendChild(iframe)
+// Render one docket into an off-screen iframe and print it. Resolves once the
+// job has been dispatched and the iframe cleaned up.
+//
+// With a print *dialog*, window.print() is modal and blocks until dismissed.
+// But under Chrome's --kiosk-printing (silent auto-print) it returns
+// immediately, so two dockets fired back-to-back would race onto the printer.
+// printOrderTickets therefore awaits each docket before starting the next.
+function printTicket(ticket: SingleTicket): Promise<void> {
+  return new Promise((resolve) => {
+    const iframe = document.createElement('iframe')
+    iframe.setAttribute('aria-hidden', 'true')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    document.body.appendChild(iframe)
 
-  const win = iframe.contentWindow
-  const doc = win?.document
-  if (!win || !doc) {
-    if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-    return
-  }
-
-  doc.open()
-  doc.write(buildTicketHtml(ticket))
-  doc.close()
-
-  const run = () => {
-    win.focus()
-    win.print()
-    window.setTimeout(() => {
+    const win = iframe.contentWindow
+    const doc = win?.document
+    if (!win || !doc) {
       if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-    }, 1000)
-  }
+      return resolve()
+    }
 
-  if (doc.readyState === 'complete') run()
-  else win.addEventListener('load', run, { once: true })
+    doc.open()
+    doc.write(buildTicketHtml(ticket))
+    doc.close()
+
+    const run = () => {
+      win.focus()
+      win.print()
+      // Keep the iframe alive briefly so the spooler captures the job, then
+      // clean up and let the next station's docket print.
+      window.setTimeout(() => {
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        resolve()
+      }, 1000)
+    }
+
+    if (doc.readyState === 'complete') run()
+    else win.addEventListener('load', run, { once: true })
+  })
 }
 
 /**
  * Split an order by printer station and fire one docket per station that has
- * items. Refunds/voids (qty ≤ 0) never print. Returns the stations that were
- * sent so the caller can confirm to the cashier.
+ * items. Refunds/voids (qty ≤ 0) never print. Returns the stations that will be
+ * printed so the caller can confirm to the cashier immediately; the dockets
+ * themselves print sequentially in the background (see printTicket).
  *
  * Wire to POST /orders + the backend printer service once it exists; each
  * station's job will then route to its configured physical printer silently.
  */
 export function printOrderTickets(meta: OrderTicketMeta, lines: StationTicketLine[]): PrinterStation[] {
   const cook = lines.filter((l) => l.qty > 0)
-  const printed: PrinterStation[] = []
+  const jobs: SingleTicket[] = []
 
   for (const station of STATION_ORDER) {
     const stationLines = cook.filter((l) => l.station === station).map(({ station: _s, ...rest }) => rest)
     if (stationLines.length === 0) continue
-    printTicket({ ...meta, station, lines: stationLines })
-    printed.push(station)
+    jobs.push({ ...meta, station, lines: stationLines })
   }
 
-  return printed
+  // Print one docket at a time so kiosk-printing doesn't race two jobs together.
+  void jobs.reduce((chain, job) => chain.then(() => printTicket(job)), Promise.resolve())
+
+  return jobs.map((job) => job.station)
 }

@@ -2,12 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   LuArrowRightLeft,
   LuCheck,
-  LuChefHat,
   LuChevronLeft,
   LuDelete,
   LuHouse,
   LuInfo,
-  LuLoaderCircle,
   LuMinus,
   LuNotebookPen,
   LuPlus,
@@ -23,6 +21,7 @@ import ElevenOneLogo from '../../components/ElevenOneLogo'
 import Modal from '../../components/ui/Modal'
 import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
+import { Loader, LoadingState } from '../../components/ui/Loader'
 import {
   CATEGORIES,
   NOTE_PRESETS,
@@ -472,15 +471,15 @@ export default function WaiterOrderPage({
                 }`}
               >
                 {sending ? (
-                  <LuLoaderCircle className="h-7 w-7 animate-spin" />
+                  <Loader size="sm" />
                 ) : sent ? (
                   <LuCheck className="h-7 w-7" />
                 ) : (
-                  <LuChefHat className="h-7 w-7" />
+                  <LuUtensils className="h-7 w-7" />
                 )}
               </span>
               <span className={`text-sm font-bold leading-tight ${sent ? 'text-emerald-700' : 'text-primary-dark'}`}>
-                {sending ? 'Sending…' : sent ? 'Sent — Send Again' : 'Send to Kitchen'}
+                {sending ? 'Sending…' : sent ? 'Sent — Order Again' : 'Order'}
               </span>
             </button>
 
@@ -543,10 +542,7 @@ export default function WaiterOrderPage({
           {/* Products */}
           <div className="flex-1 overflow-y-auto p-4">
             {menuLoading ? (
-              <div className="mt-10 flex items-center justify-center gap-2 text-neutral-400">
-                <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                Loading menu…
-              </div>
+              <LoadingState label="Loading menu…" className="mt-10" />
             ) : menuError ? (
               <div className="mt-10 flex flex-col items-center gap-3">
                 <p className="text-sm text-rose-500">{menuError}</p>

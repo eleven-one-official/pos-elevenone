@@ -6,6 +6,17 @@
 
 export const API_BASE: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api'
 
+// Backend origin without the /api suffix — uploaded files live there under
+// /storage (e.g. http://127.0.0.1:8001/storage/menu-items/x.jpg).
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
+
+/** Resolve an image/asset path from the API into an absolute URL. */
+export function assetUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  if (/^https?:\/\//.test(path)) return path
+  return `${API_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
 const TOKEN_KEY = 'pos_token'
 
 let token: string | null = localStorage.getItem(TOKEN_KEY)
@@ -41,11 +52,13 @@ type RequestOptions = {
 
 /**
  * Perform a JSON request against the API, attaching the bearer token when one
- * is stored. Throws ApiError on non-2xx responses (including 422 validation).
+ * is stored. Pass a FormData body for multipart uploads (the browser sets the
+ * content type). Throws ApiError on non-2xx responses (including 422 validation).
  */
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const isForm = options.body instanceof FormData
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (options.body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
 
   let res: Response
@@ -53,7 +66,12 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     res = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
       headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body:
+        options.body === undefined
+          ? undefined
+          : isForm
+            ? (options.body as FormData)
+            : JSON.stringify(options.body),
     })
   } catch {
     // Network-level failure (server down, wrong URL, no LAN).

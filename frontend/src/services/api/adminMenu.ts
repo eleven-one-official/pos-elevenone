@@ -68,13 +68,33 @@ export type MenuItemInput = {
   description?: string | null
   is_available?: boolean
   sort_order?: number | null
+  /** New photo to upload; pass null to remove the current one, omit to keep it. */
+  image?: File | null
+}
+
+// File uploads must go as multipart/form-data; PHP only parses multipart on
+// POST, so updates spoof the verb with _method=PUT.
+function toFormData(input: Partial<MenuItemInput>, spoofMethod?: 'PUT'): FormData {
+  const fd = new FormData()
+  if (spoofMethod) fd.append('_method', spoofMethod)
+  for (const [key, value] of Object.entries(input)) {
+    if (value === undefined) continue
+    if (value instanceof File) fd.append(key, value)
+    else if (typeof value === 'boolean') fd.append(key, value ? '1' : '0')
+    else fd.append(key, value === null ? '' : String(value)) // '' → null server-side
+  }
+  return fd
 }
 
 export function createMenuItem(input: MenuItemInput): Promise<AdminMenuItem> {
-  return api<AdminMenuItem>('/menu-items', { method: 'POST', body: input })
+  const body = input.image instanceof File ? toFormData(input) : input
+  return api<AdminMenuItem>('/menu-items', { method: 'POST', body })
 }
 
 export function updateMenuItem(id: number, input: Partial<MenuItemInput>): Promise<AdminMenuItem> {
+  if (input.image instanceof File) {
+    return api<AdminMenuItem>(`/menu-items/${id}`, { method: 'POST', body: toFormData(input, 'PUT') })
+  }
   return api<AdminMenuItem>(`/menu-items/${id}`, { method: 'PUT', body: input })
 }
 

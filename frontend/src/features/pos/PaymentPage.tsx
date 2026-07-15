@@ -6,13 +6,13 @@ import {
   LuChevronsRight,
   LuClipboardList,
   LuDelete,
-  LuLoaderCircle,
   LuLock,
   LuPower,
   LuRefreshCw,
   LuX,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import { LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
 import {
   DEFAULT_PAYMENT_METHODS,
@@ -106,9 +106,8 @@ export default function PaymentPage({
 
   if (!methods || selectedId === null) {
     return (
-      <div className="flex h-screen items-center justify-center gap-2 bg-[#f3f4f6] text-neutral-400">
-        <LuLoaderCircle className="h-6 w-6 animate-spin" />
-        Loading payment methods…
+      <div className="flex h-screen items-center justify-center bg-[#f3f4f6]">
+        <LoadingState label="Loading payment methods…" />
       </div>
     )
   }

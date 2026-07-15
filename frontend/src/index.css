@@ -14,3 +14,41 @@ button:not(:disabled),
 [role="button"]:not(:disabled) {
   cursor: pointer;
 }
+
+/* ---------------------------------------------------------------------------
+ * Loading system — one branded three-dot animation used everywhere the app is
+ * waiting on something. The dots are painted with `currentColor`, so a single
+ * class reads correctly on light panels, dark toolbars and coloured buttons:
+ * the caller just sets a text-* colour. Width comes from a Tailwind w-* utility;
+ * the height follows from the 4:1 aspect ratio. Driven by <Loader /> in
+ * components/ui/Loader.tsx.
+ * ------------------------------------------------------------------------- */
+.loader {
+  display: inline-block;
+  aspect-ratio: 4;
+  --_dot: no-repeat radial-gradient(circle closest-side, currentColor 90%, transparent);
+  background:
+    var(--_dot) 0% 50%,
+    var(--_dot) 50% 50%,
+    var(--_dot) 100% 50%;
+  background-size: calc(100% / 3) 100%;
+  animation: loader-dots 1s infinite linear;
+}
+
+@keyframes loader-dots {
+  33% {
+    background-size: calc(100% / 3) 0%, calc(100% / 3) 100%, calc(100% / 3) 100%;
+  }
+  50% {
+    background-size: calc(100% / 3) 100%, calc(100% / 3) 0%, calc(100% / 3) 100%;
+  }
+  66% {
+    background-size: calc(100% / 3) 100%, calc(100% / 3) 100%, calc(100% / 3) 0%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader {
+    animation-duration: 2s;
+  }
+}

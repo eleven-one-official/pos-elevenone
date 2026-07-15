@@ -1,13 +1,9 @@
-import { LuLoaderCircle, LuRefreshCw } from 'react-icons/lu'
+import { LuRefreshCw } from 'react-icons/lu'
+import { LoadingState } from '../../components/ui/Loader'
 
-/** Centered spinner used while an admin section loads. */
+/** Centered loader used while an admin section loads. */
 export function LoadingPanel({ label = 'Loading…' }: { label?: string }) {
-  return (
-    <div className="flex h-full items-center justify-center gap-2 text-neutral-400">
-      <LuLoaderCircle className="h-6 w-6 animate-spin" />
-      {label}
-    </div>
-  )
+  return <LoadingState label={label} className="h-full" />
 }
 
 /** Error state with a retry button. */

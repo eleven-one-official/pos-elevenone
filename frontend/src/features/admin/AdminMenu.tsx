@@ -9,7 +9,7 @@ import {
   type AdminCategory,
   type AdminMenuItem,
 } from '../../services/api/adminMenu'
-import { ApiError } from '../../services/api/client'
+import { ApiError, assetUrl } from '../../services/api/client'
 import { usd } from './format'
 import { LoadingPanel, ErrorPanel } from './AdminStates'
 import MenuItemDialog from './MenuItemDialog'
@@ -221,10 +221,26 @@ export default function AdminMenu() {
                   {visibleItems.map((it) => (
                     <tr key={it.id} className="text-neutral-700">
                       <td className="px-5 py-3">
-                        <div className="font-semibold text-neutral-900">{it.name}</div>
-                        {it.description && (
-                          <div className="truncate text-xs text-neutral-400">{it.description}</div>
-                        )}
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-neutral-100 text-neutral-300">
+                            {it.image ? (
+                              <img
+                                src={assetUrl(it.image) ?? undefined}
+                                alt=""
+                                loading="lazy"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <LuUtensils className="h-4 w-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-neutral-900">{it.name}</div>
+                            {it.description && (
+                              <div className="truncate text-xs text-neutral-400">{it.description}</div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-5 py-3 text-neutral-500">{it.category?.name ?? '—'}</td>
                       <td className="px-5 py-3 text-right font-semibold">{usd(it.price)}</td>

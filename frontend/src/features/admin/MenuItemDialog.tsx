@@ -1,13 +1,16 @@
-import { useState } from 'react'
-import { LuLoaderCircle } from 'react-icons/lu'
+import { useEffect, useMemo, useState } from 'react'
+import { LuImage, LuUpload } from 'react-icons/lu'
 import Modal from '../../components/ui/Modal'
-import { ApiError } from '../../services/api/client'
+import { Loader } from '../../components/ui/Loader'
+import { ApiError, assetUrl } from '../../services/api/client'
 import {
   createMenuItem,
   updateMenuItem,
   type AdminCategory,
   type AdminMenuItem,
 } from '../../services/api/adminMenu'
+
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024 // matches the backend's max:4096 rule
 
 const inputCls =
   'h-11 w-full rounded-xl border border-neutral-200 bg-white px-3.5 text-sm text-neutral-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20'
@@ -35,6 +38,32 @@ export default function MenuItemDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Photo: a freshly picked file wins; `removeImage` clears the stored one.
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [removeImage, setRemoveImage] = useState(false)
+  const previewUrl = useMemo(() => (imageFile ? URL.createObjectURL(imageFile) : null), [imageFile])
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+  const shownImage = previewUrl ?? (removeImage ? null : assetUrl(item?.image))
+
+  function handlePickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // let the same file be picked again after a remove
+    if (!file) return
+    if (file.size > MAX_IMAGE_BYTES) return setError('Image must be under 4 MB.')
+    setImageFile(file)
+    setRemoveImage(false)
+    setError('')
+  }
+
+  function handleRemoveImage() {
+    setImageFile(null)
+    if (item?.image) setRemoveImage(true)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (saving) return
@@ -51,6 +80,8 @@ export default function MenuItemDialog({
       price: priceNum,
       description: description.trim() || null,
       is_available: available,
+      // File = upload new, null = clear stored photo, undefined = keep as-is.
+      image: imageFile ?? (removeImage ? null : undefined),
     }
     try {
       const saved =
@@ -83,13 +114,49 @@ export default function MenuItemDialog({
             disabled={saving}
             className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary-dark disabled:opacity-60"
           >
-            {saving && <LuLoaderCircle className="h-4 w-4 animate-spin" />}
+            {saving && <Loader size="sm" />}
             {editing ? 'Save Changes' : 'Add Item'}
           </button>
         </div>
       }
     >
       <form id="menu-item-form" onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-sm font-semibold text-neutral-700">
+            Photo <span className="font-normal text-neutral-400">(optional)</span>
+          </label>
+          <div className="flex items-center gap-4">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 text-neutral-300">
+              {shownImage ? (
+                <img src={shownImage} alt="Item" className="h-full w-full object-cover" />
+              ) : (
+                <LuImage className="h-8 w-8" />
+              )}
+            </div>
+            <div className="flex flex-col items-start gap-1.5">
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-neutral-200 px-3.5 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50">
+                <LuUpload className="h-4 w-4" />
+                {shownImage ? 'Change photo' : 'Upload photo'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handlePickImage}
+                  className="sr-only"
+                />
+              </label>
+              {shownImage && (
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="px-1 text-sm font-medium text-rose-500 transition hover:text-rose-600"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div>
           <label className="mb-1.5 block text-sm font-semibold text-neutral-700">Name</label>
           <input

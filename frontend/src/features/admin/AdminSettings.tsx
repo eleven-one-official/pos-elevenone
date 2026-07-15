@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { LuCheck, LuLoaderCircle } from 'react-icons/lu'
+import { LuCheck } from 'react-icons/lu'
 import { updateSettings } from '../../services/api/settings'
+import { Loader } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
 import { ApiError } from '../../services/api/client'
 
@@ -102,7 +103,7 @@ export default function AdminSettings() {
             disabled={saving}
             className="flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary-dark disabled:opacity-60"
           >
-            {saving && <LuLoaderCircle className="h-4 w-4 animate-spin" />}
+            {saving && <Loader size="sm" />}
             Save Settings
           </button>
           {saved && !saving && (

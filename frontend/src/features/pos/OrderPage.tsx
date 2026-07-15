@@ -2,13 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   LuArrowRightLeft,
   LuCheck,
-  LuChefHat,
   LuChevronLeft,
   LuChevronRight,
   LuDelete,
   LuHouse,
   LuInfo,
-  LuLoaderCircle,
   LuMenu,
   LuMinus,
   LuNotebookPen,
@@ -31,10 +29,17 @@ import ElevenOneLogo from '../../components/ElevenOneLogo'
 import Modal from '../../components/ui/Modal'
 import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
+import { Loader, LoadingState } from '../../components/ui/Loader'
 import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
 import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
-import { createOrder, updateOrder, type OrderPayload } from '../../services/api/orders'
+import {
+  createOrder,
+  fetchOpenOrderForTable,
+  updateOrder,
+  type ApiOrder,
+  type OrderPayload,
+} from '../../services/api/orders'
 import { recordPayment } from '../../services/api/payments'
 import { fetchCustomers, createCustomer, type Customer } from '../../services/api/customers'
 import { ApiError } from '../../services/api/client'
@@ -59,6 +64,42 @@ import {
 // ---------------------------------------------------------------------------
 
 type NumpadMode = 'qty' | 'disc' | 'price'
+
+/**
+ * Rebuild editable order lines from a saved order. The backend keeps one
+ * order-level discount rather than per-line ones, and the POS only ever applies
+ * a uniform "Discount All", so spreading it back as a flat percentage restores
+ * the same total. Lines whose product has since been deleted carry no
+ * menu_item_id and can no longer be re-sent, so they are dropped.
+ */
+function orderToLines(order: ApiOrder): OrderLine[] {
+  const items = order.items.filter((i) => i.menu_item_id != null)
+  const gross = items.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0)
+  const discount = Number(order.discount)
+  const percent = gross > 0 && discount > 0 ? (discount / gross) * 100 : 0
+
+  // The rest of the POS keys lines by product, so fold any duplicates together.
+  const byProduct = new Map<string, OrderLine>()
+  for (const item of items) {
+    const id = String(item.menu_item_id)
+    const existing = byProduct.get(id)
+    if (existing) {
+      existing.qty += item.quantity
+      existing.note ??= item.note ?? undefined
+      continue
+    }
+    byProduct.set(id, {
+      id,
+      name: item.name,
+      // Charge what the order was taken at, not today's menu price.
+      price: Number(item.price),
+      qty: item.quantity,
+      note: item.note ?? undefined,
+      discount: percent > 0 ? percent : undefined,
+    })
+  }
+  return [...byProduct.values()]
+}
 
 // Which popup is currently open (null = none).
 type DialogKind =
@@ -131,12 +172,17 @@ export default function OrderPage({
   const { tables } = useTables()
   const { taxRate } = useSettings()
 
-  // Backend order — created on the first "Send to Kitchen", updated after that.
+  // Backend order — the table's open bill when there is one, otherwise created
+  // on the first "Send to Kitchen" / payment and updated after that.
   const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
   // Local placeholder until the backend issues the real order number.
   const [orderNo, setOrderNo] = useState(() =>
     String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
   )
+  // Take-away slots are synthetic (no backend id), so they never carry a bill.
+  const [loadingOrder, setLoadingOrder] = useState(table.backendId != null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + lineNet(l), 0), [lines])
   const taxes = subtotal * taxRate
@@ -149,6 +195,40 @@ export default function OrderPage({
     const t = setTimeout(() => setToast(null), 2200)
     return () => clearTimeout(t)
   }, [toast])
+
+  // Pick up whatever is already running on this table — an order the waiter
+  // fired, or one this POS left open — so the cashier sees the guest's items
+  // and can add to them, print the bill, or take payment.
+  useEffect(() => {
+    const tableId = table.backendId
+    if (tableId == null) return
+    let alive = true
+    fetchOpenOrderForTable(tableId)
+      .then((order) => {
+        if (!alive || !order) return
+        setBackendOrderId(order.id)
+        setOrderNo(order.order_number)
+        setLines(orderToLines(order))
+        setToast(`Loaded order #${order.order_number}`)
+      })
+      .catch(() => {
+        // Starting a second bill on a seated table would double-charge the
+        // guest, so make the failure loud rather than opening an empty order.
+        if (alive) setLoadError('Could not load this table’s order. Check the connection and retry.')
+      })
+      .finally(() => {
+        if (alive) setLoadingOrder(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [table.backendId, reloadKey])
+
+  function retryLoad() {
+    setLoadError(null)
+    setLoadingOrder(true)
+    setReloadKey((k) => k + 1)
+  }
 
   const visibleProducts = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -502,6 +582,40 @@ export default function OrderPage({
     { k: '+/-' }, { k: '0' }, { k: '.' }, { k: 'del', icon: LuDelete },
   ]
 
+  // Until the table's existing bill is on screen, adding items would build a
+  // second order on top of the guest's — so hold the page.
+  if (loadingOrder || loadError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-[#f3f4f6]">
+        {loadError ? (
+          <>
+            <p className="text-sm text-rose-500">{loadError}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+              >
+                <LuChevronLeft className="h-4 w-4" />
+                Back to Tables
+              </button>
+              <button
+                type="button"
+                onClick={retryLoad}
+                className="flex items-center gap-2 rounded-lg bg-[#2b2138] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#37294a]"
+              >
+                <LuRefreshCw className="h-4 w-4" />
+                Retry
+              </button>
+            </div>
+          </>
+        ) : (
+          <LoadingState label={`Opening ${table.label}…`} />
+        )}
+      </div>
+    )
+  }
+
   if (screen === 'payment') {
     return (
       <PaymentPage
@@ -687,14 +801,10 @@ export default function OrderPage({
                 className="flex flex-1 flex-col items-center justify-center gap-1.5 border-b border-neutral-200 bg-primary/10 px-2 py-3 text-center transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white">
-                  {sending ? (
-                    <LuLoaderCircle className="h-6 w-6 animate-spin" />
-                  ) : (
-                    <LuChefHat className="h-6 w-6" />
-                  )}
+                  {sending ? <Loader size="sm" /> : <LuUtensils className="h-6 w-6" />}
                 </span>
                 <span className="text-[13px] font-bold leading-tight text-primary-dark">
-                  {sending ? 'Sending…' : 'Send to Kitchen'}
+                  {sending ? 'Sending…' : 'Order'}
                 </span>
               </button>
               <button
@@ -780,10 +890,7 @@ export default function OrderPage({
           {/* Products */}
           <div className="flex-1 overflow-y-auto p-4">
             {menuLoading ? (
-              <div className="mt-10 flex items-center justify-center gap-2 text-neutral-400">
-                <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                Loading menu…
-              </div>
+              <LoadingState label="Loading menu…" className="mt-10" />
             ) : menuError ? (
               <div className="mt-10 flex flex-col items-center gap-3">
                 <p className="text-sm text-rose-500">{menuError}</p>
@@ -1137,7 +1244,7 @@ function CustomerDialog({
               disabled={saving}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2b2138] py-3 font-semibold text-white shadow-sm transition hover:bg-[#37294a] disabled:opacity-60"
             >
-              {saving && <LuLoaderCircle className="h-4 w-4 animate-spin" />}
+              {saving && <Loader size="sm" />}
               Save Customer
             </button>
           </div>
@@ -1180,10 +1287,7 @@ function CustomerDialog({
               </button>
             )}
             {loading ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-neutral-400">
-                <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                Loading…
-              </div>
+              <LoadingState label="Loading…" size="md" className="py-8" />
             ) : (
               <>
                 {results.map((c) => {

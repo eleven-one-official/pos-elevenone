@@ -5,13 +5,13 @@ import {
   LuDelete,
   LuEye,
   LuEyeOff,
-  LuLoaderCircle,
   LuLock,
   LuRefreshCw,
   LuX,
 } from 'react-icons/lu'
 import { fetchStaffRoster, staffLogin, type StaffMember } from '../../services/api/auth'
 import { ApiError } from '../../services/api/client'
+import { Loader, LoadingState } from '../../components/ui/Loader'
 
 // Tap-a-name + PIN login used by both the cashier station and the waiter
 // tablets. The roster comes from GET /staff?role=… and the PIN is verified by
@@ -168,12 +168,9 @@ export default function StaffLoginDialog({
 
         {/* Step 1: select staff */}
         {!selected && (
-          <div className="flex flex-col gap-2 overflow-y-auto px-6 py-5">
+          <div className="flex min-h-0 flex-col gap-2 overflow-y-auto px-6 py-5">
             {roster === null && !rosterError && (
-              <div className="flex items-center justify-center gap-2 py-8 text-sm text-neutral-400">
-                <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                Loading staff…
-              </div>
+              <LoadingState label="Loading staff…" size="md" className="py-8" />
             )}
 
             {rosterError && (
@@ -220,13 +217,13 @@ export default function StaffLoginDialog({
 
         {/* Step 2: enter PIN */}
         {selected && (
-          <form onSubmit={handleLogin} className="px-6 py-7">
+          <form onSubmit={handleLogin} className="min-h-0 overflow-y-auto px-6 py-7">
             <div className="flex flex-col items-center">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 text-xl font-semibold text-neutral-600">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 text-base font-semibold text-neutral-600">
                 {initials(selected.name)}
               </span>
-              <p className="mt-3 text-base font-semibold text-neutral-900">{selected.name}</p>
-              {selected.role_name && <p className="text-sm text-neutral-500">{selected.role_name}</p>}
+              <p className="mt-2 text-sm font-semibold text-neutral-900">{selected.name}</p>
+              {selected.role_name && <p className="text-xs text-neutral-500">{selected.role_name}</p>}
             </div>
 
             <div className="mt-7">
@@ -307,7 +304,7 @@ export default function StaffLoginDialog({
             >
               {submitting ? (
                 <>
-                  <LuLoaderCircle className="h-4.5 w-4.5 animate-spin" />
+                  <Loader size="sm" />
                   Signing in…
                 </>
               ) : (

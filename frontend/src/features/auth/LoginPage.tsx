@@ -6,7 +6,6 @@ import {
   LuChevronDown,
   LuEye,
   LuEyeOff,
-  LuLoaderCircle,
   LuLock,
   LuUser,
   LuUsers,
@@ -16,6 +15,7 @@ import CashierLoginDialog, { type Cashier } from './CashierLoginDialog'
 import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
 import { passwordLogin } from '../../services/api/auth'
 import { ApiError } from '../../services/api/client'
+import { Loader } from '../../components/ui/Loader'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -247,7 +247,7 @@ export default function LoginPage({
               >
                 {submitting ? (
                   <>
-                    <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                    <Loader size="sm" />
                     Signing in…
                   </>
                 ) : (
