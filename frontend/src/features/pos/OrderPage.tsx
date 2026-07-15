@@ -5,6 +5,7 @@ import {
   LuCake,
   LuCakeSlice,
   LuCheck,
+  LuChefHat,
   LuChevronLeft,
   LuChevronRight,
   LuCitrus,
@@ -43,6 +44,7 @@ import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
 import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
+import { printKitchenTicket } from '../kitchen/printKitchenTicket'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import { TABLES, type PosTable } from './TableFloorPage'
 
@@ -373,6 +375,30 @@ export default function OrderPage({
     window.print()
   }
 
+  // Fire the order to the kitchen printer: prints a docket the chef cooks from
+  // (items + notes, no prices). Wire to POST /orders + the printer service once
+  // the backend exists; for now it prints straight from the browser.
+  function sendToKitchen() {
+    if (lines.length === 0) return notify('The order is empty')
+    const orderType =
+      activeTable.section === 'takeaway'
+        ? 'Take Away'
+        : activeTable.section === 'vip'
+          ? 'Dine In (VIP)'
+          : 'Dine In'
+    printKitchenTicket({
+      orderNo,
+      tableLabel: activeTable.label,
+      orderType,
+      guests: guestCount,
+      cashier: cashier.name,
+      lines: lines
+        .filter((l) => l.qty > 0)
+        .map((l) => ({ name: l.name, qty: l.qty, note: l.note })),
+    })
+    notify('Order sent to kitchen')
+  }
+
   // ---- Split ----------------------------------------------------------------
 
   const splitLines = useMemo(
@@ -624,8 +650,8 @@ export default function OrderPage({
 
           {/* Payment + numpad */}
           <div className="flex border-t border-neutral-200">
-            {/* Customer + payment */}
-            <div className="flex w-[26%] min-w-[110px] flex-col border-r border-neutral-200">
+            {/* Customer + send-to-kitchen + payment */}
+            <div className="flex w-[26%] min-w-[128px] flex-col border-r border-neutral-200">
               <button
                 type="button"
                 onClick={() => openDialog('customer')}
@@ -633,6 +659,17 @@ export default function OrderPage({
               >
                 <LuUser className="h-4 w-4 shrink-0" />
                 <span className="truncate">{customer ? customer.name : 'Customer'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={sendToKitchen}
+                disabled={lines.length === 0}
+                className="flex flex-1 flex-col items-center justify-center gap-1.5 border-b border-neutral-200 bg-primary/10 px-2 py-3 text-center transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white">
+                  <LuChefHat className="h-6 w-6" />
+                </span>
+                <span className="text-[13px] font-bold leading-tight text-primary-dark">Send to Kitchen</span>
               </button>
               <button
                 type="button"
