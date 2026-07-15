@@ -15,21 +15,13 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import { useSettings } from '../../hooks/useSettings'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { OrderLine } from './catalog'
-import { KHR_RATE, type PaymentResult } from './PaymentPage'
+import { type PaymentResult } from './PaymentPage'
 import type { PosTable } from './TableFloorPage'
 
-// Placeholder store details — replace with the venue's configured info once the
-// backend exposes it. Kept here so the printed receipt mirrors the reference.
-const STORE = {
-  name: 'Elevenone Restaurant',
-  address: 'Street 123, Phnom Penh, Cambodia',
-  phone: '012 345 678',
-}
-
 const money = (n: number) => `$${n.toFixed(2)}`
-const riel = (usd: number) => `៛ ${Math.round(usd * KHR_RATE).toLocaleString('en-US')}`
 
 // DD/MM/YYYY hh:mm AM/PM — matches the reference receipt.
 function formatDateTime(d: Date) {
@@ -121,6 +113,8 @@ export default function ReceiptPage({
 }) {
   // Freeze the printed timestamp at the moment the receipt is shown.
   const [printedAt] = useState(() => new Date())
+  const { storeName, storeAddress, storePhone, khrRate } = useSettings()
+  const riel = (value: number) => `៛ ${Math.round(value * khrRate).toLocaleString('en-US')}`
 
   // Gross line totals ignore discounts; per-line discounts are summed into the
   // Discount row so the printed bill reconciles line-by-line.
@@ -242,9 +236,9 @@ export default function ReceiptPage({
               <LuUtensils className="h-7 w-7" />
             </span>
             <div className="leading-snug">
-              <h2 className="text-xl font-bold text-neutral-900">{STORE.name}</h2>
-              <p className="text-sm text-neutral-500">{STORE.address}</p>
-              <p className="text-sm text-neutral-500">Tel: {STORE.phone}</p>
+              <h2 className="text-xl font-bold text-neutral-900">{storeName}</h2>
+              <p className="text-sm text-neutral-500">{storeAddress}</p>
+              <p className="text-sm text-neutral-500">Tel: {storePhone}</p>
             </div>
           </div>
 

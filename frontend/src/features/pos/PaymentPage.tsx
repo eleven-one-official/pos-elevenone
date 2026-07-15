@@ -12,8 +12,10 @@ import {
   LuX,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import { useSettings } from '../../hooks/useSettings'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { PosTable } from './TableFloorPage'
+import type { PayMethodBackend } from '../../services/api/payments'
 
 // ---------------------------------------------------------------------------
 // Payment methods
@@ -22,10 +24,15 @@ import type { PosTable } from './TableFloorPage'
 type PayMethod = {
   id: string
   name: string
+  /** Which backend channel this journal records against (payments enum). */
+  backend: PayMethodBackend
 }
 
+/** One tender to record on the backend, grouped by backend channel. */
+export type Tender = { method: PayMethodBackend; amount: number }
+
 // What the Validate button hands back to the order flow so the receipt can show
-// how the bill was settled.
+// how the bill was settled — and so the order flow can record it on the backend.
 export type PaymentResult = {
   /** Method name(s) used — joined with " + " when the bill was split. */
   methodName: string
@@ -33,22 +40,21 @@ export type PaymentResult = {
   cashReceived: number
   /** Amount handed back to the customer (0 when settled exactly). */
   change: number
+  /** Amounts to record, grouped by backend channel and capped to the bill. */
+  tenders: Tender[]
 }
 
-// Placeholder tenders — replace with the venue's configured payment journals
-// once the backend exposes them.
+// Venue payment journals mapped onto the backend's payment channels. Names are
+// still placeholders; the `backend` field is what actually gets recorded.
 const METHODS: PayMethod[] = [
-  { id: 'cash-usd', name: 'Cash USD' },
-  { id: 'cash-khr', name: 'Cash KHR' },
-  { id: 'nham24-cash', name: 'NHAM24Cash' },
-  { id: 'wrong-order-dish', name: 'Wrong Order Dish' },
-  { id: 'bloc-cash', name: 'Bloc Cash' },
-  { id: 'aba-pay', name: 'ABA PAY' },
-  { id: 'abanham24', name: 'ABANHAM24' },
+  { id: 'cash-usd', name: 'Cash USD', backend: 'cash' },
+  { id: 'cash-khr', name: 'Cash KHR', backend: 'cash' },
+  { id: 'nham24-cash', name: 'NHAM24Cash', backend: 'cash' },
+  { id: 'wrong-order-dish', name: 'Wrong Order Dish', backend: 'cash' },
+  { id: 'bloc-cash', name: 'Bloc Cash', backend: 'cash' },
+  { id: 'aba-pay', name: 'ABA PAY', backend: 'aba_qr' },
+  { id: 'abanham24', name: 'ABANHAM24', backend: 'aba_qr' },
 ]
-
-// Riel per US dollar — swap for the live FX rate when the backend provides one.
-export const KHR_RATE = 4100
 
 const usd = (n: number) => `$ ${n.toFixed(2)}`
 const khr = (n: number) => `៛ ${Math.round(n).toLocaleString('en-US')}`
@@ -86,6 +92,7 @@ export default function PaymentPage({
   const [amounts, setAmounts] = useState<Record<string, number>>({ [METHODS[0].id]: total })
   const [selectedId, setSelectedId] = useState<string>(METHODS[0].id)
   const [entry, setEntry] = useState<string | null>(null)
+  const { khrRate } = useSettings()
 
   const tendered = useMemo(
     () => Object.values(amounts).reduce((sum, n) => sum + n, 0),
@@ -134,13 +141,26 @@ export default function PaymentPage({
     setEntry(null)
   }
 
-  // Hand the settled bill to the order flow so it can print the receipt.
+  // Hand the settled bill to the order flow so it can print the receipt and
+  // record the money on the backend.
   function validate() {
     const used = METHODS.filter((m) => amounts[m.id] != null && amounts[m.id] !== 0)
+    // Group the entered tenders by backend channel, then cap them to the bill so
+    // recorded revenue equals the total due (any cash overpay is change, not sales).
+    const grouped = new Map<PayMethodBackend, number>()
+    for (const m of used) grouped.set(m.backend, (grouped.get(m.backend) ?? 0) + amounts[m.id])
+    const tenders: Tender[] = []
+    let left = total
+    for (const [method, amount] of grouped) {
+      const applied = Math.min(amount, left)
+      if (applied > 0.001) tenders.push({ method, amount: Math.round(applied * 100) / 100 })
+      left = Math.max(0, left - amount)
+    }
     onValidate({
       methodName: used.length ? used.map((m) => m.name).join(' + ') : METHODS[0].name,
       cashReceived: tendered,
       change,
+      tenders,
     })
   }
 
@@ -283,7 +303,7 @@ export default function PaymentPage({
             </p>
             <p className="my-2 text-lg text-neutral-400">Or</p>
             <p className={`text-5xl font-bold ${settled ? 'text-emerald-600/80' : 'text-neutral-700'}`}>
-              {khr(primary * KHR_RATE)}
+              {khr(primary * khrRate)}
             </p>
           </div>
 

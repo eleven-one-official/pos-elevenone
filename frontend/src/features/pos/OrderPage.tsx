@@ -35,15 +35,16 @@ import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
 import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
 import { createOrder, updateOrder, type OrderPayload } from '../../services/api/orders'
+import { recordPayment } from '../../services/api/payments'
 import { useMenu } from '../../hooks/useMenu'
 import { useTables } from '../../hooks/useTables'
+import { useSettings } from '../../hooks/useSettings'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { PosTable } from './TableFloorPage'
 import {
   CATEGORIES,
   NOTE_PRESETS,
   ProductThumb,
-  TAX_RATE,
   lineNet,
   money,
   type Category,
@@ -137,6 +138,7 @@ export default function OrderPage({
   // Menu + floor from the backend (floor is only needed for the Transfer popup).
   const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
   const { tables } = useTables()
+  const { taxRate } = useSettings()
 
   // Backend order — created on the first "Send to Kitchen", updated after that.
   const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
@@ -146,7 +148,7 @@ export default function OrderPage({
   )
 
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + lineNet(l), 0), [lines])
-  const taxes = subtotal * TAX_RATE
+  const taxes = subtotal * taxRate
   const total = subtotal + taxes
   const selectedLine = lines.find((l) => l.id === selectedId) ?? null
 
@@ -306,6 +308,29 @@ export default function OrderPage({
     window.print()
   }
 
+  const round2 = (n: number) => Math.round(n * 100) / 100
+
+  // Build the backend order payload from the current lines. The backend stores
+  // line totals without per-line discounts, so we fold the whole order's
+  // discount into a single `discount` and pass `tax` explicitly — that way the
+  // server's total (subtotal − discount + tax) matches the amount we charge.
+  function buildOrderPayload(): OrderPayload {
+    const cook = lines.filter((l) => l.qty > 0)
+    const grossPositive = cook.reduce((sum, l) => sum + l.qty * l.price, 0)
+    return {
+      order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
+      table_id: activeTable.backendId ?? null,
+      discount: Math.max(0, round2(grossPositive - subtotal)),
+      tax: round2(taxes),
+      items: cook.map((l) => ({
+        // Line ids match backend menu-item ids (stringified).
+        menu_item_id: Number(l.id),
+        quantity: Math.max(1, Math.round(l.qty)),
+        note: l.note,
+      })),
+    }
+  }
+
   // Fire the order: save it on the backend (create on the first send, replace
   // items after that), then print the dockets — drinks route to the bar
   // printer, food and desserts to the kitchen printer, each as its own docket
@@ -320,16 +345,7 @@ export default function OrderPage({
     let ticketOrderNo = orderNo
     let synced = true
     try {
-      const payload: OrderPayload = {
-        order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
-        table_id: activeTable.backendId ?? null,
-        items: cook.map((l) => ({
-          // Line ids match backend menu-item ids (stringified).
-          menu_item_id: Number(l.id),
-          quantity: Math.max(1, Math.round(l.qty)),
-          note: l.note,
-        })),
-      }
+      const payload = buildOrderPayload()
       const order =
         backendOrderId == null
           ? await createOrder(payload)
@@ -382,7 +398,7 @@ export default function OrderPage({
     [lines, splitQty],
   )
   const splitSubtotal = splitLines.reduce((s, l) => s + lineNet(l), 0)
-  const splitTotal = splitSubtotal * (1 + TAX_RATE)
+  const splitTotal = splitSubtotal * (1 + taxRate)
 
   function addToSplit(id: string) {
     setSplitQty((prev) => {
@@ -414,6 +430,50 @@ export default function OrderPage({
   function payWholeOrder() {
     setSettling(null)
     setScreen('payment')
+  }
+
+  // Record the settled bill on the backend, then show the receipt. Ensures the
+  // order exists (creating it if the cashier never sent to the kitchen) with
+  // totals that match the charge, posts one payment per tender, and lets the
+  // server complete the order + free the table once it's fully paid. A split
+  // pays a subset, so its order stays open until the final portion is settled.
+  // If the server can't be reached the receipt still prints; the sale just
+  // isn't recorded.
+  async function settlePayment(result: PaymentResult) {
+    const split = settling
+    const billTotal = split ? split.total : total
+    try {
+      let orderId = backendOrderId
+      if (orderId == null) {
+        const created = await createOrder(buildOrderPayload())
+        orderId = created.id
+        setBackendOrderId(created.id)
+        setOrderNo(created.order_number)
+      } else if (!split) {
+        // Whole-order pay on an existing order: refresh its items + totals first.
+        const updated = await updateOrder(orderId, buildOrderPayload())
+        setOrderNo(updated.order_number)
+      }
+
+      if (orderId != null && billTotal > 0.001) {
+        for (const tender of result.tenders) {
+          await recordPayment({ order_id: orderId, method: tender.method, amount: tender.amount })
+        }
+        // A split that clears the last remaining items closes the order even if
+        // a rounding cent left cumulative payments a hair under the total.
+        if (split) {
+          const paid = new Map(split.lines.map((l) => [l.id, l.qty]))
+          const remainingQty = lines
+            .filter((l) => l.qty > 0)
+            .reduce((sum, l) => sum + (l.qty - (paid.get(l.id) ?? 0)), 0)
+          if (remainingQty <= 0.0001) await updateOrder(orderId, { status: 'completed' })
+        }
+      }
+    } catch {
+      notify('Saved the sale locally, but the server was not updated')
+    }
+    setPayment(result)
+    setScreen('receipt')
   }
 
   // When a receipt is dismissed, subtract any settled split from the live order.
@@ -462,10 +522,7 @@ export default function OrderPage({
           setSettling(null)
           setScreen('order')
         }}
-        onValidate={(result) => {
-          setPayment(result)
-          setScreen('receipt')
-        }}
+        onValidate={(result) => void settlePayment(result)}
       />
     )
   }
@@ -477,7 +534,7 @@ export default function OrderPage({
         table={activeTable}
         lines={settling ? settling.lines : lines}
         orderNo={orderNo}
-        taxRate={TAX_RATE}
+        taxRate={taxRate}
         guests={guestCount}
         customerName={customer?.name}
         payment={payment}
@@ -930,7 +987,7 @@ export default function OrderPage({
           customerName={customer?.name}
           lines={lines}
           subtotal={subtotal}
-          taxRate={TAX_RATE}
+          taxRate={taxRate}
           taxes={taxes}
           total={total}
           onPrint={printBill}
@@ -956,7 +1013,7 @@ export default function OrderPage({
           splitLines={splitLines}
           splitSubtotal={splitSubtotal}
           splitTotal={splitTotal}
-          taxRate={TAX_RATE}
+          taxRate={taxRate}
           onPay={paySplit}
           onClose={closeDialog}
         />

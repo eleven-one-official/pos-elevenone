@@ -6,7 +6,10 @@ use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TableController;
+use App\Http\Controllers\UserController;
+use App\Models\Role;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -47,4 +50,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/dashboard', [ReportController::class, 'dashboard']);
     Route::get('/reports/daily-sales', [ReportController::class, 'dailySales']);
     Route::get('/reports/top-items', [ReportController::class, 'topItems']);
+
+    // Staff management (admin only — enforced in UserController)
+    Route::get('/roles', fn () => Role::orderBy('name')->get(['id', 'name', 'slug']));
+    Route::apiResource('users', UserController::class);
+
+    // Store settings — any authed user may read (POS/receipt need them); only
+    // admins may write (enforced in SettingController).
+    Route::get('/settings', [SettingController::class, 'index']);
+    Route::put('/settings', [SettingController::class, 'update']);
 });
