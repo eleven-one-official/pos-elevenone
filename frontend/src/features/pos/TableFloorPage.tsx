@@ -211,7 +211,9 @@ export default function TableFloorPage({
   onSelectTable: (table: PosTable) => void
   onLogout: () => void
 }) {
-  const { tables, loading, error, reload } = useTables()
+  // Poll every 5s so this floor stays in sync with the waiter tablets as tables
+  // are seated/freed elsewhere.
+  const { tables, loading, error, reload } = useTables(5000)
   const floor = tables ?? []
   const dineIn = floor.filter((t) => t.section === 'dine-in')
   const vip = floor.filter((t) => t.section === 'vip')

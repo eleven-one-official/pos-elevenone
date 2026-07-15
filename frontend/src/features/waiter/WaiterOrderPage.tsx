@@ -284,7 +284,7 @@ export default function WaiterOrderPage({
         tableLabel: activeTable.label,
         orderType: orderTypeLabel,
         guests: guestCount,
-        cashier: waiter.name,
+        server: waiter.name,
       },
       ticketLines,
     )

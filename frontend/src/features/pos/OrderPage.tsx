@@ -364,7 +364,7 @@ export default function OrderPage({
         tableLabel: activeTable.label,
         orderType: orderTypeLabel,
         guests: guestCount,
-        cashier: cashier.name,
+        server: cashier.name,
       },
       ticketLines,
     )

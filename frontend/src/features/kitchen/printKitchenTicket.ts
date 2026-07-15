@@ -47,8 +47,8 @@ export type OrderTicketMeta = {
   /** Human label for the order type, e.g. "Dine In" or "Take Away". */
   orderType: string
   guests?: number
-  /** Cashier who fired the order. */
-  cashier: string
+  /** Staff member who fired the order (cashier or waiter). Printed as "Server". */
+  server: string
 }
 
 type SingleTicket = OrderTicketMeta & {
@@ -158,7 +158,7 @@ export function buildTicketHtml(ticket: SingleTicket): string {
         ? `<div class="row"><span class="label">Guests</span><span>${ticket.guests}</span></div>`
         : ''
     }
-    <div class="row"><span class="label">Cashier</span><span>${escapeHtml(ticket.cashier)}</span></div>
+    <div class="row"><span class="label">Server</span><span>${escapeHtml(ticket.server)}</span></div>
     <div class="row"><span class="label">Time</span><span>${printedAt}</span></div>
   </div>
 

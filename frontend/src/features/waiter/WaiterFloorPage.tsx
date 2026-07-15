@@ -56,7 +56,9 @@ export default function WaiterFloorPage({
   onSelectTable: (table: PosTable) => void
   onLogout: () => void
 }) {
-  const { tables, loading, error, reload } = useTables()
+  // Poll every 5s so both waiter tablets (and the cashier POS) see tables get
+  // seated/freed in near real time without a manual refresh.
+  const { tables, loading, error, reload } = useTables(5000)
   const floor = tables ?? []
   const dineIn = floor.filter((t) => t.section === 'dine-in')
   const vip = floor.filter((t) => t.section === 'vip')

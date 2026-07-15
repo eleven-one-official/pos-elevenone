@@ -5,12 +5,15 @@ import type { PosTable } from '../../features/pos/TableFloorPage'
 // GET /tables → the POS floor shape
 // ---------------------------------------------------------------------------
 
-type ApiTable = {
+export type TableType = 'normal' | 'vip'
+export type TableStatus = 'available' | 'occupied' | 'reserved'
+
+export type ApiTable = {
   id: number
   name: string
-  type: 'normal' | 'vip'
+  type: TableType
   capacity: number
-  status: 'available' | 'occupied' | 'reserved'
+  status: TableStatus
 }
 
 // The backend only models physical tables (normal/vip); take-away is an order
@@ -45,4 +48,34 @@ export async function fetchFloorTables(): Promise<PosTable[]> {
   }))
 
   return [...tables.map(toPosTable), ...takeaway]
+}
+
+// ---------------------------------------------------------------------------
+// Admin table management — raw table rows (not the POS floor shape) plus CRUD.
+// The backend TableController is behind auth:sanctum; the POS also uses these
+// same endpoints to flip a table's status during service.
+// ---------------------------------------------------------------------------
+
+/** All physical tables, raw shape, for the admin management screen. */
+export function fetchTables(): Promise<ApiTable[]> {
+  return api<ApiTable[]>('/tables')
+}
+
+export type TableInput = {
+  name: string
+  type: TableType
+  capacity: number
+  status?: TableStatus
+}
+
+export function createTable(input: TableInput): Promise<ApiTable> {
+  return api<ApiTable>('/tables', { method: 'POST', body: input })
+}
+
+export function updateTable(id: number, input: Partial<TableInput>): Promise<ApiTable> {
+  return api<ApiTable>(`/tables/${id}`, { method: 'PUT', body: input })
+}
+
+export function deleteTable(id: number): Promise<{ message: string }> {
+  return api<{ message: string }>(`/tables/${id}`, { method: 'DELETE' })
 }

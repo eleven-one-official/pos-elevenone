@@ -18,8 +18,8 @@ import AdminReports from './AdminReports'
 import AdminMenu from './AdminMenu'
 import AdminStaff from './AdminStaff'
 import AdminPaymentMethods from './AdminPaymentMethods'
+import AdminTables from './AdminTables'
 import AdminSettings from './AdminSettings'
-import Placeholder from './Placeholder'
 
 // ---------------------------------------------------------------------------
 // Admin "side" — a back-office console for the owner/manager. Unlike the POS
@@ -125,13 +125,7 @@ export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout
           {section === 'menu' && <AdminMenu />}
           {section === 'staff' && <AdminStaff />}
           {section === 'payments' && <AdminPaymentMethods />}
-          {section === 'tables' && (
-            <Placeholder
-              icon={LuLayoutGrid}
-              title="Table management is coming soon"
-              body="Add, rename and arrange dining tables here. The floor and its statuses already run live on the POS side."
-            />
-          )}
+          {section === 'tables' && <AdminTables />}
           {section === 'settings' && <AdminSettings />}
         </main>
       </div>
