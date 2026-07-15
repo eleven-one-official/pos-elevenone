@@ -44,7 +44,7 @@ import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
 import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
-import { printKitchenTicket } from '../kitchen/printKitchenTicket'
+import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import { TABLES, type PosTable } from './TableFloorPage'
 
@@ -375,9 +375,10 @@ export default function OrderPage({
     window.print()
   }
 
-  // Fire the order to the kitchen printer: prints a docket the chef cooks from
-  // (items + notes, no prices). Wire to POST /orders + the printer service once
-  // the backend exists; for now it prints straight from the browser.
+  // Fire the order to the printers: drinks route to the bar printer, food and
+  // desserts to the kitchen printer, each as its own docket (items + notes, no
+  // prices). Wire to POST /orders + the printer service once the backend exists;
+  // for now it prints straight from the browser.
   function sendToKitchen() {
     if (lines.length === 0) return notify('The order is empty')
     const orderType =
@@ -386,17 +387,21 @@ export default function OrderPage({
         : activeTable.section === 'vip'
           ? 'Dine In (VIP)'
           : 'Dine In'
-    printKitchenTicket({
-      orderNo,
-      tableLabel: activeTable.label,
-      orderType,
-      guests: guestCount,
-      cashier: cashier.name,
-      lines: lines
-        .filter((l) => l.qty > 0)
-        .map((l) => ({ name: l.name, qty: l.qty, note: l.note })),
-    })
-    notify('Order sent to kitchen')
+    const ticketLines = lines
+      .filter((l) => l.qty > 0)
+      .map((l) => {
+        // Line ids match product ids, so the category (and thus the printer) is
+        // looked up from the catalog; unknown items default to the kitchen.
+        const category = PRODUCTS.find((p) => p.id === l.id)?.category ?? 'Food'
+        return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(category) }
+      })
+    const printed = printOrderTickets(
+      { orderNo, tableLabel: activeTable.label, orderType, guests: guestCount, cashier: cashier.name },
+      ticketLines,
+    )
+    if (printed.length === 0) return notify('The order is empty')
+    const names = printed.map(stationLabel).join(' + ')
+    notify(`Order sent to ${names} printer${printed.length > 1 ? 's' : ''}`)
   }
 
   // ---- Split ----------------------------------------------------------------
