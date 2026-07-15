@@ -6,12 +6,13 @@ import {
   LuChevronDown,
   LuEye,
   LuEyeOff,
-  LuFingerprint,
   LuLock,
   LuUser,
   LuUsers,
+  LuUtensils,
 } from 'react-icons/lu'
 import CashierLoginDialog, { type Cashier } from './CashierLoginDialog'
+import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -124,9 +125,16 @@ function BrandPanel() {
   )
 }
 
-export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) => void }) {
+export default function LoginPage({
+  onLogin,
+  onWaiterLogin,
+}: {
+  onLogin?: (cashier: Cashier) => void
+  onWaiterLogin?: (waiter: Waiter) => void
+}) {
   const [showPassword, setShowPassword] = useState(false)
   const [cashierDialogOpen, setCashierDialogOpen] = useState(false)
+  const [waiterDialogOpen, setWaiterDialogOpen] = useState(false)
   const [username, setUsername] = useState('')
 
   function handleSignIn(e: React.FormEvent) {
@@ -230,10 +238,11 @@ export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) =>
                 </button>
                 <button
                   type="button"
+                  onClick={() => setWaiterDialogOpen(true)}
                   className="flex h-14 items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white font-semibold text-neutral-800 transition hover:bg-neutral-50"
                 >
-                  <LuFingerprint className="h-5 w-5" />
-                  Fingerprint
+                  <LuUtensils className="h-5 w-5" />
+                  Waiter Login
                 </button>
               </div>
             </form>
@@ -247,6 +256,10 @@ export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) =>
 
       {cashierDialogOpen && (
         <CashierLoginDialog onClose={() => setCashierDialogOpen(false)} onLoggedIn={onLogin} />
+      )}
+
+      {waiterDialogOpen && (
+        <WaiterLoginDialog onClose={() => setWaiterDialogOpen(false)} onLoggedIn={onWaiterLogin} />
       )}
     </div>
   )

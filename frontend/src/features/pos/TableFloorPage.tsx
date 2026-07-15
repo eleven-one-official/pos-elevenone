@@ -181,7 +181,7 @@ function HeaderBar({
 // Floor
 // ---------------------------------------------------------------------------
 
-function SectionHeading({ icon: Icon, title, color }: { icon: IconType; title: string; color: string }) {
+export function SectionHeading({ icon: Icon, title, color }: { icon: IconType; title: string; color: string }) {
   return (
     <div className="mb-3.5 flex items-center gap-2.5">
       <Icon className="h-5 w-5" style={{ color }} />
@@ -190,7 +190,7 @@ function SectionHeading({ icon: Icon, title, color }: { icon: IconType; title: s
   )
 }
 
-function TableCard({ table, onSelect }: { table: PosTable; onSelect: (table: PosTable) => void }) {
+export function TableCard({ table, onSelect }: { table: PosTable; onSelect: (table: PosTable) => void }) {
   const ui = SECTION_UI[table.section]
   const isTakeaway = table.section === 'takeaway'
   const seated = table.guests > 0

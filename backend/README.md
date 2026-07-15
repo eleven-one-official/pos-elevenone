@@ -44,10 +44,24 @@ DB_PASSWORD=
 
 ## Seeded login accounts
 
+**Password accounts** — sign in with username + password (`POST /login`):
+
 | Username  | Password   | Role    |
 |-----------|------------|---------|
 | `admin`   | `password` | Admin   |
 | `cashier` | `password` | Cashier |
+
+**PIN accounts** — tap a name, then enter the PIN (`POST /staff-login`). Names
+mirror the frontend login rosters:
+
+| Name          | PIN    | Role    |
+|---------------|--------|---------|
+| Vann Sok      | `1111` | Waiter  |
+| Srey Neath    | `2222` | Waiter  |
+| Chhay Lida    | `3333` | Waiter  |
+| Sok Dara      | `1234` | Cashier |
+| Chan Sreymom  | `2345` | Cashier |
+| Kim Panha     | `3456` | Cashier |
 
 Roles seeded: **admin, manager, cashier, waiter, kitchen**.
 
@@ -60,17 +74,26 @@ protected request:
 Authorization: Bearer <token>
 ```
 
+Two ways to log in:
+
+- **Username + password** — `POST /login` with `{ username, password }`.
+- **Tap-a-name + PIN** (POS terminals / waiter tablets) — `GET /staff?role=waiter`
+  returns the tappable roster (id, name, role — never secrets), then
+  `POST /staff-login` with `{ user_id, pin }`. Both return `{ token, user }`.
+
 ## API Endpoints
 
 All routes are prefixed with `/api`. Every route except `POST /login`
 requires the `Authorization: Bearer <token>` header.
 
 ### Auth
-| Method | Endpoint   | Description                    |
-|--------|------------|--------------------------------|
-| POST   | `/login`   | Log in with `username` + `password`, returns `{ token, user }` |
-| GET    | `/me`      | Current authenticated user     |
-| POST   | `/logout`  | Revoke the current token       |
+| Method | Endpoint       | Description                    |
+|--------|----------------|--------------------------------|
+| POST   | `/login`       | Log in with `username` + `password`, returns `{ token, user }` |
+| GET    | `/staff`       | Public login roster; `?role=waiter\|cashier\|...` (id, name, role only) |
+| POST   | `/staff-login` | Log in with `user_id` + `pin`, returns `{ token, user }` |
+| GET    | `/me`          | Current authenticated user     |
+| POST   | `/logout`      | Revoke the current token       |
 
 ### Menu
 | Method | Endpoint            | Notes |

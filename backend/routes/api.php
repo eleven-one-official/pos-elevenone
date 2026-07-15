@@ -16,6 +16,11 @@ use Illuminate\Support\Facades\Route;
 */
 Route::post('/login', [AuthController::class, 'login']);
 
+// PIN login for POS terminals / waiter tablets: fetch the tappable roster, then
+// authenticate with the chosen staff id + PIN.
+Route::get('/staff', [AuthController::class, 'staffRoster']);
+Route::post('/staff-login', [AuthController::class, 'staffLogin']);
+
 /*
 |--------------------------------------------------------------------------
 | Protected routes (require a valid Sanctum bearer token)

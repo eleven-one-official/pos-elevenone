@@ -16,7 +16,7 @@ import {
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import type { Cashier } from '../auth/CashierLoginDialog'
-import type { OrderLine } from './OrderPage'
+import type { OrderLine } from './catalog'
 import { KHR_RATE, type PaymentResult } from './PaymentPage'
 import type { PosTable } from './TableFloorPage'
 
