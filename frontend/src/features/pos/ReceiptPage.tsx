@@ -99,6 +99,8 @@ export default function ReceiptPage({
   orderNo,
   serviceRate,
   discount = 0,
+  guests: guestsProp,
+  customerName,
   payment,
   onBackToTables,
   onSeeOrder,
@@ -109,7 +111,10 @@ export default function ReceiptPage({
   orderNo: string
   /** Service-charge rate applied to the subtotal (e.g. 0.05 for 5%). */
   serviceRate: number
+  /** Extra flat discount on top of any per-line discounts. */
   discount?: number
+  guests?: number
+  customerName?: string
   payment: PaymentResult
   onBackToTables: () => void
   onSeeOrder: () => void
@@ -117,12 +122,17 @@ export default function ReceiptPage({
   // Freeze the printed timestamp at the moment the receipt is shown.
   const [printedAt] = useState(() => new Date())
 
+  // Gross line totals ignore discounts; per-line discounts are summed into the
+  // Discount row so the printed bill reconciles line-by-line.
   const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0)
-  const serviceCharge = subtotal * serviceRate
-  const total = subtotal + serviceCharge - discount
+  const lineDiscount = lines.reduce((sum, l) => sum + l.qty * l.price * ((l.discount ?? 0) / 100), 0)
+  const discountTotal = lineDiscount + discount
+  const netSubtotal = subtotal - discountTotal
+  const serviceCharge = netSubtotal * serviceRate
+  const total = netSubtotal + serviceCharge
 
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
-  const guests = table.guests > 0 ? table.guests : 2
+  const guests = guestsProp ?? (table.guests > 0 ? table.guests : 2)
   const orders = table.orders
 
   const printReceipt = () => window.print()
@@ -251,6 +261,7 @@ export default function ReceiptPage({
             <MetaRow label="Cashier" value={cashier.name} />
             <MetaRow label="Date" value={formatDateTime(printedAt)} />
             <MetaRow label="Guests" value={String(guests)} />
+            {customerName && <MetaRow label="Customer" value={customerName} />}
           </div>
 
           <Dashed />
@@ -268,7 +279,15 @@ export default function ReceiptPage({
             <tbody className="tabular-nums">
               {lines.map((line) => (
                 <tr key={line.id} className="border-b border-neutral-50">
-                  <td className="py-1.5 text-left text-neutral-800">{line.name}</td>
+                  <td className="py-1.5 text-left text-neutral-800">
+                    {line.name}
+                    {line.discount ? (
+                      <span className="ml-1.5 text-xs font-medium text-rose-500">
+                        −{line.discount}%
+                      </span>
+                    ) : null}
+                    {line.note ? <div className="text-xs italic text-neutral-400">{line.note}</div> : null}
+                  </td>
                   <td className="py-1.5 text-center text-neutral-600">{line.qty}</td>
                   <td className="py-1.5 text-right text-neutral-600">{money(line.price)}</td>
                   <td className="py-1.5 text-right font-medium text-neutral-800">
@@ -288,7 +307,7 @@ export default function ReceiptPage({
               label={`Service Charge (${Math.round(serviceRate * 100)}%)`}
               value={money(serviceCharge)}
             />
-            <SummaryRow label="Discount" value={money(discount)} />
+            <SummaryRow label="Discount" value={`− ${money(discountTotal)}`} />
           </div>
 
           <div className="mt-3 border-t border-neutral-200 pt-3">

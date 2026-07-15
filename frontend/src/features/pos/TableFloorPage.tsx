@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   LuArrowLeftRight,
   LuClipboardList,
@@ -13,6 +14,7 @@ import {
 import type { IconType } from 'react-icons'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -32,7 +34,7 @@ export type PosTable = {
 }
 
 // Placeholder floor plan — replace with data fetched from the backend once wired.
-const TABLES: PosTable[] = [
+export const TABLES: PosTable[] = [
   // Dine-in
   { id: '1', label: '1', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
   { id: 'e2', label: 'E2', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
@@ -136,10 +138,12 @@ function HeaderIconButton({
 function HeaderBar({
   cashierName,
   activeOrders,
+  onCashInOut,
   onLogout,
 }: {
   cashierName: string
   activeOrders: number
+  onCashInOut: () => void
   onLogout: () => void
 }) {
   return (
@@ -148,7 +152,7 @@ function HeaderBar({
       <div className="flex items-center gap-1">
         <ElevenOneLogo />
         <div className="mx-3 h-8 w-px bg-white/15" />
-        <HeaderAction icon={LuArrowLeftRight} label="Cash In/Out" />
+        <HeaderAction icon={LuArrowLeftRight} label="Cash In/Out" onClick={onCashInOut} />
         <HeaderAction icon={LuClipboardList} label="Orders" badge={activeOrders} />
       </div>
 
@@ -247,9 +251,30 @@ export default function TableFloorPage({
   const takeaway = TABLES.filter((t) => t.section === 'takeaway')
   const activeOrders = TABLES.reduce((sum, t) => sum + t.orders, 0)
 
+  // Cash drawer state — session-only for now; persist to the register API once wired.
+  const [cashOpen, setCashOpen] = useState(false)
+  const [movements, setMovements] = useState<CashMovement[]>([])
+
+  function recordMovement(m: Omit<CashMovement, 'id' | 'time' | 'cashier'>) {
+    setMovements((prev) => [
+      ...prev,
+      {
+        ...m,
+        id: String(Date.now()),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        cashier: cashier.name,
+      },
+    ])
+  }
+
   return (
     <div className="flex h-screen flex-col bg-[#eef0f3]">
-      <HeaderBar cashierName={cashier.name} activeOrders={activeOrders} onLogout={onLogout} />
+      <HeaderBar
+        cashierName={cashier.name}
+        activeOrders={activeOrders}
+        onCashInOut={() => setCashOpen(true)}
+        onLogout={onLogout}
+      />
 
       <main className="flex flex-1 overflow-auto p-6">
         {/* Dine-in */}
@@ -298,6 +323,14 @@ export default function TableFloorPage({
           <div className="text-xs text-neutral-400">Last Order: {LAST_ORDER_AT}</div>
         </div>
       </footer>
+
+      {cashOpen && (
+        <CashInOutDialog
+          movements={movements}
+          onSubmit={recordMovement}
+          onClose={() => setCashOpen(false)}
+        />
+      )}
     </div>
   )
 }

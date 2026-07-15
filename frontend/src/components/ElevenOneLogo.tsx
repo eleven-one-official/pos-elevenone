@@ -15,6 +15,7 @@ export default function ElevenOneLogo({ tone = 'light' }: { tone?: 'light' | 'da
   if (!failed) {
     const img = (
       <img
+      
         src="/images/logo.png"
         alt="elevenone Kitchen"
         draggable={false}
