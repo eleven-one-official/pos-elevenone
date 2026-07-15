@@ -6,6 +6,7 @@ import {
   LuChevronDown,
   LuEye,
   LuEyeOff,
+  LuLoaderCircle,
   LuLock,
   LuUser,
   LuUsers,
@@ -13,6 +14,8 @@ import {
 } from 'react-icons/lu'
 import CashierLoginDialog, { type Cashier } from './CashierLoginDialog'
 import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
+import { passwordLogin } from '../../services/api/auth'
+import { ApiError } from '../../services/api/client'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -136,11 +139,26 @@ export default function LoginPage({
   const [cashierDialogOpen, setCashierDialogOpen] = useState(false)
   const [waiterDialogOpen, setWaiterDialogOpen] = useState(false)
   const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
-  function handleSignIn(e: React.FormEvent) {
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault()
-    // TODO: authenticate against the backend once the API exists.
-    onLogin?.({ id: 'admin', name: username.trim() || 'Administrator', role: 'Manager' })
+    if (submitting) return
+    if (!username.trim() || !password) {
+      setError('Please enter your username and password')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      const user = await passwordLogin(username.trim(), password)
+      onLogin?.({ id: String(user.id), name: user.name, role: user.role?.name })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Login failed. Try again.')
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -185,6 +203,11 @@ export default function LoginPage({
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      if (error) setError('')
+                    }}
                     autoComplete="current-password"
                     placeholder="Enter your password"
                     className="h-14 w-full rounded-xl border border-neutral-200 bg-white pl-12 pr-12 text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-primary focus:ring-2 focus:ring-primary/25"
@@ -213,12 +236,26 @@ export default function LoginPage({
                 </a>
               </div>
 
+              {error && (
+                <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">{error}</p>
+              )}
+
               <button
                 type="submit"
-                className="mt-2 flex h-14 w-full items-center justify-center gap-2.5 rounded-xl bg-primary text-lg font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary-dark active:scale-[0.99]"
+                disabled={submitting}
+                className="mt-2 flex h-14 w-full items-center justify-center gap-2.5 rounded-xl bg-primary text-lg font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary-dark active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Sign In
-                <LuArrowRight className="h-5 w-5" />
+                {submitting ? (
+                  <>
+                    <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <LuArrowRight className="h-5 w-5" />
+                  </>
+                )}
               </button>
 
               <div className="flex items-center gap-4 pt-1 text-sm text-neutral-500">

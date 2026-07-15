@@ -1,5 +1,6 @@
 import {
   LuCrown,
+  LuLoaderCircle,
   LuLock,
   LuPower,
   LuRefreshCw,
@@ -9,12 +10,8 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
-import {
-  SectionHeading,
-  TABLES,
-  TableCard,
-  type PosTable,
-} from '../pos/TableFloorPage'
+import { SectionHeading, TableCard, type PosTable } from '../pos/TableFloorPage'
+import { useTables } from '../../hooks/useTables'
 import type { Waiter } from './WaiterLoginDialog'
 
 // ---------------------------------------------------------------------------
@@ -59,10 +56,12 @@ export default function WaiterFloorPage({
   onSelectTable: (table: PosTable) => void
   onLogout: () => void
 }) {
-  const dineIn = TABLES.filter((t) => t.section === 'dine-in')
-  const vip = TABLES.filter((t) => t.section === 'vip')
-  const takeaway = TABLES.filter((t) => t.section === 'takeaway')
-  const activeOrders = TABLES.reduce((sum, t) => sum + t.orders, 0)
+  const { tables, loading, error, reload } = useTables()
+  const floor = tables ?? []
+  const dineIn = floor.filter((t) => t.section === 'dine-in')
+  const vip = floor.filter((t) => t.section === 'vip')
+  const takeaway = floor.filter((t) => t.section === 'takeaway')
+  const activeOrders = floor.reduce((sum, t) => sum + t.orders, 0)
 
   return (
     <div className="flex h-screen flex-col bg-[#eef0f3]">
@@ -96,6 +95,28 @@ export default function WaiterFloorPage({
         </div>
       </header>
 
+      {loading && (
+        <main className="flex flex-1 items-center justify-center gap-2 text-neutral-400">
+          <LuLoaderCircle className="h-6 w-6 animate-spin" />
+          Loading tables…
+        </main>
+      )}
+
+      {error && (
+        <main className="flex flex-1 flex-col items-center justify-center gap-3">
+          <p className="text-sm text-rose-500">{error}</p>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+          >
+            <LuRefreshCw className="h-4 w-4" />
+            Retry
+          </button>
+        </main>
+      )}
+
+      {!loading && !error && (
       <main className="flex flex-1 overflow-auto p-6">
         {/* Dine-in */}
         <section className="flex-1 pr-6">
@@ -128,6 +149,7 @@ export default function WaiterFloorPage({
           </section>
         </aside>
       </main>
+      )}
 
       <footer className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-white px-6 py-3">
         <div className="flex items-center gap-6 text-sm text-neutral-500">

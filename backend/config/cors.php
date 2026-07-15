@@ -17,12 +17,16 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        env('FRONTEND_URL', 'http://localhost:5173'),
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
+        env('FRONTEND_URL', 'http://localhost:5199'),
+        'http://localhost:5199',
+        'http://127.0.0.1:5199',
     ],
 
-    'allowed_origins_patterns' => [],
+    // Dev: Vite picks the first free port (5173, then 5174, ...), so allow any
+    // localhost / 127.0.0.1 port. Lock this down for production.
+    'allowed_origins_patterns' => [
+        '#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#',
+    ],
 
     'allowed_headers' => ['*'],
 

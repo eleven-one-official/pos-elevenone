@@ -7,9 +7,11 @@ import {
   LuDelete,
   LuHouse,
   LuInfo,
+  LuLoaderCircle,
   LuMinus,
   LuNotebookPen,
   LuPlus,
+  LuRefreshCw,
   LuSearch,
   LuStickyNote,
   LuTrash2,
@@ -24,7 +26,6 @@ import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
 import {
   CATEGORIES,
   NOTE_PRESETS,
-  PRODUCTS,
   ProductThumb,
   lineNet,
   money,
@@ -33,7 +34,10 @@ import {
   type Product,
 } from '../pos/catalog'
 import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
-import { TABLES, type PosTable } from '../pos/TableFloorPage'
+import { createOrder, updateOrder, type OrderPayload } from '../../services/api/orders'
+import { useMenu } from '../../hooks/useMenu'
+import { useTables } from '../../hooks/useTables'
+import type { PosTable } from '../pos/TableFloorPage'
 import type { Waiter } from './WaiterLoginDialog'
 
 // The waiter takes and fires orders only — payment, discounts, splits and
@@ -81,12 +85,21 @@ export default function WaiterOrderPage({
   const [dialog, setDialog] = useState<DialogKind>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
 
   // Internal-note draft lives only while its popup is open.
   const [noteDraft, setNoteDraft] = useState('')
 
-  // Placeholder order number — swap for the backend-issued reference once wired.
-  const [orderNo] = useState(() => String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'))
+  // Menu + floor from the backend (floor is only needed for the Transfer popup).
+  const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
+  const { tables } = useTables()
+
+  // Backend order — created on the first "Send to Kitchen", updated after that.
+  const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
+  // Local placeholder until the backend issues the real order number.
+  const [orderNo, setOrderNo] = useState(() =>
+    String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
+  )
 
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + lineNet(l), 0), [lines])
   const itemCount = useMemo(() => lines.reduce((sum, l) => sum + l.qty, 0), [lines])
@@ -101,10 +114,10 @@ export default function WaiterOrderPage({
 
   const visibleProducts = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return PRODUCTS.filter(
+    return (products ?? []).filter(
       (p) => (term ? p.name.toLowerCase().includes(term) : p.category === category),
     )
-  }, [category, search])
+  }, [products, category, search])
 
   function notify(message: string) {
     setToast(message)
@@ -211,33 +224,79 @@ export default function WaiterOrderPage({
     setActiveTable(t)
     closeDialog()
     notify(`Order moved to ${t.label}`)
+    // Best effort: if the order already exists on the backend, move it there too.
+    if (backendOrderId != null) {
+      void updateOrder(backendOrderId, {
+        order_type: t.section === 'takeaway' ? 'take_away' : 'dine_in',
+        table_id: t.backendId ?? null,
+      }).catch(() => notify('Moved locally, but the server was not updated'))
+    }
   }
 
-  // Fire the order: drinks route to the bar printer, food and desserts to the
-  // kitchen printer, each as its own docket (items + notes, no prices).
-  function sendToKitchen() {
-    if (lines.length === 0) return notify('The order is empty')
-    const orderType =
+  // Fire the order: save it on the backend (create on the first send, replace
+  // items after that), then print the dockets — drinks route to the bar
+  // printer, food and desserts to the kitchen printer, each as its own ticket
+  // (items + notes, no prices). If the server is unreachable the dockets still
+  // print so the kitchen keeps working; the order just isn't recorded yet.
+  async function sendToKitchen() {
+    if (sending) return
+    const cook = lines.filter((l) => l.qty > 0)
+    if (cook.length === 0) return notify('The order is empty')
+
+    setSending(true)
+    let ticketOrderNo = orderNo
+    let synced = true
+    try {
+      const payload: OrderPayload = {
+        order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
+        table_id: activeTable.backendId ?? null,
+        items: cook.map((l) => ({
+          menu_item_id: Number(l.id),
+          quantity: Math.max(1, Math.round(l.qty)),
+          note: l.note,
+        })),
+      }
+      const order =
+        backendOrderId == null
+          ? await createOrder(payload)
+          : await updateOrder(backendOrderId, payload)
+      setBackendOrderId(order.id)
+      setOrderNo(order.order_number)
+      ticketOrderNo = order.order_number
+    } catch {
+      synced = false
+    }
+
+    const orderTypeLabel =
       activeTable.section === 'takeaway'
         ? 'Take Away'
         : activeTable.section === 'vip'
           ? 'Dine In (VIP)'
           : 'Dine In'
-    const ticketLines = lines
-      .filter((l) => l.qty > 0)
-      .map((l) => {
-        const cat = PRODUCTS.find((p) => p.id === l.id)?.category ?? 'Food'
-        return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(cat) }
-      })
+    const ticketLines = cook.map((l) => {
+      const cat = products?.find((p) => p.id === l.id)?.category ?? 'Food'
+      return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(cat) }
+    })
     // The ticket's "server" line carries the waiter who fired the order.
     const printed = printOrderTickets(
-      { orderNo, tableLabel: activeTable.label, orderType, guests: guestCount, cashier: waiter.name },
+      {
+        orderNo: ticketOrderNo,
+        tableLabel: activeTable.label,
+        orderType: orderTypeLabel,
+        guests: guestCount,
+        cashier: waiter.name,
+      },
       ticketLines,
     )
+    setSending(false)
     if (printed.length === 0) return notify('The order is empty')
     const names = printed.map(stationLabel).join(' + ')
     setSent(true)
-    notify(`Order sent to ${names} printer${printed.length > 1 ? 's' : ''}`)
+    notify(
+      synced
+        ? `Order #${ticketOrderNo} sent to ${names}`
+        : `Printed to ${names}, but saving to the server failed`,
+    )
   }
 
   const CONTROLS: Control[] = [
@@ -401,8 +460,8 @@ export default function WaiterOrderPage({
           <div className="flex border-t border-neutral-200">
             <button
               type="button"
-              onClick={sendToKitchen}
-              disabled={lines.length === 0}
+              onClick={() => void sendToKitchen()}
+              disabled={lines.length === 0 || sending}
               className={`flex w-[38%] min-w-[150px] flex-col items-center justify-center gap-2 border-r border-neutral-200 px-2 py-4 text-center transition disabled:cursor-not-allowed disabled:opacity-50 ${
                 sent ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-primary/10 hover:bg-primary/15'
               }`}
@@ -412,10 +471,16 @@ export default function WaiterOrderPage({
                   sent ? 'bg-emerald-500' : 'bg-primary'
                 }`}
               >
-                {sent ? <LuCheck className="h-7 w-7" /> : <LuChefHat className="h-7 w-7" />}
+                {sending ? (
+                  <LuLoaderCircle className="h-7 w-7 animate-spin" />
+                ) : sent ? (
+                  <LuCheck className="h-7 w-7" />
+                ) : (
+                  <LuChefHat className="h-7 w-7" />
+                )}
               </span>
               <span className={`text-sm font-bold leading-tight ${sent ? 'text-emerald-700' : 'text-primary-dark'}`}>
-                {sent ? 'Sent — Send Again' : 'Send to Kitchen'}
+                {sending ? 'Sending…' : sent ? 'Sent — Send Again' : 'Send to Kitchen'}
               </span>
             </button>
 
@@ -477,7 +542,24 @@ export default function WaiterOrderPage({
 
           {/* Products */}
           <div className="flex-1 overflow-y-auto p-4">
-            {visibleProducts.length === 0 ? (
+            {menuLoading ? (
+              <div className="mt-10 flex items-center justify-center gap-2 text-neutral-400">
+                <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                Loading menu…
+              </div>
+            ) : menuError ? (
+              <div className="mt-10 flex flex-col items-center gap-3">
+                <p className="text-sm text-rose-500">{menuError}</p>
+                <button
+                  type="button"
+                  onClick={() => void reloadMenu()}
+                  className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                >
+                  <LuRefreshCw className="h-4 w-4" />
+                  Retry
+                </button>
+              </div>
+            ) : visibleProducts.length === 0 ? (
               <p className="mt-10 text-center text-sm text-neutral-400">No products match “{search}”.</p>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
@@ -506,7 +588,9 @@ export default function WaiterOrderPage({
       </div>
 
       {/* Popups */}
-      {dialog === 'info' && selectedLine && <InfoDialog line={selectedLine} onClose={closeDialog} />}
+      {dialog === 'info' && selectedLine && (
+        <InfoDialog line={selectedLine} products={products ?? []} onClose={closeDialog} />
+      )}
 
       {dialog === 'note' && selectedLine && (
         <Modal
@@ -578,7 +662,12 @@ export default function WaiterOrderPage({
       )}
 
       {dialog === 'transfer' && (
-        <TransferDialog current={activeTable} onTransfer={transferTo} onClose={closeDialog} />
+        <TransferDialog
+          current={activeTable}
+          tables={tables ?? []}
+          onTransfer={transferTo}
+          onClose={closeDialog}
+        />
       )}
 
       {/* On-screen keyboards */}
@@ -617,8 +706,16 @@ function InfoRow({ label, value, strong }: { label: string; value: string; stron
   )
 }
 
-function InfoDialog({ line, onClose }: { line: OrderLine; onClose: () => void }) {
-  const product = PRODUCTS.find((p) => p.id === line.id)
+function InfoDialog({
+  line,
+  products,
+  onClose,
+}: {
+  line: OrderLine
+  products: Product[]
+  onClose: () => void
+}) {
+  const product = products.find((p) => p.id === line.id)
   return (
     <Modal title="Product Information" subtitle={line.name} onClose={onClose}>
       <div className="divide-y divide-neutral-100">
@@ -634,14 +731,16 @@ function InfoDialog({ line, onClose }: { line: OrderLine; onClose: () => void })
 
 function TransferDialog({
   current,
+  tables,
   onTransfer,
   onClose,
 }: {
   current: PosTable
+  tables: PosTable[]
   onTransfer: (t: PosTable) => void
   onClose: () => void
 }) {
-  const targets = TABLES.filter((t) => t.id !== current.id)
+  const targets = tables.filter((t) => t.id !== current.id)
   return (
     <Modal
       title="Move Order"

@@ -4,6 +4,7 @@ import TableFloorPage, { type PosTable } from './features/pos/TableFloorPage'
 import OrderPage from './features/pos/OrderPage'
 import WaiterFloorPage from './features/waiter/WaiterFloorPage'
 import WaiterOrderPage from './features/waiter/WaiterOrderPage'
+import { logout as apiLogout } from './services/api/auth'
 import type { Cashier } from './features/auth/CashierLoginDialog'
 import type { Waiter } from './features/waiter/WaiterLoginDialog'
 
@@ -28,6 +29,8 @@ export default function App() {
   }
 
   const logout = () => {
+    // Revoke the token server-side; the local session ends regardless.
+    void apiLogout().catch(() => {})
     setTable(null)
     setSession(null)
   }

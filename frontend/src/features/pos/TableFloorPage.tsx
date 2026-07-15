@@ -3,6 +3,7 @@ import {
   LuArrowLeftRight,
   LuClipboardList,
   LuCrown,
+  LuLoaderCircle,
   LuLock,
   LuPower,
   LuRefreshCw,
@@ -15,6 +16,7 @@ import type { IconType } from 'react-icons'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
+import { useTables } from '../../hooks/useTables'
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -24,6 +26,8 @@ export type Section = 'dine-in' | 'vip' | 'takeaway'
 
 export type PosTable = {
   id: string
+  /** Numeric id of the table row in the backend; absent for take-away slots. */
+  backendId?: number
   label: string
   seats: number
   /** Guests currently seated — numerator of the bottom pill. */
@@ -32,45 +36,6 @@ export type PosTable = {
   orders: number
   section: Section
 }
-
-// Placeholder floor plan — replace with data fetched from the backend once wired.
-export const TABLES: PosTable[] = [
-  // Dine-in
-  { id: '1', label: '1', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e2', label: 'E2', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e3', label: 'E3', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e4', label: 'E4', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e5', label: 'E5', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e6', label: 'E6', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e7', label: 'E7', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e8', label: 'E8', seats: 6, guests: 1, orders: 0, section: 'dine-in' },
-  { id: 'e9', label: 'E9', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e10', label: 'E10', seats: 6, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e11', label: 'E11', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e12', label: 'E12', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e13', label: 'E13', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e14', label: 'E14', seats: 2, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e15', label: 'E15', seats: 4, guests: 0, orders: 0, section: 'dine-in' },
-  { id: 'e16', label: 'E16', seats: 6, guests: 1, orders: 1, section: 'dine-in' },
-  // VIP
-  { id: 'vip1', label: 'VIP1', seats: 6, guests: 0, orders: 0, section: 'vip' },
-  { id: 'vip2', label: 'VIP2', seats: 6, guests: 0, orders: 1, section: 'vip' },
-  { id: 'vip3', label: 'VIP3', seats: 8, guests: 0, orders: 0, section: 'vip' },
-  { id: 'vip4', label: 'VIP4', seats: 8, guests: 0, orders: 0, section: 'vip' },
-  { id: 'vip5', label: 'VIP5', seats: 6, guests: 0, orders: 1, section: 'vip' },
-  { id: 'vip6', label: 'VIP6', seats: 6, guests: 0, orders: 0, section: 'vip' },
-  // Take away / delivery
-  { id: 't1', label: 'T1', seats: 0, guests: 0, orders: 1, section: 'takeaway' },
-  { id: 't2', label: 'T2', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-  { id: 't3', label: 'T3', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-  { id: 't4', label: 'T4', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-  { id: 't5', label: 'T5', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-  { id: 't6', label: 'T6', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-  { id: 't7', label: 'T7', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-  { id: 't8', label: 'T8', seats: 0, guests: 0, orders: 0, section: 'takeaway' },
-]
-
-const LAST_ORDER_AT = '11:14 AM'
 
 const SECTION_UI: Record<Section, { card: string; ring: string }> = {
   'dine-in': { card: 'bg-[#4caf50] hover:bg-[#43a047]', ring: 'focus-visible:ring-[#4caf50]' },
@@ -246,10 +211,12 @@ export default function TableFloorPage({
   onSelectTable: (table: PosTable) => void
   onLogout: () => void
 }) {
-  const dineIn = TABLES.filter((t) => t.section === 'dine-in')
-  const vip = TABLES.filter((t) => t.section === 'vip')
-  const takeaway = TABLES.filter((t) => t.section === 'takeaway')
-  const activeOrders = TABLES.reduce((sum, t) => sum + t.orders, 0)
+  const { tables, loading, error, reload } = useTables()
+  const floor = tables ?? []
+  const dineIn = floor.filter((t) => t.section === 'dine-in')
+  const vip = floor.filter((t) => t.section === 'vip')
+  const takeaway = floor.filter((t) => t.section === 'takeaway')
+  const activeOrders = floor.reduce((sum, t) => sum + t.orders, 0)
 
   // Cash drawer state — session-only for now; persist to the register API once wired.
   const [cashOpen, setCashOpen] = useState(false)
@@ -276,6 +243,28 @@ export default function TableFloorPage({
         onLogout={onLogout}
       />
 
+      {loading && (
+        <main className="flex flex-1 items-center justify-center gap-2 text-neutral-400">
+          <LuLoaderCircle className="h-6 w-6 animate-spin" />
+          Loading tables…
+        </main>
+      )}
+
+      {error && (
+        <main className="flex flex-1 flex-col items-center justify-center gap-3">
+          <p className="text-sm text-rose-500">{error}</p>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+          >
+            <LuRefreshCw className="h-4 w-4" />
+            Retry
+          </button>
+        </main>
+      )}
+
+      {!loading && !error && (
       <main className="flex flex-1 overflow-auto p-6">
         {/* Dine-in */}
         <section className="flex-1 pr-6">
@@ -308,6 +297,7 @@ export default function TableFloorPage({
           </section>
         </aside>
       </main>
+      )}
 
       <footer className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-white px-6 py-3">
         <div className="flex items-center gap-6 text-sm">
@@ -320,7 +310,6 @@ export default function TableFloorPage({
             <span className="text-neutral-500">Active Orders: </span>
             <span className="font-bold text-primary">{activeOrders}</span>
           </div>
-          <div className="text-xs text-neutral-400">Last Order: {LAST_ORDER_AT}</div>
         </div>
       </footer>
 

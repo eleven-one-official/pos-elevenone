@@ -8,6 +8,7 @@ import {
   LuDelete,
   LuHouse,
   LuInfo,
+  LuLoaderCircle,
   LuMenu,
   LuMinus,
   LuNotebookPen,
@@ -15,6 +16,7 @@ import {
   LuPlus,
   LuPrinter,
   LuReceipt,
+  LuRefreshCw,
   LuRotateCcw,
   LuSearch,
   LuSplit,
@@ -32,12 +34,14 @@ import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
 import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
 import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
+import { createOrder, updateOrder, type OrderPayload } from '../../services/api/orders'
+import { useMenu } from '../../hooks/useMenu'
+import { useTables } from '../../hooks/useTables'
 import type { Cashier } from '../auth/CashierLoginDialog'
-import { TABLES, type PosTable } from './TableFloorPage'
+import type { PosTable } from './TableFloorPage'
 import {
   CATEGORIES,
   NOTE_PRESETS,
-  PRODUCTS,
   ProductThumb,
   TAX_RATE,
   lineNet,
@@ -59,13 +63,6 @@ const CUSTOMERS: Customer[] = [
   { id: 'kim-seyha', name: 'Kim Seyha', phone: '017 888 999' },
   { id: 'lucas-martin', name: 'Lucas Martin', phone: '093 444 555' },
   { id: 'emma-nguyen', name: 'Emma Nguyen', phone: '096 777 111' },
-]
-
-// Pre-filled sample order so the screen mirrors the reference on first open.
-const INITIAL_LINES: OrderLine[] = [
-  { id: 'pasta-4-formaggi', name: 'Pasta 4 formaggi', price: 6.33, qty: 1 },
-  { id: 'vegetarian', name: 'Vegetarian', price: 8.05, qty: 1, note: 'No pepper on pizza' },
-  { id: 'ice-tea', name: 'Ice Tea', price: 2.53, qty: 1 },
 ]
 
 type NumpadMode = 'qty' | 'disc' | 'price'
@@ -110,8 +107,8 @@ export default function OrderPage({
   table: PosTable
   onBack: () => void
 }) {
-  const [lines, setLines] = useState<OrderLine[]>(INITIAL_LINES)
-  const [selectedId, setSelectedId] = useState<string | null>('ice-tea')
+  const [lines, setLines] = useState<OrderLine[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<NumpadMode>('qty')
   const [entry, setEntry] = useState<string | null>(null)
   const [category, setCategory] = useState<Category>('Food')
@@ -126,6 +123,7 @@ export default function OrderPage({
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [dialog, setDialog] = useState<DialogKind>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
 
   // Internal-note draft + customer search live only while their popup is open.
   const [noteDraft, setNoteDraft] = useState('')
@@ -136,8 +134,16 @@ export default function OrderPage({
   // When set, the payment/receipt flow settles just this subset (a split).
   const [settling, setSettling] = useState<{ lines: OrderLine[]; total: number } | null>(null)
 
-  // Placeholder order number — swap for the backend-issued reference once wired.
-  const [orderNo] = useState(() => String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'))
+  // Menu + floor from the backend (floor is only needed for the Transfer popup).
+  const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
+  const { tables } = useTables()
+
+  // Backend order — created on the first "Send to Kitchen", updated after that.
+  const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
+  // Local placeholder until the backend issues the real order number.
+  const [orderNo, setOrderNo] = useState(() =>
+    String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
+  )
 
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + lineNet(l), 0), [lines])
   const taxes = subtotal * TAX_RATE
@@ -153,10 +159,10 @@ export default function OrderPage({
 
   const visibleProducts = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return PRODUCTS.filter(
+    return (products ?? []).filter(
       (p) => (term ? p.name.toLowerCase().includes(term) : p.category === category),
     )
-  }, [category, search])
+  }, [products, category, search])
 
   function notify(message: string) {
     setToast(message)
@@ -287,39 +293,83 @@ export default function OrderPage({
     setActiveTable(t)
     closeDialog()
     notify(`Order transferred to ${t.label}`)
+    // Best effort: if the order already exists on the backend, move it there too.
+    if (backendOrderId != null) {
+      void updateOrder(backendOrderId, {
+        order_type: t.section === 'takeaway' ? 'take_away' : 'dine_in',
+        table_id: t.backendId ?? null,
+      }).catch(() => notify('Moved locally, but the server was not updated'))
+    }
   }
 
   function printBill() {
     window.print()
   }
 
-  // Fire the order to the printers: drinks route to the bar printer, food and
-  // desserts to the kitchen printer, each as its own docket (items + notes, no
-  // prices). Wire to POST /orders + the printer service once the backend exists;
-  // for now it prints straight from the browser.
-  function sendToKitchen() {
-    if (lines.length === 0) return notify('The order is empty')
-    const orderType =
+  // Fire the order: save it on the backend (create on the first send, replace
+  // items after that), then print the dockets — drinks route to the bar
+  // printer, food and desserts to the kitchen printer, each as its own docket
+  // (items + notes, no prices). If the server is unreachable the dockets still
+  // print so the kitchen keeps working; the order just isn't recorded yet.
+  async function sendToKitchen() {
+    if (sending) return
+    const cook = lines.filter((l) => l.qty > 0)
+    if (cook.length === 0) return notify('The order is empty')
+
+    setSending(true)
+    let ticketOrderNo = orderNo
+    let synced = true
+    try {
+      const payload: OrderPayload = {
+        order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
+        table_id: activeTable.backendId ?? null,
+        items: cook.map((l) => ({
+          // Line ids match backend menu-item ids (stringified).
+          menu_item_id: Number(l.id),
+          quantity: Math.max(1, Math.round(l.qty)),
+          note: l.note,
+        })),
+      }
+      const order =
+        backendOrderId == null
+          ? await createOrder(payload)
+          : await updateOrder(backendOrderId, payload)
+      setBackendOrderId(order.id)
+      setOrderNo(order.order_number)
+      ticketOrderNo = order.order_number
+    } catch {
+      synced = false
+    }
+
+    const orderTypeLabel =
       activeTable.section === 'takeaway'
         ? 'Take Away'
         : activeTable.section === 'vip'
           ? 'Dine In (VIP)'
           : 'Dine In'
-    const ticketLines = lines
-      .filter((l) => l.qty > 0)
-      .map((l) => {
-        // Line ids match product ids, so the category (and thus the printer) is
-        // looked up from the catalog; unknown items default to the kitchen.
-        const category = PRODUCTS.find((p) => p.id === l.id)?.category ?? 'Food'
-        return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(category) }
-      })
+    const ticketLines = cook.map((l) => {
+      // The product's category picks the printer; unknown items default to the kitchen.
+      const cat = products?.find((p) => p.id === l.id)?.category ?? 'Food'
+      return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(cat) }
+    })
     const printed = printOrderTickets(
-      { orderNo, tableLabel: activeTable.label, orderType, guests: guestCount, cashier: cashier.name },
+      {
+        orderNo: ticketOrderNo,
+        tableLabel: activeTable.label,
+        orderType: orderTypeLabel,
+        guests: guestCount,
+        cashier: cashier.name,
+      },
       ticketLines,
     )
+    setSending(false)
     if (printed.length === 0) return notify('The order is empty')
     const names = printed.map(stationLabel).join(' + ')
-    notify(`Order sent to ${names} printer${printed.length > 1 ? 's' : ''}`)
+    notify(
+      synced
+        ? `Order #${ticketOrderNo} sent to ${names}`
+        : `Printed to ${names}, but saving to the server failed`,
+    )
   }
 
   // ---- Split ----------------------------------------------------------------
@@ -585,14 +635,20 @@ export default function OrderPage({
               </button>
               <button
                 type="button"
-                onClick={sendToKitchen}
-                disabled={lines.length === 0}
+                onClick={() => void sendToKitchen()}
+                disabled={lines.length === 0 || sending}
                 className="flex flex-1 flex-col items-center justify-center gap-1.5 border-b border-neutral-200 bg-primary/10 px-2 py-3 text-center transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white">
-                  <LuChefHat className="h-6 w-6" />
+                  {sending ? (
+                    <LuLoaderCircle className="h-6 w-6 animate-spin" />
+                  ) : (
+                    <LuChefHat className="h-6 w-6" />
+                  )}
                 </span>
-                <span className="text-[13px] font-bold leading-tight text-primary-dark">Send to Kitchen</span>
+                <span className="text-[13px] font-bold leading-tight text-primary-dark">
+                  {sending ? 'Sending…' : 'Send to Kitchen'}
+                </span>
               </button>
               <button
                 type="button"
@@ -676,7 +732,24 @@ export default function OrderPage({
 
           {/* Products */}
           <div className="flex-1 overflow-y-auto p-4">
-            {visibleProducts.length === 0 ? (
+            {menuLoading ? (
+              <div className="mt-10 flex items-center justify-center gap-2 text-neutral-400">
+                <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                Loading menu…
+              </div>
+            ) : menuError ? (
+              <div className="mt-10 flex flex-col items-center gap-3">
+                <p className="text-sm text-rose-500">{menuError}</p>
+                <button
+                  type="button"
+                  onClick={() => void reloadMenu()}
+                  className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                >
+                  <LuRefreshCw className="h-4 w-4" />
+                  Retry
+                </button>
+              </div>
+            ) : visibleProducts.length === 0 ? (
               <p className="mt-10 text-center text-sm text-neutral-400">No products match “{search}”.</p>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
@@ -709,7 +782,7 @@ export default function OrderPage({
 
       {/* Popups */}
       {dialog === 'info' && selectedLine && (
-        <InfoDialog line={selectedLine} onClose={closeDialog} />
+        <InfoDialog line={selectedLine} products={products ?? []} onClose={closeDialog} />
       )}
 
       {dialog === 'note' && selectedLine && (
@@ -866,7 +939,12 @@ export default function OrderPage({
       )}
 
       {dialog === 'transfer' && (
-        <TransferDialog current={activeTable} onTransfer={transferTo} onClose={closeDialog} />
+        <TransferDialog
+          current={activeTable}
+          tables={tables ?? []}
+          onTransfer={transferTo}
+          onClose={closeDialog}
+        />
       )}
 
       {dialog === 'split' && (
@@ -912,8 +990,16 @@ function InfoRow({ label, value, strong }: { label: string; value: string; stron
   )
 }
 
-function InfoDialog({ line, onClose }: { line: OrderLine; onClose: () => void }) {
-  const product = PRODUCTS.find((p) => p.id === line.id)
+function InfoDialog({
+  line,
+  products,
+  onClose,
+}: {
+  line: OrderLine
+  products: Product[]
+  onClose: () => void
+}) {
+  const product = products.find((p) => p.id === line.id)
   return (
     <Modal title="Product Information" subtitle={line.name} onClose={onClose}>
       <div className="divide-y divide-neutral-100">
@@ -1082,14 +1168,16 @@ function BillDialog({
 
 function TransferDialog({
   current,
+  tables,
   onTransfer,
   onClose,
 }: {
   current: PosTable
+  tables: PosTable[]
   onTransfer: (t: PosTable) => void
   onClose: () => void
 }) {
-  const targets = TABLES.filter((t) => t.id !== current.id)
+  const targets = tables.filter((t) => t.id !== current.id)
   return (
     <Modal
       title="Transfer Order"

@@ -1,0 +1,78 @@
+// Base HTTP client for the Laravel API.
+//
+// The base URL defaults to the local artisan server; override it with
+// VITE_API_URL in frontend/.env when the tablets reach the POS machine over
+// the LAN (e.g. VITE_API_URL=http://192.168.1.10:8000/api).
+
+export const API_BASE: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api'
+
+const TOKEN_KEY = 'pos_token'
+
+let token: string | null = localStorage.getItem(TOKEN_KEY)
+
+export function getToken(): string | null {
+  return token
+}
+
+export function setToken(next: string | null): void {
+  token = next
+  if (next) localStorage.setItem(TOKEN_KEY, next)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
+/** Error thrown for any non-2xx response, carrying Laravel's message + errors bag. */
+export class ApiError extends Error {
+  status: number
+  /** Laravel validation errors, keyed by field (e.g. { pin: ["The PIN is incorrect."] }). */
+  errors?: Record<string, string[]>
+
+  constructor(message: string, status: number, errors?: Record<string, string[]>) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.errors = errors
+  }
+}
+
+type RequestOptions = {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  body?: unknown
+}
+
+/**
+ * Perform a JSON request against the API, attaching the bearer token when one
+ * is stored. Throws ApiError on non-2xx responses (including 422 validation).
+ */
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    })
+  } catch {
+    // Network-level failure (server down, wrong URL, no LAN).
+    throw new ApiError('Cannot reach the server. Check the connection.', 0)
+  }
+
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`
+    let errors: Record<string, string[]> | undefined
+    try {
+      const data = await res.json()
+      if (typeof data?.message === 'string' && data.message) message = data.message
+      if (data?.errors && typeof data.errors === 'object') errors = data.errors
+    } catch {
+      // Non-JSON error body — keep the generic message.
+    }
+    throw new ApiError(message, res.status, errors)
+  }
+
+  if (res.status === 204) return undefined as T
+  return (await res.json()) as T
+}
