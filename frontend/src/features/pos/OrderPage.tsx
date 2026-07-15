@@ -478,7 +478,7 @@ export default function OrderPage({
         table={activeTable}
         lines={settling ? settling.lines : lines}
         orderNo={orderNo}
-        serviceRate={TAX_RATE}
+        taxRate={TAX_RATE}
         guests={guestCount}
         customerName={customer?.name}
         payment={payment}
