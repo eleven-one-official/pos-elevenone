@@ -129,7 +129,7 @@ export default function AdminReports() {
   }, [load, date])
 
   return (
-    <div className="p-8">
+    <div className="flex h-full flex-col p-8">
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3.5 py-2 text-sm font-semibold text-neutral-700 shadow-sm">
           <LuCalendarDays className="h-4 w-4 text-neutral-400" />
@@ -143,9 +143,15 @@ export default function AdminReports() {
         </label>
       </div>
 
-      {loading && <LoadingPanel label="Loading reports…" />}
+      {loading && (
+        <div className="flex-1">
+          <LoadingPanel label="Loading reports…" />
+        </div>
+      )}
       {!loading && (error || !sales) && (
-        <ErrorPanel message={error || 'No data.'} onRetry={() => void load(date)} />
+        <div className="flex-1">
+          <ErrorPanel message={error || 'No data.'} onRetry={() => void load(date)} />
+        </div>
       )}
 
       {!loading && !error && sales && (

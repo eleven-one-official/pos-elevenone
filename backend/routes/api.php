@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TableController;
@@ -59,4 +61,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // admins may write (enforced in SettingController).
     Route::get('/settings', [SettingController::class, 'index']);
     Route::put('/settings', [SettingController::class, 'update']);
+
+    // Customer directory (cashiers may add on the fly) and the venue's payment
+    // journals (read by the POS; admin-only writes, enforced in the controller).
+    Route::apiResource('customers', CustomerController::class);
+    Route::apiResource('payment-methods', PaymentMethodController::class);
 });

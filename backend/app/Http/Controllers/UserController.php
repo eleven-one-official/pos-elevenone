@@ -101,6 +101,22 @@ class UserController extends Controller
             'is_active' => ['boolean'],
         ]);
 
+        // Don't let the last active admin lock everyone out of the back office by
+        // deactivating themselves or dropping their admin role. Staff management is
+        // admin-only, so reaching zero admins is unrecoverable through the UI.
+        $isActiveAdmin = $user->is_active && $user->role?->slug === 'admin';
+        if ($isActiveAdmin) {
+            $willDeactivate = array_key_exists('is_active', $data) && ! $data['is_active'];
+            $willChangeRole = array_key_exists('role_id', $data) && (int) $data['role_id'] !== (int) $user->role_id;
+            if ($willDeactivate || $willChangeRole) {
+                $otherActiveAdmins = User::where('id', '!=', $user->id)
+                    ->where('is_active', true)
+                    ->whereHas('role', fn ($q) => $q->where('slug', 'admin'))
+                    ->count();
+                abort_if($otherActiveAdmins === 0, 422, 'This is the last active admin — assign another admin first.');
+            }
+        }
+
         $user->fill(collect($data)->only(['name', 'username', 'email', 'phone', 'role_id', 'is_active'])->all());
 
         if (! empty($data['password'])) {

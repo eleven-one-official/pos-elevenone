@@ -21,6 +21,8 @@ class DatabaseSeeder extends Seeder
             TableSeeder::class,
             MenuItemSeeder::class,
             SettingSeeder::class,
+            CustomerSeeder::class,
+            PaymentMethodSeeder::class,
         ]);
     }
 }

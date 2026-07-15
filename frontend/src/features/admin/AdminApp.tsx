@@ -8,6 +8,7 @@ import {
   LuUserCog,
   LuUsers,
   LuUtensils,
+  LuWallet,
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
@@ -16,6 +17,7 @@ import AdminDashboard from './AdminDashboard'
 import AdminReports from './AdminReports'
 import AdminMenu from './AdminMenu'
 import AdminStaff from './AdminStaff'
+import AdminPaymentMethods from './AdminPaymentMethods'
 import AdminSettings from './AdminSettings'
 import Placeholder from './Placeholder'
 
@@ -25,13 +27,14 @@ import Placeholder from './Placeholder'
 // persistent sidebar and swaps the main panel between sections.
 // ---------------------------------------------------------------------------
 
-type Section = 'dashboard' | 'reports' | 'menu' | 'staff' | 'tables' | 'settings'
+type Section = 'dashboard' | 'reports' | 'menu' | 'staff' | 'payments' | 'tables' | 'settings'
 
 const NAV: { key: Section; label: string; icon: IconType }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LuLayoutDashboard },
   { key: 'reports', label: 'Reports', icon: LuChartColumnBig },
   { key: 'menu', label: 'Menu', icon: LuUtensils },
   { key: 'staff', label: 'Staff', icon: LuUsers },
+  { key: 'payments', label: 'Payments', icon: LuWallet },
   { key: 'tables', label: 'Tables', icon: LuLayoutGrid },
   { key: 'settings', label: 'Settings', icon: LuSettings },
 ]
@@ -41,6 +44,7 @@ const SECTION_TITLE: Record<Section, { title: string; subtitle: string }> = {
   reports: { title: 'Reports', subtitle: 'Daily sales and best sellers' },
   menu: { title: 'Menu Management', subtitle: 'Categories, items, prices and availability' },
   staff: { title: 'Staff', subtitle: 'Accounts, roles and PIN access' },
+  payments: { title: 'Payment Methods', subtitle: 'Journals shown on the cashier Payment screen' },
   tables: { title: 'Tables', subtitle: 'Floor layout and table setup' },
   settings: { title: 'Settings', subtitle: 'Store details, tax and preferences' },
 }
@@ -120,6 +124,7 @@ export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout
           {section === 'reports' && <AdminReports />}
           {section === 'menu' && <AdminMenu />}
           {section === 'staff' && <AdminStaff />}
+          {section === 'payments' && <AdminPaymentMethods />}
           {section === 'tables' && (
             <Placeholder
               icon={LuLayoutGrid}

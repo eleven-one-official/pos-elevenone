@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   LuArrowLeftRight,
   LuChevronLeft,
@@ -6,6 +6,7 @@ import {
   LuChevronsRight,
   LuClipboardList,
   LuDelete,
+  LuLoaderCircle,
   LuLock,
   LuPower,
   LuRefreshCw,
@@ -13,6 +14,11 @@ import {
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import { useSettings } from '../../hooks/useSettings'
+import {
+  DEFAULT_PAYMENT_METHODS,
+  fetchActivePaymentMethods,
+  type PaymentMethodRow,
+} from '../../services/api/paymentMethods'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { PosTable } from './TableFloorPage'
 import type { PayMethodBackend } from '../../services/api/payments'
@@ -20,13 +26,6 @@ import type { PayMethodBackend } from '../../services/api/payments'
 // ---------------------------------------------------------------------------
 // Payment methods
 // ---------------------------------------------------------------------------
-
-type PayMethod = {
-  id: string
-  name: string
-  /** Which backend channel this journal records against (payments enum). */
-  backend: PayMethodBackend
-}
 
 /** One tender to record on the backend, grouped by backend channel. */
 export type Tender = { method: PayMethodBackend; amount: number }
@@ -43,18 +42,6 @@ export type PaymentResult = {
   /** Amounts to record, grouped by backend channel and capped to the bill. */
   tenders: Tender[]
 }
-
-// Venue payment journals mapped onto the backend's payment channels. Names are
-// still placeholders; the `backend` field is what actually gets recorded.
-const METHODS: PayMethod[] = [
-  { id: 'cash-usd', name: 'Cash USD', backend: 'cash' },
-  { id: 'cash-khr', name: 'Cash KHR', backend: 'cash' },
-  { id: 'nham24-cash', name: 'NHAM24Cash', backend: 'cash' },
-  { id: 'wrong-order-dish', name: 'Wrong Order Dish', backend: 'cash' },
-  { id: 'bloc-cash', name: 'Bloc Cash', backend: 'cash' },
-  { id: 'aba-pay', name: 'ABA PAY', backend: 'aba_qr' },
-  { id: 'abanham24', name: 'ABANHAM24', backend: 'aba_qr' },
-]
 
 const usd = (n: number) => `$ ${n.toFixed(2)}`
 const khr = (n: number) => `៛ ${Math.round(n).toLocaleString('en-US')}`
@@ -87,17 +74,47 @@ export default function PaymentPage({
   onBack: () => void
   onValidate: (result: PaymentResult) => void
 }) {
-  // Odoo pre-fills the first tender with the full amount due, so the screen
-  // opens fully settled ($0.00 due). Editing a method overrides its amount.
-  const [amounts, setAmounts] = useState<Record<string, number>>({ [METHODS[0].id]: total })
-  const [selectedId, setSelectedId] = useState<string>(METHODS[0].id)
+  const [methods, setMethods] = useState<PaymentMethodRow[] | null>(null)
+  const [amounts, setAmounts] = useState<Record<number, number>>({})
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [entry, setEntry] = useState<string | null>(null)
   const { khrRate } = useSettings()
+
+  // Load the venue's active payment journals once, falling back to a built-in
+  // set if the server can't be reached. Odoo-style, the first journal is
+  // pre-filled with the full amount due so the screen opens settled.
+  useEffect(() => {
+    let alive = true
+    fetchActivePaymentMethods()
+      .then((list) => (list.length ? list : DEFAULT_PAYMENT_METHODS))
+      .catch(() => DEFAULT_PAYMENT_METHODS)
+      .then((list) => {
+        if (!alive) return
+        setMethods(list)
+        setSelectedId(list[0].id)
+        setAmounts({ [list[0].id]: total })
+      })
+    return () => {
+      alive = false
+    }
+  }, [total])
 
   const tendered = useMemo(
     () => Object.values(amounts).reduce((sum, n) => sum + n, 0),
     [amounts],
   )
+
+  if (!methods || selectedId === null) {
+    return (
+      <div className="flex h-screen items-center justify-center gap-2 bg-[#f3f4f6] text-neutral-400">
+        <LuLoaderCircle className="h-6 w-6 animate-spin" />
+        Loading payment methods…
+      </div>
+    )
+  }
+
+  const methodList = methods
+  const selected = selectedId
   const remaining = Math.max(0, total - tendered)
   const change = Math.max(0, tendered - total)
   const settled = remaining <= 0.001
@@ -107,7 +124,7 @@ export default function PaymentPage({
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   const orders = table.orders
 
-  function selectMethod(id: string) {
+  function selectMethod(id: number) {
     setSelectedId(id)
     setEntry(null)
     // Auto-assign the outstanding balance to a freshly picked tender.
@@ -122,11 +139,11 @@ export default function PaymentPage({
   function commit(next: string) {
     setEntry(next)
     const parsed = Number(next)
-    setAmounts((prev) => ({ ...prev, [selectedId]: Number.isFinite(parsed) ? parsed : 0 }))
+    setAmounts((prev) => ({ ...prev, [selected]: Number.isFinite(parsed) ? parsed : 0 }))
   }
 
   function pressKey(key: string) {
-    const current = entry ?? String(amounts[selectedId] ?? 0)
+    const current = entry ?? String(amounts[selected] ?? 0)
 
     if (key === 'del') return commit(current.slice(0, -1) || '0')
     if (key === '+/-') return commit(current.startsWith('-') ? current.slice(1) : `-${current}`)
@@ -144,11 +161,11 @@ export default function PaymentPage({
   // Hand the settled bill to the order flow so it can print the receipt and
   // record the money on the backend.
   function validate() {
-    const used = METHODS.filter((m) => amounts[m.id] != null && amounts[m.id] !== 0)
+    const used = methodList.filter((m) => amounts[m.id] != null && amounts[m.id] !== 0)
     // Group the entered tenders by backend channel, then cap them to the bill so
     // recorded revenue equals the total due (any cash overpay is change, not sales).
     const grouped = new Map<PayMethodBackend, number>()
-    for (const m of used) grouped.set(m.backend, (grouped.get(m.backend) ?? 0) + amounts[m.id])
+    for (const m of used) grouped.set(m.channel, (grouped.get(m.channel) ?? 0) + amounts[m.id])
     const tenders: Tender[] = []
     let left = total
     for (const [method, amount] of grouped) {
@@ -157,7 +174,7 @@ export default function PaymentPage({
       left = Math.max(0, left - amount)
     }
     onValidate({
-      methodName: used.length ? used.map((m) => m.name).join(' + ') : METHODS[0].name,
+      methodName: used.length ? used.map((m) => m.label).join(' + ') : methodList[0].label,
       cashReceived: tendered,
       change,
       tenders,
@@ -268,23 +285,23 @@ export default function PaymentPage({
       <div className="flex flex-1 overflow-hidden">
         {/* Left — payment methods */}
         <div className="w-[42%] min-w-[380px] overflow-y-auto border-r border-neutral-200 bg-white">
-          {METHODS.map((method) => {
+          {methodList.map((method) => {
             const amount = amounts[method.id]
-            const selected = method.id === selectedId
+            const isSelected = method.id === selected
             return (
               <button
                 key={method.id}
                 type="button"
                 onClick={() => selectMethod(method.id)}
                 className={`flex w-full items-center gap-4 border-b border-neutral-100 px-5 py-5 text-left transition ${
-                  selected
+                  isSelected
                     ? 'border-l-4 border-l-emerald-500 bg-emerald-50'
                     : 'border-l-4 border-l-transparent hover:bg-neutral-50'
                 }`}
               >
-                <span className="flex-1 text-lg font-medium text-neutral-800">{method.name}</span>
+                <span className="flex-1 text-lg font-medium text-neutral-800">{method.label}</span>
                 {amount != null && amount !== 0 && (
-                  <span className={`text-lg font-bold ${selected ? 'text-emerald-700' : 'text-neutral-500'}`}>
+                  <span className={`text-lg font-bold ${isSelected ? 'text-emerald-700' : 'text-neutral-500'}`}>
                     {usd(amount)}
                   </span>
                 )}
