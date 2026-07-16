@@ -81,7 +81,12 @@ export default function WaiterOrderPage({
 
   const [activeTable, setActiveTable] = useState<PosTable>(table)
   const [guestCount, setGuestCount] = useState(table.guests > 0 ? table.guests : 2)
-  const [dialog, setDialog] = useState<DialogKind>(null)
+  // Dine-in tables must have a guest count before the menu opens: the popup
+  // fires as soon as the table is entered, and cancelling it goes back to the
+  // floor. Takeaway has no seated guests, so it skips straight to the menu.
+  const askGuestsOnEntry = table.section !== 'takeaway' && !(table.guests > 0)
+  const [guestsSet, setGuestsSet] = useState(!askGuestsOnEntry)
+  const [dialog, setDialog] = useState<DialogKind>(askGuestsOnEntry ? 'guests' : null)
   const [toast, setToast] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
@@ -215,6 +220,7 @@ export default function WaiterOrderPage({
 
   function applyGuests(value: number) {
     setGuestCount(Math.max(1, value))
+    setGuestsSet(true)
     closeDialog()
     notify(`Guests set to ${Math.max(1, value)}`)
   }
@@ -652,7 +658,7 @@ export default function WaiterOrderPage({
           min={1}
           suffix="guests"
           confirmLabel="Set Guests"
-          onClose={closeDialog}
+          onClose={guestsSet ? closeDialog : onBack}
           onConfirm={applyGuests}
         />
       )}

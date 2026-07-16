@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LuArrowLeftRight,
   LuChevronLeft,
   LuChevronsLeft,
   LuChevronsRight,
+  LuCircleX,
   LuClipboardList,
   LuDelete,
+  LuFileText,
   LuLock,
   LuPower,
   LuRefreshCw,
+  LuUser,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import { LoadingState } from '../../components/ui/Loader'
@@ -50,18 +53,24 @@ export type PaymentResult = {
 }
 
 const usd = (n: number) => `$ ${n.toFixed(2)}`
-const khr = (n: number) => `៛ ${Math.round(n).toLocaleString('en-US')}`
+const khr = (n: number) => `${Math.round(n).toLocaleString('en-US')} ៛`
+
+// A tender line the cashier has opened by tapping a method — Odoo-style: the
+// bill can be split across several lines, each editable from the numpad.
+type TenderLine = { uid: number; methodId: number; amount: number }
 
 // ---------------------------------------------------------------------------
 // Numpad
 // ---------------------------------------------------------------------------
 
 const NUMPAD: string[] = [
-  '1', '2', '3',
-  '4', '5', '6',
-  '7', '8', '9',
-  '+/-', '0', 'del',
+  '1', '2', '3', '+10',
+  '4', '5', '6', '+20',
+  '7', '8', '9', '+50',
+  '+/-', '0', '.', 'del',
 ]
+
+const QUICK_KEYS = new Set(['+10', '+20', '+50'])
 
 // ---------------------------------------------------------------------------
 // Page
@@ -81,9 +90,10 @@ export default function PaymentPage({
   onValidate: (result: PaymentResult) => void
 }) {
   const [methods, setMethods] = useState<PaymentMethodRow[] | null>(null)
-  const [amounts, setAmounts] = useState<Record<number, number>>({})
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [lines, setLines] = useState<TenderLine[]>([])
+  const [selectedUid, setSelectedUid] = useState<number | null>(null)
   const [entry, setEntry] = useState<string | null>(null)
+  const uidRef = useRef(1)
   const { khrRate } = useSettings()
 
   // Load the venue's active payment journals once, falling back to a built-in
@@ -96,14 +106,13 @@ export default function PaymentPage({
       .then((list) => {
         if (!alive) return
         setMethods(list)
-        setSelectedId(list[0].id)
       })
     return () => {
       alive = false
     }
   }, [total])
 
-  if (!methods || selectedId === null) {
+  if (!methods) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#f3f4f6]">
         <LoadingState label="Loading payment methods…" />
@@ -112,55 +121,81 @@ export default function PaymentPage({
   }
 
   const methodList = methods
-  const selected = selectedId
-
-  // Whichever method is selected implicitly tenders the outstanding due, so
-  // every method opens showing the full amount to collect. Typing overrides it.
-  const othersTendered = methodList.reduce(
-    (sum, m) => (m.id === selected || amounts[m.id] == null ? sum : sum + amounts[m.id]),
-    0,
-  )
-  const entered = amounts[selected] ?? Math.max(0, total - othersTendered)
-  const tendered = othersTendered + entered
+  const tendered = lines.reduce((sum, l) => sum + l.amount, 0)
   const remaining = Math.max(0, total - tendered)
   const change = Math.max(0, tendered - total)
   const settled = remaining <= 0.001
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   const orders = table.orders
+  const methodLabel = (id: number) => methodList.find((m) => m.id === id)?.label ?? '—'
 
-  function selectMethod(id: number) {
-    setSelectedId(id)
+  // Tapping a method opens a tender line prefilled with what's still owed;
+  // tapping one that's already open just re-selects its line for editing.
+  function addMethod(method: PaymentMethodRow) {
+    const existing = lines.find((l) => l.methodId === method.id)
+    if (existing) {
+      setSelectedUid(existing.uid)
+      setEntry(null)
+      return
+    }
+    const uid = uidRef.current++
+    setLines((prev) => [...prev, { uid, methodId: method.id, amount: remaining }])
+    setSelectedUid(uid)
     setEntry(null)
+  }
+
+  function selectLine(uid: number) {
+    setSelectedUid(uid)
+    setEntry(null)
+  }
+
+  function removeLine(uid: number) {
+    setLines((prev) => prev.filter((l) => l.uid !== uid))
+    if (selectedUid === uid) {
+      setSelectedUid(null)
+      setEntry(null)
+    }
   }
 
   function commit(next: string) {
     setEntry(next)
     const parsed = Number(next)
-    setAmounts((prev) => ({ ...prev, [selected]: Number.isFinite(parsed) ? parsed : 0 }))
+    setLines((prev) =>
+      prev.map((l) =>
+        l.uid === selectedUid ? { ...l, amount: Number.isFinite(parsed) ? parsed : 0 } : l,
+      ),
+    )
   }
 
   function pressKey(key: string) {
-    const current = entry ?? String(entered)
+    const line = lines.find((l) => l.uid === selectedUid)
+    if (!line) return
+    const current = entry ?? String(line.amount)
 
+    if (QUICK_KEYS.has(key)) {
+      const bumped = (Number(current) || 0) + Number(key.slice(1))
+      return commit(String(Math.round(bumped * 100) / 100))
+    }
     if (key === 'del') return commit(current.slice(0, -1) || '0')
     if (key === '+/-') return commit(current.startsWith('-') ? current.slice(1) : `-${current}`)
     if (key === '.') return commit(current.includes('.') ? current : `${current}.`)
-    // Digit — the first press after selecting a method replaces the prefill.
+    // Digit — the first press after opening/selecting a line replaces the prefill.
     return commit((entry === null ? '' : current) + key)
   }
 
   // Hand the settled bill to the order flow so it can print the receipt and
   // record the money on the backend.
   function validate() {
-    // The selected method's implicit tender counts alongside the typed ones.
-    const effective: Record<number, number> = { ...amounts, [selected]: entered }
-    let used = methodList.filter((m) => effective[m.id] != null && effective[m.id] !== 0)
-    // A zero-total bill tenders nothing; still name the selected method.
-    if (used.length === 0) used = methodList.filter((m) => m.id === selected)
+    // Merge split lines per method for the receipt and the method name.
+    const byMethod = new Map<number, number>()
+    for (const l of lines) byMethod.set(l.methodId, (byMethod.get(l.methodId) ?? 0) + l.amount)
+    let used = methodList.filter((m) => (byMethod.get(m.id) ?? 0) !== 0)
+    // A zero-total bill tenders nothing; still name a method for the record.
+    if (used.length === 0) used = methodList.slice(0, 1)
     // Group the entered tenders by backend channel, then cap them to the bill so
     // recorded revenue equals the total due (any cash overpay is change, not sales).
     const grouped = new Map<PayMethodBackend, number>()
-    for (const m of used) grouped.set(m.channel, (grouped.get(m.channel) ?? 0) + effective[m.id])
+    for (const m of used) grouped.set(m.channel, (grouped.get(m.channel) ?? 0) + (byMethod.get(m.id) ?? 0))
     const tenders: Tender[] = []
     let left = total
     for (const [method, amount] of grouped) {
@@ -177,7 +212,7 @@ export default function PaymentPage({
       // tender in riel instead of dollars.
       paid: used.map((m) => ({
         label: m.label,
-        amount: effective[m.id] ?? 0,
+        amount: byMethod.get(m.id) ?? 0,
         isCash: m.channel === 'cash',
         inKhr: m.channel === 'cash' && /khr|riel/i.test(m.label),
       })),
@@ -275,7 +310,7 @@ export default function PaymentPage({
           disabled={!settled}
           className={`flex items-center gap-1.5 rounded-lg px-5 py-2.5 font-semibold text-white shadow-sm transition ${
             settled
-              ? 'bg-[#2b2138] hover:bg-[#37294a]'
+              ? 'bg-emerald-600 hover:bg-emerald-700'
               : 'cursor-not-allowed bg-neutral-300 text-neutral-500'
           }`}
         >
@@ -286,68 +321,121 @@ export default function PaymentPage({
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left — payment methods */}
-        <div className="w-[42%] min-w-[380px] overflow-y-auto border-r border-neutral-200 bg-white">
-          {methodList.map((method) => {
-            const isSelected = method.id === selected
-            return (
+        {/* Left — open tender lines on top, then the method list */}
+        <div className="flex w-[36%] min-w-[360px] flex-col overflow-y-auto border-r border-neutral-200 bg-neutral-100">
+          {lines.length > 0 && (
+            <div className="mb-2 bg-white shadow-sm">
+              {lines.map((line) => {
+                const isSelected = line.uid === selectedUid
+                return (
+                  <div
+                    key={line.uid}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => selectLine(line.uid)}
+                    onKeyDown={(e) => e.key === 'Enter' && selectLine(line.uid)}
+                    className={`flex cursor-pointer items-center justify-between gap-3 border-b border-neutral-100 py-4 pl-4 pr-3 transition ${
+                      isSelected
+                        ? 'border-l-4 border-l-emerald-500 bg-emerald-50'
+                        : 'border-l-4 border-l-transparent hover:bg-neutral-50'
+                    }`}
+                  >
+                    <span className="text-lg font-semibold text-neutral-800">
+                      {methodLabel(line.methodId)}
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="text-lg font-semibold tabular-nums text-neutral-900">
+                        {line.amount.toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeLine(line.uid)
+                        }}
+                        className="rounded-full p-1 text-neutral-400 transition hover:bg-rose-50 hover:text-rose-500"
+                      >
+                        <LuCircleX className="h-6 w-6" />
+                      </button>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="flex-1 bg-white">
+            {methodList.map((method) => (
               <button
                 key={method.id}
                 type="button"
-                onClick={() => selectMethod(method.id)}
-                className={`flex w-full items-center gap-4 border-b border-neutral-100 px-5 py-5 text-left transition ${
-                  isSelected
-                    ? 'border-l-4 border-l-emerald-500 bg-emerald-50'
-                    : 'border-l-4 border-l-transparent hover:bg-neutral-50'
-                }`}
+                onClick={() => addMethod(method)}
+                className="flex w-full items-center gap-4 border-b border-neutral-100 px-5 py-5 text-left transition hover:bg-neutral-50"
               >
                 <span className="flex-1 text-lg font-medium text-neutral-800">{method.label}</span>
               </button>
-            )
-          })}
-        </div>
-
-        {/* Right — amount due + numpad */}
-        <div className="flex flex-1 flex-col overflow-y-auto p-6">
-          {/* Amount due — shows the tender entered for the selected method */}
-          <div className="flex flex-col items-center justify-center py-6">
-            <p className="text-lg font-semibold text-neutral-500">Amount Due</p>
-            <p className={`mt-1 text-6xl font-bold ${settled ? 'text-emerald-600' : 'text-neutral-900'}`}>
-              {usd(entered)}
-            </p>
-            <p className="my-2 text-lg text-neutral-400">Or</p>
-            <p className={`text-5xl font-bold ${settled ? 'text-emerald-600/80' : 'text-neutral-700'}`}>
-              {khr(entered * khrRate)}
-            </p>
-          </div>
-
-          {/* Numpad */}
-          <div className="mx-auto grid w-full max-w-2xl flex-1 grid-cols-3 gap-3 pt-4">
-            {NUMPAD.map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => pressKey(key)}
-                className="flex min-h-[64px] items-center justify-center rounded-xl border border-neutral-200 bg-white text-2xl font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50 active:scale-[0.98]"
-              >
-                {key === 'del' ? <LuDelete className="h-7 w-7" /> : key}
-              </button>
             ))}
           </div>
+        </div>
 
-          {/* Running tally */}
-          <div className="mx-auto mt-4 flex w-full max-w-2xl items-center justify-between text-sm text-neutral-500">
-            <span>Order Total {usd(total)}</span>
-            <span className="flex items-center gap-4">
-              {change > 0.001 && (
-                <span>
-                  Change <span className="font-semibold text-amber-600">{usd(change)}</span>
+        {/* Right — totals, numpad and actions */}
+        <div className="flex flex-1 flex-col overflow-y-auto p-6">
+          {/* Remaining / Total Due on the left, Change on the right */}
+          <div className="flex items-start justify-between px-2 pb-6">
+            <div>
+              <p className={`text-4xl font-bold ${settled ? 'text-emerald-600' : 'text-neutral-900'}`}>
+                Remaining {usd(remaining)}
+              </p>
+              <p className="mt-2 text-xl font-medium text-neutral-600">Total Due {usd(total)}</p>
+              <p className="mt-1 text-lg text-neutral-500">Total Due (KHR): {khr(total * khrRate)}</p>
+            </div>
+            <div className="text-right">
+              <p className={`text-4xl font-bold ${change > 0.001 ? 'text-amber-600' : 'text-neutral-900'}`}>
+                Change {usd(change)}
+              </p>
+              <p className="mt-1 text-lg text-neutral-500">Change (KHR) {khr(change * khrRate)}</p>
+            </div>
+          </div>
+
+          {/* Numpad + side actions */}
+          <div className="mx-auto flex w-full max-w-4xl flex-1 items-start justify-center gap-6 pt-2">
+            <div className="grid w-full max-w-xl grid-cols-4 gap-2">
+              {NUMPAD.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => pressKey(key)}
+                  className={`flex min-h-[64px] items-center justify-center rounded-xl border border-neutral-200 shadow-sm transition active:scale-[0.98] ${
+                    QUICK_KEYS.has(key) || key === '+/-' || key === '.' || key === 'del'
+                      ? 'bg-neutral-50 text-xl font-semibold text-neutral-600 hover:bg-neutral-100'
+                      : 'bg-white text-2xl font-semibold text-neutral-800 hover:bg-neutral-50'
+                  }`}
+                >
+                  {key === 'del' ? <LuDelete className="h-7 w-7" /> : key}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex w-56 shrink-0 flex-col gap-3">
+              <button
+                type="button"
+                className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-sm transition hover:bg-neutral-50"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-600">
+                  <LuUser className="h-5 w-5" />
                 </span>
-              )}
-              <span>
-                Paid <span className="font-semibold text-neutral-700">{usd(tendered)}</span>
-              </span>
-            </span>
+                <span className="font-semibold text-neutral-700">Customer</span>
+              </button>
+              <button
+                type="button"
+                className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-sm transition hover:bg-neutral-50"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-600">
+                  <LuFileText className="h-5 w-5" />
+                </span>
+                <span className="font-semibold text-neutral-700">Invoice</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
