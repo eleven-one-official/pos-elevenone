@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Order;
 use App\Models\Table;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -10,10 +11,22 @@ class TableController extends Controller
 {
     /**
      * List tables. Filter by ?type= and ?status=.
+     *
+     * Each row carries `guest_count` from the table's open order (newest of
+     * new/preparing/ready/served, matching the POS's idea of the live bill),
+     * or null when the table has no running order.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Table::query()->orderBy('name');
+        $query = Table::query()
+            ->orderBy('name')
+            ->addSelect([
+                'guest_count' => Order::select('guest_count')
+                    ->whereColumn('table_id', 'tables.id')
+                    ->whereIn('status', ['new', 'preparing', 'ready', 'served'])
+                    ->latest('id')
+                    ->limit(1),
+            ]);
 
         if ($request->filled('type')) {
             $query->where('type', $request->string('type'));

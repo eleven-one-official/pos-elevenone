@@ -14,6 +14,8 @@ export type ApiTable = {
   type: TableType
   capacity: number
   status: TableStatus
+  /** Guests on the table's open order; null when no order is running. */
+  guest_count?: number | null
 }
 
 // The backend only models physical tables (normal/vip); take-away is an order
@@ -28,7 +30,7 @@ function toPosTable(t: ApiTable): PosTable {
     backendId: t.id,
     label: t.name,
     seats: t.capacity,
-    guests: 0, // the backend doesn't track seated guests yet
+    guests: t.guest_count ?? 0,
     orders: t.status === 'occupied' ? 1 : 0, // occupied → show the corner badge
     section: t.type === 'vip' ? 'vip' : 'dine-in',
   }
