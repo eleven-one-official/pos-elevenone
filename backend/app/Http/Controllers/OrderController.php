@@ -44,6 +44,7 @@ class OrderController extends Controller
         $data = $request->validate([
             'order_type' => ['required', 'in:dine_in,take_away,delivery'],
             'table_id' => ['nullable', 'required_if:order_type,dine_in', 'exists:tables,id'],
+            'guest_count' => ['nullable', 'integer', 'min:0'],
             'discount' => ['nullable', 'numeric', 'min:0'],
             'tax' => ['nullable', 'numeric', 'min:0'],
             'note' => ['nullable', 'string'],
@@ -60,6 +61,7 @@ class OrderController extends Controller
                 'table_id' => $data['table_id'] ?? null,
                 'user_id' => $request->user()?->id,
                 'status' => 'new',
+                'guest_count' => $data['guest_count'] ?? 0,
                 'discount' => $data['discount'] ?? 0,
                 'tax' => $data['tax'] ?? 0,
                 'note' => $data['note'] ?? null,
@@ -111,6 +113,7 @@ class OrderController extends Controller
             'status' => ['sometimes', 'in:new,preparing,ready,served,completed,cancelled'],
             'order_type' => ['sometimes', 'in:dine_in,take_away,delivery'],
             'table_id' => ['nullable', 'exists:tables,id'],
+            'guest_count' => ['nullable', 'integer', 'min:0'],
             'discount' => ['nullable', 'numeric', 'min:0'],
             'tax' => ['nullable', 'numeric', 'min:0'],
             'note' => ['nullable', 'string'],
@@ -121,7 +124,7 @@ class OrderController extends Controller
         ]);
 
         DB::transaction(function () use ($data, $order) {
-            $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'discount', 'tax', 'note'])->all());
+            $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'guest_count', 'discount', 'tax', 'note'])->all());
             $order->save();
 
             if (array_key_exists('items', $data)) {

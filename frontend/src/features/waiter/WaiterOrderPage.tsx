@@ -6,13 +6,10 @@ import {
   LuDelete,
   LuHouse,
   LuInfo,
-  LuMinus,
   LuNotebookPen,
-  LuPlus,
   LuRefreshCw,
   LuSearch,
   LuStickyNote,
-  LuTrash2,
   LuUsers,
   LuUtensils,
 } from 'react-icons/lu'
@@ -33,7 +30,13 @@ import {
   type Product,
 } from '../pos/catalog'
 import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
-import { createOrder, updateOrder, type OrderPayload } from '../../services/api/orders'
+import {
+  createOrder,
+  fetchOpenOrderForTable,
+  orderToLines,
+  updateOrder,
+  type OrderPayload,
+} from '../../services/api/orders'
 import { useMenu } from '../../hooks/useMenu'
 import { useTables } from '../../hooks/useTables'
 import type { PosTable } from '../pos/TableFloorPage'
@@ -84,9 +87,13 @@ export default function WaiterOrderPage({
   // Dine-in tables must have a guest count before the menu opens: the popup
   // fires as soon as the table is entered, and cancelling it goes back to the
   // floor. Takeaway has no seated guests, so it skips straight to the menu.
+  // Real tables first load any open order — when it carries a saved guest
+  // count that answers the question, so the popup only fires when it doesn't.
   const askGuestsOnEntry = table.section !== 'takeaway' && !(table.guests > 0)
   const [guestsSet, setGuestsSet] = useState(!askGuestsOnEntry)
-  const [dialog, setDialog] = useState<DialogKind>(askGuestsOnEntry ? 'guests' : null)
+  const [dialog, setDialog] = useState<DialogKind>(
+    askGuestsOnEntry && table.backendId == null ? 'guests' : null,
+  )
   const [toast, setToast] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
@@ -98,12 +105,17 @@ export default function WaiterOrderPage({
   const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
   const { tables } = useTables()
 
-  // Backend order — created on the first "Send to Kitchen", updated after that.
+  // Backend order — the table's open order when there is one, otherwise
+  // created on the first "Send to Kitchen" and updated after that.
   const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
   // Local placeholder until the backend issues the real order number.
   const [orderNo, setOrderNo] = useState(() =>
     String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
   )
+  // Take-away slots are synthetic (no backend id), so they never carry an order.
+  const [loadingOrder, setLoadingOrder] = useState(table.backendId != null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + lineNet(l), 0), [lines])
   const itemCount = useMemo(() => lines.reduce((sum, l) => sum + l.qty, 0), [lines])
@@ -115,6 +127,51 @@ export default function WaiterOrderPage({
     const t = setTimeout(() => setToast(null), 2200)
     return () => clearTimeout(t)
   }, [toast])
+
+  // Pick up whatever is already running on this table — an order this waiter
+  // or another station fired earlier — so re-entering an occupied table shows
+  // the guest's items instead of a blank order. The saved guest count comes
+  // back with it; the guests popup only fires when there is none on record.
+  useEffect(() => {
+    const tableId = table.backendId
+    if (tableId == null) return
+    let alive = true
+    fetchOpenOrderForTable(tableId)
+      .then((order) => {
+        if (!alive) return
+        if (order) {
+          setBackendOrderId(order.id)
+          setOrderNo(order.order_number)
+          setLines(orderToLines(order))
+          // These items were already fired — the button re-arms on any change.
+          setSent(true)
+          setToast(`Loaded order #${order.order_number}`)
+        }
+        if (order && order.guest_count > 0) {
+          setGuestCount(order.guest_count)
+          setGuestsSet(true)
+        } else if (askGuestsOnEntry) {
+          setDialog('guests')
+        }
+      })
+      .catch(() => {
+        // Opening a blank order on a seated table would fork the guest's
+        // bill, so make the failure loud rather than starting from empty.
+        if (alive) setLoadError('Could not load this table’s order. Check the connection and retry.')
+      })
+      .finally(() => {
+        if (alive) setLoadingOrder(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [table.backendId, reloadKey])
+
+  function retryLoad() {
+    setLoadError(null)
+    setLoadingOrder(true)
+    setReloadKey((k) => k + 1)
+  }
 
   const visibleProducts = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -149,16 +206,6 @@ export default function WaiterOrderPage({
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
   }
 
-  // Inline +/- stepper on each line (clamped at 1 — removing uses the trash).
-  function bump(id: string, delta: number) {
-    setLines((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, qty: Math.max(1, l.qty + delta) } : l)),
-    )
-    setSelectedId(id)
-    setEntry(null)
-    setSent(false)
-  }
-
   function removeLine(id: string) {
     setLines((prev) => prev.filter((l) => l.id !== id))
     if (selectedId === id) setSelectedId(null)
@@ -178,6 +225,9 @@ export default function WaiterOrderPage({
     setEntry(next)
     let parsed = Math.floor(Number(next))
     if (!Number.isFinite(parsed) || parsed < 0) parsed = 0
+    // A quantity of zero means the item is gone — drop the line instead of
+    // leaving a 0-qty ghost row on screen.
+    if (parsed === 0) return removeLine(selectedLine.id)
     updateLine(selectedLine.id, { qty: parsed })
     setSent(false)
   }
@@ -219,10 +269,15 @@ export default function WaiterOrderPage({
   }
 
   function applyGuests(value: number) {
-    setGuestCount(Math.max(1, value))
+    const guests = Math.max(1, value)
+    setGuestCount(guests)
     setGuestsSet(true)
     closeDialog()
-    notify(`Guests set to ${Math.max(1, value)}`)
+    notify(`Guests set to ${guests}`)
+    // Best effort: keep the saved order's guest count in sync right away.
+    if (backendOrderId != null) {
+      void updateOrder(backendOrderId, { guest_count: guests }).catch(() => {})
+    }
   }
 
   function transferTo(t: PosTable) {
@@ -255,6 +310,7 @@ export default function WaiterOrderPage({
       const payload: OrderPayload = {
         order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
         table_id: activeTable.backendId ?? null,
+        guest_count: guestCount,
         items: cook.map((l) => ({
           menu_item_id: Number(l.id),
           quantity: Math.max(1, Math.round(l.qty)),
@@ -312,6 +368,40 @@ export default function WaiterOrderPage({
   ]
 
   const initials = waiter.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
+
+  // Until the table's existing order is on screen, adding items would build a
+  // second order on top of the guest's — so hold the page.
+  if (loadingOrder || loadError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-[#f3f4f6]">
+        {loadError ? (
+          <>
+            <p className="text-sm text-rose-500">{loadError}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+              >
+                <LuChevronLeft className="h-4 w-4" />
+                Back to Tables
+              </button>
+              <button
+                type="button"
+                onClick={retryLoad}
+                className="flex items-center gap-2 rounded-lg bg-[#2b2138] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#37294a]"
+              >
+                <LuRefreshCw className="h-4 w-4" />
+                Retry
+              </button>
+            </div>
+          </>
+        ) : (
+          <LoadingState label={`Opening ${table.label}…`} />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen flex-col bg-[#f3f4f6]">
@@ -378,50 +468,15 @@ export default function WaiterOrderPage({
                       ) : null}
                     </div>
 
-                    {/* Quantity stepper */}
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          bump(line.id, -1)
-                        }}
-                        aria-label="Decrease quantity"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 transition hover:bg-neutral-100 active:scale-95"
-                      >
-                        <LuMinus className="h-4 w-4" />
-                      </button>
-                      <span className="w-8 text-center text-base font-bold tabular-nums text-neutral-800">
-                        {line.qty}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          bump(line.id, 1)
-                        }}
-                        aria-label="Increase quantity"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 transition hover:bg-neutral-100 active:scale-95"
-                      >
-                        <LuPlus className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {/* Quantity (edited via the numpad) */}
+                    <span className="w-8 shrink-0 text-center text-base font-bold tabular-nums text-neutral-800">
+                      {line.qty}
+                    </span>
 
                     <span className="w-16 shrink-0 text-right font-semibold text-neutral-800">
                       {money(lineNet(line))}
                     </span>
 
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        removeLine(line.id)
-                      }}
-                      aria-label="Remove item"
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-300 transition hover:bg-rose-50 hover:text-rose-500"
-                    >
-                      <LuTrash2 className="h-4.5 w-4.5" />
-                    </button>
                   </div>
                 )
               })

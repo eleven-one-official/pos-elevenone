@@ -14,6 +14,7 @@ class Order extends Model
         'table_id',
         'user_id',
         'status',
+        'guest_count',
         'subtotal',
         'discount',
         'tax',
@@ -24,6 +25,7 @@ class Order extends Model
     protected function casts(): array
     {
         return [
+            'guest_count' => 'integer',
             'subtotal' => 'decimal:2',
             'discount' => 'decimal:2',
             'tax' => 'decimal:2',

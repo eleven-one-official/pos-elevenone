@@ -40,7 +40,7 @@ export async function fetchFloorTables(): Promise<PosTable[]> {
 
   const takeaway: PosTable[] = Array.from({ length: TAKEAWAY_SLOTS }, (_, i) => ({
     id: `ta-${i + 1}`,
-    label: `TA${i + 1}`,
+    label: `T${i + 1}`,
     seats: 0,
     guests: 0,
     orders: 0,

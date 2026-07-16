@@ -36,8 +36,8 @@ import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/
 import {
   createOrder,
   fetchOpenOrderForTable,
+  orderToLines,
   updateOrder,
-  type ApiOrder,
   type OrderPayload,
 } from '../../services/api/orders'
 import { recordPayment } from '../../services/api/payments'
@@ -63,42 +63,6 @@ import {
 // ---------------------------------------------------------------------------
 
 type NumpadMode = 'qty' | 'disc' | 'price'
-
-/**
- * Rebuild editable order lines from a saved order. The backend keeps one
- * order-level discount rather than per-line ones, and the POS only ever applies
- * a uniform "Discount All", so spreading it back as a flat percentage restores
- * the same total. Lines whose product has since been deleted carry no
- * menu_item_id and can no longer be re-sent, so they are dropped.
- */
-function orderToLines(order: ApiOrder): OrderLine[] {
-  const items = order.items.filter((i) => i.menu_item_id != null)
-  const gross = items.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0)
-  const discount = Number(order.discount)
-  const percent = gross > 0 && discount > 0 ? (discount / gross) * 100 : 0
-
-  // The rest of the POS keys lines by product, so fold any duplicates together.
-  const byProduct = new Map<string, OrderLine>()
-  for (const item of items) {
-    const id = String(item.menu_item_id)
-    const existing = byProduct.get(id)
-    if (existing) {
-      existing.qty += item.quantity
-      existing.note ??= item.note ?? undefined
-      continue
-    }
-    byProduct.set(id, {
-      id,
-      name: item.name,
-      // Charge what the order was taken at, not today's menu price.
-      price: Number(item.price),
-      qty: item.quantity,
-      note: item.note ?? undefined,
-      discount: percent > 0 ? percent : undefined,
-    })
-  }
-  return [...byProduct.values()]
-}
 
 // Which popup is currently open (null = none).
 type DialogKind =
@@ -207,6 +171,7 @@ export default function OrderPage({
         setBackendOrderId(order.id)
         setOrderNo(order.order_number)
         setLines(orderToLines(order))
+        if (order.guest_count > 0) setGuestCount(order.guest_count)
         setToast(`Loaded order #${order.order_number}`)
       })
       .catch(() => {
@@ -282,6 +247,15 @@ export default function OrderPage({
     else if (key === '.') next = current.includes('.') ? current : `${current}.`
     else next = (entry === null ? '' : current) + key
 
+    // Backspacing the qty down to nothing means the item is gone — drop the
+    // line entirely instead of leaving a $0.00 ghost row on screen.
+    if (mode === 'qty' && key === 'del' && next === '') {
+      setLines((prev) => prev.filter((l) => l.id !== line.id))
+      setSelectedId(null)
+      setEntry(null)
+      return
+    }
+
     setEntry(next)
     let parsed = Number(next)
     if (!Number.isFinite(parsed)) parsed = 0
@@ -333,9 +307,14 @@ export default function OrderPage({
   }
 
   function applyGuests(value: number) {
-    setGuestCount(Math.max(1, value))
+    const guests = Math.max(1, value)
+    setGuestCount(guests)
     closeDialog()
-    notify(`Guests set to ${Math.max(1, value)}`)
+    notify(`Guests set to ${guests}`)
+    // Best effort: keep the saved order's guest count in sync right away.
+    if (backendOrderId != null) {
+      void updateOrder(backendOrderId, { guest_count: guests }).catch(() => {})
+    }
   }
 
   function applyDiscountAll(percent: number) {
@@ -389,6 +368,7 @@ export default function OrderPage({
     return {
       order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
       table_id: activeTable.backendId ?? null,
+      guest_count: guestCount,
       discount: Math.max(0, round2(grossPositive - subtotal)),
       tax: 0,
       items: cook.map((l) => ({

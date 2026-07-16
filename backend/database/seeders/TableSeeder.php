@@ -9,10 +9,10 @@ class TableSeeder extends Seeder
 {
     public function run(): void
     {
-        // Normal tables T1..T8
+        // Normal tables E1..E8
         for ($i = 1; $i <= 8; $i++) {
             Table::updateOrCreate(
-                ['name' => "T{$i}"],
+                ['name' => "E{$i}"],
                 ['type' => 'normal', 'capacity' => 4, 'status' => 'available']
             );
         }
