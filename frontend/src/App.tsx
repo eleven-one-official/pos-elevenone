@@ -47,7 +47,7 @@ export default function App() {
     setSession(null)
   }
 
-  // Once signed in, the store settings (tax rate, KHR rate, receipt store info)
+  // Once signed in, the store settings (KHR rate, receipt store info)
   // are loaded once and shared with every side below.
   function renderSide(active: Session) {
     if (active.role === 'admin') {

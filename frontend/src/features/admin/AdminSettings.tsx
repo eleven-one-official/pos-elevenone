@@ -25,7 +25,6 @@ export default function AdminSettings() {
   const [address, setAddress] = useState(settings.storeAddress)
   const [phone, setPhone] = useState(settings.storePhone)
   const [khr, setKhr] = useState(String(settings.khrRate))
-  const [taxPct, setTaxPct] = useState(String(Math.round(settings.taxRate * 1000) / 10))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
@@ -34,10 +33,8 @@ export default function AdminSettings() {
     e.preventDefault()
     if (saving) return
     const khrNum = Number(khr)
-    const taxNum = Number(taxPct)
     if (!name.trim()) return setError('Store name is required.')
     if (!Number.isFinite(khrNum) || khrNum <= 0) return setError('Enter a valid KHR rate.')
-    if (!Number.isFinite(taxNum) || taxNum < 0 || taxNum > 100) return setError('Tax must be 0–100%.')
 
     setSaving(true)
     setError('')
@@ -48,7 +45,6 @@ export default function AdminSettings() {
         store_address: address.trim(),
         store_phone: phone.trim(),
         currency_khr_rate: khrNum,
-        tax_rate: Math.round((taxNum / 100) * 10000) / 10000,
       })
       settings.applySettings(next)
       setSaved(true)
@@ -79,19 +75,16 @@ export default function AdminSettings() {
           </div>
         </section>
 
-        {/* Currency & tax */}
+        {/* Currency */}
         <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-bold text-neutral-800">Currency &amp; Tax</h2>
+          <h2 className="mb-4 text-sm font-bold text-neutral-800">Currency</h2>
           <div className="grid grid-cols-2 gap-4">
             <Field label="KHR rate" hint="(riel per $1)">
               <input value={khr} onChange={(e) => setKhr(e.target.value)} inputMode="decimal" className={inputCls} />
             </Field>
-            <Field label="Tax rate" hint="(%)">
-              <input value={taxPct} onChange={(e) => setTaxPct(e.target.value)} inputMode="decimal" className={inputCls} />
-            </Field>
           </div>
           <p className="mt-3 text-xs text-neutral-400">
-            Tax applies to the net subtotal on every order and receipt.
+            Converts dollar totals to riel on the POS, payment screen and receipts.
           </p>
         </section>
 

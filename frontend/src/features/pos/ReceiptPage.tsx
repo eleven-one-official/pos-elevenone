@@ -89,7 +89,6 @@ export default function ReceiptPage({
   table,
   lines,
   orderNo,
-  taxRate,
   discount = 0,
   guests: guestsProp,
   customerName,
@@ -101,8 +100,6 @@ export default function ReceiptPage({
   table: PosTable
   lines: OrderLine[]
   orderNo: string
-  /** Tax rate applied to the subtotal (e.g. 0.1 for 10%). */
-  taxRate: number
   /** Extra flat discount on top of any per-line discounts. */
   discount?: number
   guests?: number
@@ -117,13 +114,11 @@ export default function ReceiptPage({
   const riel = (value: number) => `៛ ${Math.round(value * khrRate).toLocaleString('en-US')}`
 
   // Gross line totals ignore discounts; per-line discounts are summed into the
-  // Discount row so the printed bill reconciles line-by-line.
+  // Discount row so the printed bill reconciles line-by-line. No tax is charged.
   const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0)
   const lineDiscount = lines.reduce((sum, l) => sum + l.qty * l.price * ((l.discount ?? 0) / 100), 0)
   const discountTotal = lineDiscount + discount
-  const netSubtotal = subtotal - discountTotal
-  const taxes = netSubtotal * taxRate
-  const total = netSubtotal + taxes
+  const total = subtotal - discountTotal
 
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   const guests = guestsProp ?? (table.guests > 0 ? table.guests : 2)
@@ -297,10 +292,6 @@ export default function ReceiptPage({
           {/* Summary */}
           <div className="space-y-1.5 text-sm tabular-nums">
             <SummaryRow label="Subtotal" value={money(subtotal)} />
-            <SummaryRow
-              label={`Taxes (${Math.round(taxRate * 100)}%)`}
-              value={money(taxes)}
-            />
             <SummaryRow label="Discount" value={`− ${money(discountTotal)}`} />
           </div>
 
@@ -314,16 +305,21 @@ export default function ReceiptPage({
             </div>
           </div>
 
-          {/* Tender */}
+          {/* Tender — each amount prints in the currency the customer handed
+              over (riel cash in ៛, everything else in $), so a cash payment
+              always states which cash it was. */}
           <div className="mt-4 space-y-1.5 text-sm tabular-nums">
             <SummaryRow label="Paid By" value={payment.methodName} />
-            <div className="flex items-center justify-between">
-              <span className="text-neutral-500">Cash Received</span>
-              <span className="text-right">
-                <span className="font-medium text-neutral-800">{money(payment.cashReceived)}</span>
-                <span className="ml-2 text-neutral-400">{riel(payment.cashReceived)}</span>
-              </span>
-            </div>
+            {payment.paid.map((t, i) => (
+              <div key={`${t.label}-${i}`} className="flex items-center justify-between">
+                <span className="text-neutral-500">
+                  {payment.paid.length > 1 ? t.label : t.isCash ? 'Cash Received' : 'Amount Paid'}
+                </span>
+                <span className="font-medium text-neutral-800">
+                  {t.inKhr ? riel(t.amount) : money(t.amount)}
+                </span>
+              </div>
+            ))}
             <div className="flex items-center justify-between">
               <span className="text-neutral-500">Change</span>
               <span className="text-right">

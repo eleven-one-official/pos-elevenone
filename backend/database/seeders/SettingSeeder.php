@@ -14,7 +14,8 @@ class SettingSeeder extends Seeder
             'store_address' => 'Street 123, Phnom Penh, Cambodia',
             'store_phone' => '012 345 678',
             'currency_khr_rate' => '4100',
-            'tax_rate' => '0.10',
+            // The venue charges no tax; kept at 0 for old clients that read it.
+            'tax_rate' => '0',
         ];
 
         foreach ($defaults as $key => $value) {

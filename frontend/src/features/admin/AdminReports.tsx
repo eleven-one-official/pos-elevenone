@@ -156,11 +156,10 @@ export default function AdminReports() {
 
       {!loading && !error && sales && (
         <>
-          <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <SummaryTile label="Orders" value={String(sales.orders_count)} />
             <SummaryTile label="Gross Sales" value={usd(sales.gross_sales)} />
             <SummaryTile label="Discount" value={usd(sales.discount)} />
-            <SummaryTile label="Tax" value={usd(sales.tax)} />
             <SummaryTile label="Net Sales" value={usd(sales.net_sales)} accent />
           </div>
 

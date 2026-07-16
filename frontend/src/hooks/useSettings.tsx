@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { DEFAULT_SETTINGS, fetchSettings, type StoreSettings } from '../services/api/settings'
 
-// Store settings shared across the signed-in app (tax rate + KHR rate drive the
-// order/payment math; store info prints on the receipt). Loaded once after
+// Store settings shared across the signed-in app (the KHR rate drives the
+// riel conversion; store info prints on the receipt). Loaded once after
 // login; the admin Settings screen can push fresh values in without a refetch.
 
 type SettingsContextValue = StoreSettings & {

@@ -24,7 +24,6 @@ export type Product = {
 }
 
 export const CATEGORIES: Category[] = ['Food', 'Drinks', 'Desserts']
-export const TAX_RATE = 0.1
 
 // Quick-note chips offered in the Internal Note popup (Odoo's preset notes).
 export const NOTE_PRESETS = ['No pepper', 'Spicy', 'To go', 'No ice', 'Allergy', 'Well done', 'Gift']

@@ -46,7 +46,7 @@ const SECTION_TITLE: Record<Section, { title: string; subtitle: string }> = {
   staff: { title: 'Staff', subtitle: 'Accounts, roles and PIN access' },
   payments: { title: 'Payment Methods', subtitle: 'Journals shown on the cashier Payment screen' },
   tables: { title: 'Tables', subtitle: 'Floor layout and table setup' },
-  settings: { title: 'Settings', subtitle: 'Store details, tax and preferences' },
+  settings: { title: 'Settings', subtitle: 'Store details and preferences' },
 }
 
 export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout: () => void }) {

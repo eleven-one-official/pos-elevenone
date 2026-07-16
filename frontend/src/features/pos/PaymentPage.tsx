@@ -29,6 +29,11 @@ import type { PayMethodBackend } from '../../services/api/payments'
 /** One tender to record on the backend, grouped by backend channel. */
 export type Tender = { method: PayMethodBackend; amount: number }
 
+/** One method's tender as shown on the receipt. `amount` is always in USD;
+ *  `inKhr` marks riel cash so the receipt prints it in the currency the
+ *  customer actually handed over. */
+export type PaidLine = { label: string; amount: number; isCash: boolean; inKhr: boolean }
+
 // What the Validate button hands back to the order flow so the receipt can show
 // how the bill was settled — and so the order flow can record it on the backend.
 export type PaymentResult = {
@@ -40,6 +45,8 @@ export type PaymentResult = {
   change: number
   /** Amounts to record, grouped by backend channel and capped to the bill. */
   tenders: Tender[]
+  /** Per-method amounts for the receipt, in the order they appear on screen. */
+  paid: PaidLine[]
 }
 
 const usd = (n: number) => `$ ${n.toFixed(2)}`
@@ -147,7 +154,9 @@ export default function PaymentPage({
   function validate() {
     // The selected method's implicit tender counts alongside the typed ones.
     const effective: Record<number, number> = { ...amounts, [selected]: entered }
-    const used = methodList.filter((m) => effective[m.id] != null && effective[m.id] !== 0)
+    let used = methodList.filter((m) => effective[m.id] != null && effective[m.id] !== 0)
+    // A zero-total bill tenders nothing; still name the selected method.
+    if (used.length === 0) used = methodList.filter((m) => m.id === selected)
     // Group the entered tenders by backend channel, then cap them to the bill so
     // recorded revenue equals the total due (any cash overpay is change, not sales).
     const grouped = new Map<PayMethodBackend, number>()
@@ -160,10 +169,18 @@ export default function PaymentPage({
       left = Math.max(0, left - amount)
     }
     onValidate({
-      methodName: used.length ? used.map((m) => m.label).join(' + ') : methodList[0].label,
+      methodName: used.map((m) => m.label).join(' + '),
       cashReceived: tendered,
       change,
       tenders,
+      // Riel cash is recognised by its label so the receipt can print that
+      // tender in riel instead of dollars.
+      paid: used.map((m) => ({
+        label: m.label,
+        amount: effective[m.id] ?? 0,
+        isCash: m.channel === 'cash',
+        inKhr: m.channel === 'cash' && /khr|riel/i.test(m.label),
+      })),
     })
   }
 

@@ -44,7 +44,6 @@ export type DailySales = {
   orders_count: number
   gross_sales: number
   discount: number
-  tax: number
   net_sales: number
   payment_summary: PaymentSummaryRow[]
 }

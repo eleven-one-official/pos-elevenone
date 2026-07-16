@@ -45,7 +45,6 @@ import { fetchCustomers, createCustomer, type Customer } from '../../services/ap
 import { ApiError } from '../../services/api/client'
 import { useMenu } from '../../hooks/useMenu'
 import { useTables } from '../../hooks/useTables'
-import { useSettings } from '../../hooks/useSettings'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { PosTable } from './TableFloorPage'
 import {
@@ -170,7 +169,6 @@ export default function OrderPage({
   // Menu + floor from the backend (floor is only needed for the Transfer popup).
   const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
   const { tables } = useTables()
-  const { taxRate } = useSettings()
 
   // Backend order — the table's open bill when there is one, otherwise created
   // on the first "Send to Kitchen" / payment and updated after that.
@@ -184,9 +182,9 @@ export default function OrderPage({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
+  // No tax — the venue doesn't charge it, so the bill is just the net subtotal.
   const subtotal = useMemo(() => lines.reduce((sum, l) => sum + lineNet(l), 0), [lines])
-  const taxes = subtotal * taxRate
-  const total = subtotal + taxes
+  const total = subtotal
   const selectedLine = lines.find((l) => l.id === selectedId) ?? null
 
   // Auto-dismiss the confirmation toast.
@@ -382,8 +380,9 @@ export default function OrderPage({
 
   // Build the backend order payload from the current lines. The backend stores
   // line totals without per-line discounts, so we fold the whole order's
-  // discount into a single `discount` and pass `tax` explicitly — that way the
-  // server's total (subtotal − discount + tax) matches the amount we charge.
+  // discount into a single `discount`. `tax` is pinned to 0 (the venue doesn't
+  // charge it) so the server's total matches the amount we charge — even on
+  // orders opened before tax was dropped.
   function buildOrderPayload(): OrderPayload {
     const cook = lines.filter((l) => l.qty > 0)
     const grossPositive = cook.reduce((sum, l) => sum + l.qty * l.price, 0)
@@ -391,7 +390,7 @@ export default function OrderPage({
       order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
       table_id: activeTable.backendId ?? null,
       discount: Math.max(0, round2(grossPositive - subtotal)),
-      tax: round2(taxes),
+      tax: 0,
       items: cook.map((l) => ({
         // Line ids match backend menu-item ids (stringified).
         menu_item_id: Number(l.id),
@@ -467,8 +466,7 @@ export default function OrderPage({
         .map((l) => ({ ...l, qty: splitQty[l.id] })),
     [lines, splitQty],
   )
-  const splitSubtotal = splitLines.reduce((s, l) => s + lineNet(l), 0)
-  const splitTotal = splitSubtotal * (1 + taxRate)
+  const splitTotal = splitLines.reduce((s, l) => s + lineNet(l), 0)
 
   function addToSplit(id: string) {
     setSplitQty((prev) => {
@@ -638,7 +636,6 @@ export default function OrderPage({
         table={activeTable}
         lines={settling ? settling.lines : lines}
         orderNo={orderNo}
-        taxRate={taxRate}
         guests={guestCount}
         customerName={customer?.name}
         payment={payment}
@@ -754,7 +751,6 @@ export default function OrderPage({
           {/* Total */}
           <div className="border-t border-neutral-200 px-4 py-3 text-right">
             <div className="text-2xl font-bold text-neutral-900">Total: {money(total)}</div>
-            <div className="text-sm text-neutral-500">Taxes: {money(taxes)}</div>
           </div>
 
           {/* Control buttons */}
@@ -1078,8 +1074,6 @@ export default function OrderPage({
           customerName={customer?.name}
           lines={lines}
           subtotal={subtotal}
-          taxRate={taxRate}
-          taxes={taxes}
           total={total}
           onPrint={printBill}
           onClose={closeDialog}
@@ -1102,9 +1096,7 @@ export default function OrderPage({
           onAdd={addToSplit}
           onRemove={removeFromSplit}
           splitLines={splitLines}
-          splitSubtotal={splitSubtotal}
           splitTotal={splitTotal}
-          taxRate={taxRate}
           onPay={paySplit}
           onClose={closeDialog}
         />
@@ -1332,8 +1324,6 @@ function BillDialog({
   customerName,
   lines,
   subtotal,
-  taxRate,
-  taxes,
   total,
   onPrint,
   onClose,
@@ -1343,8 +1333,6 @@ function BillDialog({
   customerName?: string
   lines: OrderLine[]
   subtotal: number
-  taxRate: number
-  taxes: number
   total: number
   onPrint: () => void
   onClose: () => void
@@ -1395,10 +1383,6 @@ function BillDialog({
         <div className="flex justify-between text-neutral-500">
           <span>Subtotal</span>
           <span>{money(subtotal)}</span>
-        </div>
-        <div className="flex justify-between text-neutral-500">
-          <span>Taxes ({Math.round(taxRate * 100)}%)</span>
-          <span>{money(taxes)}</span>
         </div>
         <div className="flex justify-between pt-1 text-lg font-bold text-neutral-900">
           <span>Total</span>
@@ -1454,9 +1438,7 @@ function SplitDialog({
   onAdd,
   onRemove,
   splitLines,
-  splitSubtotal,
   splitTotal,
-  taxRate,
   onPay,
   onClose,
 }: {
@@ -1465,9 +1447,7 @@ function SplitDialog({
   onAdd: (id: string) => void
   onRemove: (id: string) => void
   splitLines: OrderLine[]
-  splitSubtotal: number
   splitTotal: number
-  taxRate: number
   onPay: () => void
   onClose: () => void
 }) {
@@ -1551,11 +1531,7 @@ function SplitDialog({
               <div className="mt-2 space-y-1 border-t border-neutral-200 pt-2 text-sm tabular-nums">
                 <div className="flex justify-between text-neutral-500">
                   <span>Subtotal</span>
-                  <span>{money(splitSubtotal)}</span>
-                </div>
-                <div className="flex justify-between text-neutral-500">
-                  <span>Taxes ({Math.round(taxRate * 100)}%)</span>
-                  <span>{money(splitSubtotal * taxRate)}</span>
+                  <span>{money(splitTotal)}</span>
                 </div>
               </div>
             </div>
