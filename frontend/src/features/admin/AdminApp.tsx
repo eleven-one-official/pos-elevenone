@@ -76,6 +76,10 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
   { label: 'Configuration' },
 ]
 
+// Companies for the Odoo-style switcher in the top bar — placeholder list
+// until the backend models branches.
+const COMPANIES = ['ElevenOne BKK', 'ElevenOne TTP', 'Crums']
+
 type PosTab = { menu: string; item?: string }
 
 /** A dashboard card handed over to the full-screen POS session login. */
@@ -109,6 +113,11 @@ export default function AdminApp({
     import.meta.env.DEV ? new URLSearchParams(window.location.search).get('pos-menu') : null,
   )
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  // Multi-company switcher — checkboxes pick the active set (records from all
+  // checked companies show), clicking a name makes it the current company.
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
+  const [currentCompany, setCurrentCompany] = useState('ElevenOne TTP')
+  const [activeCompanies, setActiveCompanies] = useState<string[]>(['ElevenOne TTP'])
   // "Continue selling" hands over the whole screen to the POS session login,
   // Odoo style — no back-office chrome around it. Dev builds can jump straight
   // there with `?pos-login=<config name>` for quick UI iteration (a name
@@ -122,6 +131,25 @@ export default function AdminApp({
   })
 
   const active = MODULES.find((m) => m.key === moduleKey) ?? MODULES[0]
+
+  /** Check/uncheck a company; at least one stays active, Odoo style. */
+  const toggleCompany = (name: string) => {
+    if (!activeCompanies.includes(name)) {
+      setActiveCompanies([...activeCompanies, name])
+      return
+    }
+    if (activeCompanies.length === 1) return
+    const next = activeCompanies.filter((c) => c !== name)
+    setActiveCompanies(next)
+    if (name === currentCompany) setCurrentCompany(next[0])
+  }
+
+  /** Make a company the current one (shown in the top bar) and check it. */
+  const switchCompany = (name: string) => {
+    setCurrentCompany(name)
+    if (!activeCompanies.includes(name)) setActiveCompanies([...activeCompanies, name])
+    setCompanyMenuOpen(false)
+  }
 
   if (sessionLogin) {
     return (
@@ -248,7 +276,54 @@ export default function AdminApp({
             <LuClock className="h-4.5 w-4.5" />
           </button>
 
-          <span className="px-2 text-[13px] text-white/90">ElevenOne TTP</span>
+          {/* Company switcher — Odoo-style multi-company dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setCompanyMenuOpen((v) => !v)}
+              className={`rounded px-2 py-1 text-[13px] transition hover:bg-white/10 ${
+                companyMenuOpen ? 'bg-white/10 text-white' : 'text-white/90'
+              }`}
+            >
+              {currentCompany}
+            </button>
+
+            {companyMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  onClick={() => setCompanyMenuOpen(false)}
+                  className="fixed inset-0 z-10 cursor-default"
+                />
+                <div className="absolute right-0 z-20 mt-1 w-48 border border-neutral-200/70 bg-white py-1 text-neutral-700 shadow-md">
+                  {COMPANIES.map((name) => (
+                    <div
+                      key={name}
+                      className={`flex items-center gap-2.5 px-3 py-1.5 transition hover:bg-neutral-100 ${
+                        name === currentCompany ? 'bg-[#e7ecf0]' : ''
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Toggle ${name}`}
+                        checked={activeCompanies.includes(name)}
+                        onChange={() => toggleCompany(name)}
+                        className="h-3.5 w-3.5 shrink-0 accent-[#2f6cad]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => switchCompany(name)}
+                        className="min-w-0 flex-1 truncate text-left text-[13px]"
+                      >
+                        {name}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Signed-in admin + dropdown with sign out */}
           <div className="relative">
