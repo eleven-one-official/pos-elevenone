@@ -20,7 +20,14 @@ type Session =
   | { role: 'waiter'; staff: Waiter }
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
+  // Dev-only: `?admin-preview` boots straight into the admin side with a fake
+  // session so the back-office UI can be iterated on (and screenshotted)
+  // without credentials. Compiled out of production builds.
+  const [session, setSession] = useState<Session | null>(() =>
+    import.meta.env.DEV && new URLSearchParams(window.location.search).has('admin-preview')
+      ? { role: 'admin', staff: { id: 'preview', name: 'Srun Soklim', role: 'Admin' } }
+      : null,
+  )
   const [table, setTable] = useState<PosTable | null>(null)
 
   if (!session) {
