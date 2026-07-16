@@ -41,9 +41,7 @@ class UserSeeder extends Seeder
         // Staff PIN accounts — tap a name on the POS/tablet, then enter the PIN.
         // Names mirror the frontend login rosters so the flow lines up end to end.
         $staff = [
-            ['name' => 'Vann Sok', 'role' => 'waiter', 'pin' => '1111'],
-            ['name' => 'Srey Neath', 'role' => 'waiter', 'pin' => '2222'],
-            ['name' => 'Chhay Lida', 'role' => 'waiter', 'pin' => '3333'],
+            ['name' => 'Waiter', 'role' => 'waiter', 'pin' => '1111'],
             ['name' => 'Sok Dara', 'role' => 'cashier', 'pin' => '1234'],
             ['name' => 'Chan Sreymom', 'role' => 'cashier', 'pin' => '2345'],
             ['name' => 'Kim Panha', 'role' => 'cashier', 'pin' => '3456'],
@@ -66,5 +64,10 @@ class UserSeeder extends Seeder
                 ]
             );
         }
+
+        // Retired demo waiters — deactivate (not delete, past orders may
+        // reference them) so they drop out of the tap-a-name roster.
+        User::whereIn('username', ['vann-sok', 'srey-neath', 'chhay-lida'])
+            ->update(['is_active' => false]);
     }
 }

@@ -19,6 +19,8 @@ import SearchMenus from './SearchMenus'
 type PosConfig = {
   id: string
   name: string
+  /** Which staff role this register serves — drives the session login gate. */
+  kind: 'cashier' | 'waiter'
   toClose?: boolean
   lastClosingDate: string
   lastClosingCash?: string
@@ -31,6 +33,7 @@ const PLACEHOLDER_CONFIGS: PosConfig[] = [
   {
     id: 'ttp',
     name: 'TTP',
+    kind: 'cashier',
     lastClosingDate: '15-Jul-2026',
     lastClosingCash: '$ 318.34',
     openSessions: 2,
@@ -40,6 +43,7 @@ const PLACEHOLDER_CONFIGS: PosConfig[] = [
   {
     id: 'ttp-waiter',
     name: 'TTP Waiter',
+    kind: 'waiter',
     toClose: true,
     lastClosingDate: '16-Dec-2024',
     lastClosingCash: '$ 0.00',
@@ -51,7 +55,7 @@ const PLACEHOLDER_CONFIGS: PosConfig[] = [
 export default function PosDashboard({
   onContinueSelling,
 }: {
-  onContinueSelling: (configName: string) => void
+  onContinueSelling: (config: { name: string; kind: 'cashier' | 'waiter' }) => void
 }) {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
@@ -173,7 +177,7 @@ export default function PosDashboard({
               <div className="flex flex-1 items-center gap-6 py-4">
                 <button
                   type="button"
-                  onClick={() => onContinueSelling(c.name)}
+                  onClick={() => onContinueSelling({ name: c.name, kind: c.kind })}
                   className="shrink-0 rounded-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
                 >
                   Continue selling

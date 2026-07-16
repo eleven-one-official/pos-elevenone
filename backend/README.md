@@ -56,9 +56,7 @@ mirror the frontend login rosters:
 
 | Name          | PIN    | Role    |
 |---------------|--------|---------|
-| Vann Sok      | `1111` | Waiter  |
-| Srey Neath    | `2222` | Waiter  |
-| Chhay Lida    | `3333` | Waiter  |
+| Waiter        | `1111` | Waiter  |
 | Sok Dara      | `1234` | Cashier |
 | Chan Sreymom  | `2345` | Cashier |
 | Kim Panha     | `3456` | Cashier |

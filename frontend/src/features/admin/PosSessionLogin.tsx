@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { LuChevronLeft } from 'react-icons/lu'
 import CashierLoginDialog, { type Cashier } from '../auth/CashierLoginDialog'
+import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
 
 // ---------------------------------------------------------------------------
 // POS session login — the Odoo-style full-screen gate shown after pressing
 // "Continue selling" on a dashboard card: a muted low-poly backdrop with a
-// centered card offering badge scan or cashier selection. "Select Cashier"
-// opens the shared cashier roster + PIN dialog.
+// centered card offering badge scan or staff selection. The button opens the
+// shared roster + PIN dialog for whichever role the config serves (cashier
+// registers vs. waiter tablets).
 // ---------------------------------------------------------------------------
 
 // Deterministic EAN-ish barcode artwork: main bars + a dashed fringe below.
@@ -23,14 +25,20 @@ const BARCODE_WIDTH = BARS[BARS.length - 1].x + BARS[BARS.length - 1].w
 
 export default function PosSessionLogin({
   name,
+  kind = 'cashier',
   onBack,
   onLoggedIn,
+  onWaiterLoggedIn,
 }: {
   name: string
+  /** Which roster the gate offers — waiter configs log waiters in, not cashiers. */
+  kind?: 'cashier' | 'waiter'
   onBack: () => void
   onLoggedIn?: (cashier: Cashier) => void
+  onWaiterLoggedIn?: (waiter: Waiter) => void
 }) {
-  const [cashierDialogOpen, setCashierDialogOpen] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const staffLabel = kind === 'waiter' ? 'Waiter' : 'Cashier'
 
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-[#7d6e73]">
@@ -88,23 +96,32 @@ export default function PosSessionLogin({
 
           <button
             type="button"
-            onClick={() => setCashierDialogOpen(true)}
+            onClick={() => setDialogOpen(true)}
             className="rounded-[3px] border border-[#c9c8c5] bg-[#e8e7e5] px-7 py-5 text-[15px] text-[#4c4b47] shadow-sm transition hover:bg-[#dedddb]"
           >
-            Select Cashier
+            Select {staffLabel}
           </button>
         </div>
       </div>
 
-      {cashierDialogOpen && (
-        <CashierLoginDialog
-          onClose={() => setCashierDialogOpen(false)}
-          onLoggedIn={(cashier) => {
-            setCashierDialogOpen(false)
-            onLoggedIn?.(cashier)
-          }}
-        />
-      )}
+      {dialogOpen &&
+        (kind === 'waiter' ? (
+          <WaiterLoginDialog
+            onClose={() => setDialogOpen(false)}
+            onLoggedIn={(waiter) => {
+              setDialogOpen(false)
+              onWaiterLoggedIn?.(waiter)
+            }}
+          />
+        ) : (
+          <CashierLoginDialog
+            onClose={() => setDialogOpen(false)}
+            onLoggedIn={(cashier) => {
+              setDialogOpen(false)
+              onLoggedIn?.(cashier)
+            }}
+          />
+        ))}
     </div>
   )
 }

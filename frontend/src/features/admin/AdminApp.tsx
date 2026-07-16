@@ -15,6 +15,7 @@ import {
   LuUsers,
 } from 'react-icons/lu'
 import type { Cashier } from '../auth/CashierLoginDialog'
+import type { Waiter } from '../waiter/WaiterLoginDialog'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosDashboard from './PosDashboard'
 import PosOrdersAnalysis from './PosOrdersAnalysis'
@@ -77,15 +78,21 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
 
 type PosTab = { menu: string; item?: string }
 
+/** A dashboard card handed over to the full-screen POS session login. */
+type SessionGate = { name: string; kind: 'cashier' | 'waiter' }
+
 export default function AdminApp({
   admin,
   onLogout,
   onCashierLogin,
+  onWaiterLogin,
 }: {
   admin: Cashier
   onLogout: () => void
   /** A cashier passed the PIN gate on the POS session login — open the register as them. */
   onCashierLogin: (cashier: Cashier) => void
+  /** A waiter passed the PIN gate on the waiter config — open the waiter side as them. */
+  onWaiterLogin: (waiter: Waiter) => void
 }) {
   const [moduleKey, setModuleKey] = useState<ModuleKey>('pos')
   // Dev builds can jump to a menu screen with `?pos-tab=<menu>/<item>`.
@@ -104,19 +111,26 @@ export default function AdminApp({
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   // "Continue selling" hands over the whole screen to the POS session login,
   // Odoo style — no back-office chrome around it. Dev builds can jump straight
-  // there with `?pos-login=<config name>` for quick UI iteration.
-  const [sessionLogin, setSessionLogin] = useState<string | null>(() =>
-    import.meta.env.DEV ? new URLSearchParams(window.location.search).get('pos-login') : null,
-  )
+  // there with `?pos-login=<config name>` for quick UI iteration (a name
+  // containing "waiter" gates the waiter roster).
+  const [sessionLogin, setSessionLogin] = useState<SessionGate | null>(() => {
+    const name = import.meta.env.DEV
+      ? new URLSearchParams(window.location.search).get('pos-login')
+      : null
+    if (!name) return null
+    return { name, kind: name.toLowerCase().includes('waiter') ? 'waiter' : 'cashier' }
+  })
 
   const active = MODULES.find((m) => m.key === moduleKey) ?? MODULES[0]
 
   if (sessionLogin) {
     return (
       <PosSessionLogin
-        name={sessionLogin}
+        name={sessionLogin.name}
+        kind={sessionLogin.kind}
         onBack={() => setSessionLogin(null)}
         onLoggedIn={onCashierLogin}
+        onWaiterLoggedIn={onWaiterLogin}
       />
     )
   }

@@ -21,7 +21,7 @@ type AdminReturn = { staff: Cashier; token: string | null }
 type Session =
   | { role: 'admin'; staff: Cashier; token: string | null }
   | { role: 'cashier'; staff: Cashier; admin?: AdminReturn }
-  | { role: 'waiter'; staff: Waiter }
+  | { role: 'waiter'; staff: Waiter; admin?: AdminReturn }
 
 export default function App() {
   // Dev-only: `?admin-preview` boots straight into the admin side with a fake
@@ -60,6 +60,17 @@ export default function App() {
     setSession(null)
   }
 
+  // Exiting a register that was opened from the admin dashboard: revoke the
+  // staff token and restore the admin session instead of signing out. api()
+  // snapshots the bearer token synchronously, so the revoke goes out with the
+  // staff token even though we swap back right after.
+  const returnToDashboard = (admin: AdminReturn) => {
+    void api('/logout', { method: 'POST' }).catch(() => {})
+    setToken(admin.token)
+    setTable(null)
+    setSession({ role: 'admin', staff: admin.staff, token: admin.token })
+  }
+
   // Once signed in, the store settings (KHR rate, receipt store info)
   // are loaded once and shared with every side below.
   function renderSide(active: Session) {
@@ -77,31 +88,26 @@ export default function App() {
           onCashierLogin={(cashier) =>
             setSession({ role: 'cashier', staff: cashier, admin: adminReturn })
           }
+          onWaiterLogin={(waiter) =>
+            setSession({ role: 'waiter', staff: waiter, admin: adminReturn })
+          }
         />
       )
     }
 
+    // Staff who signed in directly from the login page just log out as before;
+    // sessions launched from the admin dashboard return there instead.
+    const adminReturn = active.admin
+    const exitRegister = adminReturn ? () => returnToDashboard(adminReturn) : logout
+
     if (active.role === 'waiter') {
       if (!table) {
-        return <WaiterFloorPage waiter={active.staff} onSelectTable={setTable} onLogout={logout} />
+        return (
+          <WaiterFloorPage waiter={active.staff} onSelectTable={setTable} onLogout={exitRegister} />
+        )
       }
       return <WaiterOrderPage waiter={active.staff} table={table} onBack={() => setTable(null)} />
     }
-
-    // Register opened from the admin dashboard: exiting revokes the cashier's
-    // token and restores the admin session. A cashier who signed in directly
-    // from the login page just logs out as before.
-    const adminReturn = active.admin
-    const exitRegister = adminReturn
-      ? () => {
-          // api() snapshots the bearer token synchronously, so the revoke goes
-          // out with the cashier's token even though we swap back right after.
-          void api('/logout', { method: 'POST' }).catch(() => {})
-          setToken(adminReturn.token)
-          setTable(null)
-          setSession({ role: 'admin', staff: adminReturn.staff, token: adminReturn.token })
-        }
-      : logout
 
     if (!table) {
       return <TableFloorPage cashier={active.staff} onSelectTable={setTable} onLogout={exitRegister} />
