@@ -3,13 +3,11 @@ import {
   LuChevronLeft,
   LuChevronRight,
   LuEllipsisVertical,
-  LuFilter,
   LuLayoutGrid,
   LuList,
-  LuMenu,
   LuSearch,
-  LuStar,
 } from 'react-icons/lu'
+import SearchMenus from './SearchMenus'
 
 // ---------------------------------------------------------------------------
 // Point of Sale dashboard — Odoo-style kanban of POS configurations, each card
@@ -26,27 +24,35 @@ type PosConfig = {
   lastClosingCash?: string
   openSessions?: number
   ownerInitial: string
+  ownerColor: string
 }
 
 const PLACEHOLDER_CONFIGS: PosConfig[] = [
   {
-    id: 'bkk',
-    name: 'BKK',
+    id: 'ttp',
+    name: 'TTP',
     lastClosingDate: '15-Jul-2026',
-    lastClosingCash: '$ 537.63',
-    ownerInitial: 'C',
+    lastClosingCash: '$ 318.34',
+    openSessions: 2,
+    ownerInitial: 'K',
+    ownerColor: 'bg-[#28a745]',
   },
   {
-    id: 'bkk-waiter',
-    name: 'BKK Waiter',
+    id: 'ttp-waiter',
+    name: 'TTP Waiter',
     toClose: true,
-    lastClosingDate: '16-Jan-2026',
-    openSessions: 2,
-    ownerInitial: 'S',
+    lastClosingDate: '16-Dec-2024',
+    lastClosingCash: '$ 0.00',
+    ownerInitial: 'K',
+    ownerColor: 'bg-[#28a745]',
   },
 ]
 
-export default function PosDashboard() {
+export default function PosDashboard({
+  onContinueSelling,
+}: {
+  onContinueSelling: (configName: string) => void
+}) {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
 
@@ -73,30 +79,12 @@ export default function PosDashboard() {
             </label>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              {/* Filters / Group By / Favorites — one bordered group, Odoo style */}
-              <div className="inline-flex overflow-hidden rounded-[3px] border border-neutral-200 bg-white">
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50"
-                >
-                  <LuFilter className="h-3.5 w-3.5 text-neutral-500" />
-                  Filters
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 border-l border-neutral-200 px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50"
-                >
-                  <LuMenu className="h-3.5 w-3.5 text-neutral-500" />
-                  Group By
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 border-l border-neutral-200 px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50"
-                >
-                  <LuStar className="h-3.5 w-3.5 text-neutral-500" />
-                  Favorites
-                </button>
-              </div>
+              {/* Filters / Group By / Favorites — shared Odoo search menus */}
+              <SearchMenus
+                filterSections={[['To Close'], ['Archived']]}
+                groupOptions={['Company']}
+                favoriteName="Point of Sale"
+              />
 
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-neutral-600">
@@ -185,6 +173,7 @@ export default function PosDashboard() {
               <div className="flex flex-1 items-center gap-6 py-4">
                 <button
                   type="button"
+                  onClick={() => onContinueSelling(c.name)}
                   className="shrink-0 rounded-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
                 >
                   Continue selling
@@ -212,7 +201,9 @@ export default function PosDashboard() {
               </div>
 
               <div className="flex items-center justify-end">
-                <span className="flex h-5.5 w-5.5 items-center justify-center rounded-full bg-[#2e6da4] text-[10px] font-semibold text-white">
+                <span
+                  className={`flex h-5.5 w-5.5 items-center justify-center rounded-full text-[10px] font-semibold text-white ${c.ownerColor}`}
+                >
                   {c.ownerInitial}
                 </span>
               </div>

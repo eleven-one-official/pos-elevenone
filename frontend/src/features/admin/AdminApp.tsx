@@ -17,6 +17,11 @@ import {
 import type { Cashier } from '../auth/CashierLoginDialog'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosDashboard from './PosDashboard'
+import PosOrdersAnalysis from './PosOrdersAnalysis'
+import PosPricelists from './PosPricelists'
+import PosProducts from './PosProducts'
+import PosSessionLogin from './PosSessionLogin'
+import SalesDetailsDialog from './SalesDetailsDialog'
 
 // ---------------------------------------------------------------------------
 // Admin "side" — an Odoo-style back office. The black sidebar on the left is
@@ -48,26 +53,81 @@ const MODULES: { key: ModuleKey; label: string; icon: IconType; tint: string }[]
   { key: 'settings', label: 'Settings', icon: LuSettings, tint: 'bg-slate-500' },
 ]
 
-const POS_TABS = ['Dashboard', 'Orders', 'Products', 'Reporting', 'Configuration'] as const
-type PosTab = (typeof POS_TABS)[number]
+// Top-bar menus for the Point of Sale module. Entries with `items` open an
+// Odoo-style dropdown; the rest switch the screen directly.
+const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = [
+  { label: 'Dashboard' },
+  { label: 'Orders' },
+  {
+    label: 'Products',
+    items: [
+      { id: 'products', label: 'Products' },
+      { id: 'pricelists', label: 'Pricelists' },
+    ],
+  },
+  {
+    label: 'Reporting',
+    items: [
+      { id: 'reporting-orders', label: 'Orders' },
+      { id: 'sales-details', label: 'Sales Details' },
+    ],
+  },
+  { label: 'Configuration' },
+]
+
+type PosTab = { menu: string; item?: string }
 
 export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout: () => void }) {
   const [moduleKey, setModuleKey] = useState<ModuleKey>('pos')
-  const [tab, setTab] = useState<PosTab>('Dashboard')
+  // Dev builds can jump to a menu screen with `?pos-tab=<menu>/<item>`.
+  const [tab, setTab] = useState<PosTab>(() => {
+    const t = import.meta.env.DEV
+      ? new URLSearchParams(window.location.search).get('pos-tab')
+      : null
+    if (!t) return { menu: 'Dashboard' }
+    const [menu, item] = t.split('/')
+    return { menu, item: item || undefined }
+  })
+  // Dev builds can pre-open a top-bar dropdown with `?pos-menu=<label>`.
+  const [openMenu, setOpenMenu] = useState<string | null>(() =>
+    import.meta.env.DEV ? new URLSearchParams(window.location.search).get('pos-menu') : null,
+  )
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  // "Continue selling" hands over the whole screen to the POS session login,
+  // Odoo style — no back-office chrome around it. Dev builds can jump straight
+  // there with `?pos-login=<config name>` for quick UI iteration.
+  const [sessionLogin, setSessionLogin] = useState<string | null>(() =>
+    import.meta.env.DEV ? new URLSearchParams(window.location.search).get('pos-login') : null,
+  )
 
   const active = MODULES.find((m) => m.key === moduleKey) ?? MODULES[0]
+
+  if (sessionLogin) {
+    return <PosSessionLogin name={sessionLogin} onBack={() => setSessionLogin(null)} />
+  }
 
   const content =
     active.key !== 'pos' ? (
       <ModulePlaceholder icon={active.icon} title={active.label} />
-    ) : tab === 'Dashboard' ? (
-      <PosDashboard />
+    ) : tab.menu === 'Dashboard' ? (
+      <PosDashboard onContinueSelling={setSessionLogin} />
+    ) : tab.menu === 'Products' && tab.item === 'Products' ? (
+      <PosProducts />
+    ) : tab.menu === 'Products' && tab.item === 'Pricelists' ? (
+      <PosPricelists />
+    ) : tab.menu === 'Reporting' ? (
+      // Odoo shows Sales Details as a dialog OVER the Orders Analysis screen.
+      <>
+        <PosOrdersAnalysis />
+        {tab.item === 'Sales Details' && (
+          <SalesDetailsDialog onClose={() => setTab({ menu: 'Reporting', item: 'Orders' })} />
+        )}
+      </>
     ) : (
       <ModulePlaceholder
         icon={active.icon}
-        title={tab}
-        note={`Point of Sale › ${tab} — UI coming soon.`}
+        title={tab.item ?? tab.menu}
+        note={`Point of Sale › ${tab.menu}${tab.item ? ` › ${tab.item}` : ''} — UI coming soon.`}
       />
     )
 
@@ -82,18 +142,61 @@ export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout
 
         {active.key === 'pos' && (
           <nav className="flex items-center text-sm">
-            {POS_TABS.map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={`rounded-sm px-3.5 py-1 transition hover:bg-white/10 ${
-                  t === tab ? 'text-white' : 'text-white/90'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
+            {POS_MENUS.map((m) =>
+              m.items ? (
+                <div key={m.label} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setOpenMenu((v) => (v === m.label ? null : m.label))}
+                    className={`rounded-sm px-3.5 py-1 text-white/90 transition hover:bg-white/10 ${
+                      openMenu === m.label ? 'bg-white/10 text-white' : ''
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+
+                  {openMenu === m.label && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Close menu"
+                        onClick={() => setOpenMenu(null)}
+                        className="fixed inset-0 z-10 cursor-default"
+                      />
+                      <div className="absolute left-0 top-full z-20 min-w-40 border border-neutral-200/70 bg-white py-1 text-neutral-600 shadow-md">
+                        {m.items.map((it) => (
+                          <button
+                            key={it.id}
+                            type="button"
+                            onClick={() => {
+                              setTab({ menu: m.label, item: it.label })
+                              setOpenMenu(null)
+                            }}
+                            className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                          >
+                            {it.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button
+                  key={m.label}
+                  type="button"
+                  onClick={() => {
+                    setTab({ menu: m.label })
+                    setOpenMenu(null)
+                  }}
+                  className={`rounded-sm px-3.5 py-1 transition hover:bg-white/10 ${
+                    m.label === tab.menu ? 'text-white' : 'text-white/90'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ),
+            )}
           </nav>
         )}
 
@@ -116,7 +219,7 @@ export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout
             <LuClock className="h-4.5 w-4.5" />
           </button>
 
-          <span className="px-2 text-[13px] text-white/90">ElevenOne BKK</span>
+          <span className="px-2 text-[13px] text-white/90">ElevenOne TTP</span>
 
           {/* Signed-in admin + dropdown with sign out */}
           <div className="relative">
@@ -169,7 +272,8 @@ export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout
                 type="button"
                 onClick={() => {
                   setModuleKey(m.key)
-                  setTab('Dashboard')
+                  setTab({ menu: 'Dashboard' })
+                  setOpenMenu(null)
                 }}
                 className={`flex w-full items-center gap-2 px-2.5 py-[7px] text-left transition ${
                   isActive
