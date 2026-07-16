@@ -13,9 +13,10 @@ import { fetchStaffRoster, staffLogin, type StaffMember } from '../../services/a
 import { ApiError } from '../../services/api/client'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 
-// Tap-a-name + PIN login used by both the cashier station and the waiter
-// tablets. The roster comes from GET /staff?role=… and the PIN is verified by
-// POST /staff-login, which also stores the bearer token for later API calls.
+// Tap-a-name login used by both the cashier station and the waiter tablets.
+// The roster comes from GET /staff?role=…; members with a PIN get a keypad
+// step, while PIN-less members (waiters) sign in the moment they're tapped.
+// POST /staff-login verifies and stores the bearer token for later API calls.
 
 /** What the caller receives once the PIN checks out. */
 export type StaffSession = {
@@ -47,6 +48,7 @@ export default function StaffLoginDialog({
   const [roster, setRoster] = useState<StaffMember[] | null>(null)
   const [rosterError, setRosterError] = useState('')
   const [selected, setSelected] = useState<StaffMember | null>(null)
+  const [tappingId, setTappingId] = useState<number | null>(null)
   const [pin, setPin] = useState('')
   const [showPin, setShowPin] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -79,7 +81,27 @@ export default function StaffLoginDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [selected, onClose])
 
-  function chooseStaff(member: StaffMember) {
+  async function chooseStaff(member: StaffMember) {
+    // PIN-less members (waiters) sign in the moment they're tapped.
+    if (!member.requires_pin) {
+      if (submitting) return
+      setTappingId(member.id)
+      setSubmitting(true)
+      setError('')
+      try {
+        const user = await staffLogin(member.id)
+        onLoggedIn?.({
+          id: String(user.id),
+          name: user.name,
+          role: user.role?.name ?? member.role_name ?? undefined,
+        })
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Login failed. Try again.')
+        setSubmitting(false)
+        setTappingId(null)
+      }
+      return
+    }
     setSelected(member)
     setPin('')
     setError('')
@@ -197,8 +219,9 @@ export default function StaffLoginDialog({
               <button
                 key={member.id}
                 type="button"
-                onClick={() => chooseStaff(member)}
-                className="group flex items-center gap-3.5 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-left transition hover:border-primary hover:bg-primary/[0.03]"
+                disabled={submitting}
+                onClick={() => void chooseStaff(member)}
+                className="group flex items-center gap-3.5 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-left transition hover:border-primary hover:bg-primary/[0.03] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-neutral-100 text-sm font-semibold text-neutral-600 transition group-hover:bg-primary/10 group-hover:text-primary">
                   {initials(member.name)}
@@ -209,9 +232,15 @@ export default function StaffLoginDialog({
                     <span className="block text-xs text-neutral-400">{member.role_name}</span>
                   )}
                 </span>
-                <LuArrowRight className="h-4.5 w-4.5 text-neutral-300 transition group-hover:text-primary" />
+                {submitting && tappingId === member.id ? (
+                  <Loader size="sm" />
+                ) : (
+                  <LuArrowRight className="h-4.5 w-4.5 text-neutral-300 transition group-hover:text-primary" />
+                )}
               </button>
             ))}
+
+            {error && <p className="text-center text-sm text-rose-500">{error}</p>}
           </div>
         )}
 

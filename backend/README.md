@@ -51,13 +51,13 @@ DB_PASSWORD=
 | `admin`   | `password` | Admin   |
 | `cashier` | `password` | Cashier |
 
-**PIN accounts** — tap a name, then enter the PIN (`POST /staff-login`). Names
-mirror the frontend login rosters:
+**Tap-login accounts** — tap a name on the POS/tablet (`POST /staff-login`).
+Cashiers then enter their PIN; the waiter signs in on tap with no PIN:
 
-| Name          | PIN    | Role    |
-|---------------|--------|---------|
-| Waiter        | `1111` | Waiter  |
-| Sok Dara      | `1234` | Cashier |
+| Name          | PIN         | Role    |
+|---------------|-------------|---------|
+| Waiter        | — (no PIN)  | Waiter  |
+| Sok Dara      | `1234`      | Cashier |
 | Chan Sreymom  | `2345` | Cashier |
 | Kim Panha     | `3456` | Cashier |
 

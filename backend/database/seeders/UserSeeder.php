@@ -38,10 +38,10 @@ class UserSeeder extends Seeder
             ]
         );
 
-        // Staff PIN accounts — tap a name on the POS/tablet, then enter the PIN.
-        // Names mirror the frontend login rosters so the flow lines up end to end.
+        // Staff tap-login accounts — tap a name on the POS/tablet. Cashiers then
+        // enter their PIN; the waiter account has no PIN and signs in on tap.
         $staff = [
-            ['name' => 'Waiter', 'role' => 'waiter', 'pin' => '1111'],
+            ['name' => 'Waiter', 'role' => 'waiter', 'pin' => null],
             ['name' => 'Sok Dara', 'role' => 'cashier', 'pin' => '1234'],
             ['name' => 'Chan Sreymom', 'role' => 'cashier', 'pin' => '2345'],
             ['name' => 'Kim Panha', 'role' => 'cashier', 'pin' => '3456'],
@@ -58,7 +58,7 @@ class UserSeeder extends Seeder
                     // A password is required by the schema; PIN staff still get one
                     // so they *could* also sign in the classic way if ever needed.
                     'password' => Hash::make('password'),
-                    'pin' => Hash::make($member['pin']),
+                    'pin' => $member['pin'] === null ? null : Hash::make($member['pin']),
                     'role_id' => $roles[$member['role']] ?? null,
                     'is_active' => true,
                 ]

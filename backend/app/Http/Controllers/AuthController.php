@@ -43,15 +43,19 @@ class AuthController extends Controller
     }
 
     /**
-     * Public login roster for the tap-a-name POS/tablet screen. Returns only the
-     * active staff who have a PIN set (never passwords, emails, or the PIN hash).
-     * Filter by role slug with ?role=waiter|cashier|...
+     * Public login roster for the tap-a-name POS/tablet screen. Waiters sign in
+     * with a single tap (no PIN); other staff appear only when a PIN is set.
+     * Never returns passwords, emails, or the PIN hash. Filter by role slug
+     * with ?role=waiter|cashier|...
      */
     public function staffRoster(Request $request): JsonResponse
     {
         $query = User::query()
             ->where('is_active', true)
-            ->whereNotNull('pin')
+            ->where(function ($q) {
+                $q->whereNotNull('pin')
+                    ->orWhereHas('role', fn ($r) => $r->where('slug', 'waiter'));
+            })
             ->with('role:id,name,slug')
             ->orderBy('name');
 
@@ -60,12 +64,13 @@ class AuthController extends Controller
             $query->whereHas('role', fn ($q) => $q->where('slug', $slug));
         }
 
-        $staff = $query->get(['id', 'name', 'username', 'role_id'])->map(fn (User $u) => [
+        $staff = $query->get(['id', 'name', 'username', 'role_id', 'pin'])->map(fn (User $u) => [
             'id' => $u->id,
             'name' => $u->name,
             'username' => $u->username,
             'role' => $u->role?->slug,
             'role_name' => $u->role?->name,
+            'requires_pin' => $u->pin !== null,
         ]);
 
         return response()->json($staff);
@@ -79,14 +84,28 @@ class AuthController extends Controller
     {
         $credentials = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
-            'pin' => ['required', 'string'],
+            'pin' => ['nullable', 'string'],
         ]);
 
-        $user = User::find($credentials['user_id']);
+        $user = User::with('role')->find($credentials['user_id']);
 
-        // One generic message whether the account has no PIN or the PIN is wrong,
-        // so we don't reveal which staff have PIN login enabled.
-        if (! $user || ! $user->pin || ! Hash::check($credentials['pin'], $user->pin)) {
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'pin' => ['The PIN is incorrect.'],
+            ]);
+        }
+
+        if ($user->pin !== null) {
+            // One generic message whether the PIN is missing or wrong, so we
+            // don't reveal which staff have PIN login enabled.
+            if (! Hash::check((string) ($credentials['pin'] ?? ''), $user->pin)) {
+                throw ValidationException::withMessages([
+                    'pin' => ['The PIN is incorrect.'],
+                ]);
+            }
+        } elseif ($user->role?->slug !== 'waiter') {
+            // PIN-less tap login is reserved for waiters; password accounts
+            // (admin, back-office cashier) must go through /login instead.
             throw ValidationException::withMessages([
                 'pin' => ['The PIN is incorrect.'],
             ]);

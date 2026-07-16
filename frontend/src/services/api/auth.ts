@@ -11,6 +11,8 @@ export type StaffMember = {
   username: string
   role: string | null
   role_name: string | null
+  /** false = signs in on tap alone (waiters); true = PIN step required. */
+  requires_pin: boolean
 }
 
 export type ApiUser = {
@@ -34,10 +36,11 @@ export function fetchStaffRoster(role?: 'waiter' | 'cashier'): Promise<StaffMemb
   return api<StaffMember[]>(`/staff${role ? `?role=${role}` : ''}`)
 }
 
-/** PIN login (POS terminals / waiter tablets). Stores the bearer token. */
-export async function staffLogin(userId: number, pin: string): Promise<ApiUser> {
+/** Tap login (POS terminals / waiter tablets). PIN is only needed for accounts
+ *  that have one — waiters sign in with just their id. Stores the bearer token. */
+export async function staffLogin(userId: number, pin?: string): Promise<ApiUser> {
   const { token, user } = await api<LoginResponse>('/staff-login', {
-    body: { user_id: userId, pin },
+    body: { user_id: userId, pin: pin ?? null },
   })
   setToken(token)
   return user
