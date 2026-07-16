@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   LuArrowLeftRight,
   LuChevronLeft,
@@ -9,7 +9,6 @@ import {
   LuLock,
   LuPower,
   LuRefreshCw,
-  LuX,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import { LoadingState } from '../../components/ui/Loader'
@@ -81,8 +80,7 @@ export default function PaymentPage({
   const { khrRate } = useSettings()
 
   // Load the venue's active payment journals once, falling back to a built-in
-  // set if the server can't be reached. Odoo-style, the first journal is
-  // pre-filled with the full amount due so the screen opens settled.
+  // set if the server can't be reached.
   useEffect(() => {
     let alive = true
     fetchActivePaymentMethods()
@@ -92,17 +90,11 @@ export default function PaymentPage({
         if (!alive) return
         setMethods(list)
         setSelectedId(list[0].id)
-        setAmounts({ [list[0].id]: total })
       })
     return () => {
       alive = false
     }
   }, [total])
-
-  const tendered = useMemo(
-    () => Object.values(amounts).reduce((sum, n) => sum + n, 0),
-    [amounts],
-  )
 
   if (!methods || selectedId === null) {
     return (
@@ -114,25 +106,24 @@ export default function PaymentPage({
 
   const methodList = methods
   const selected = selectedId
+
+  // Whichever method is selected implicitly tenders the outstanding due, so
+  // every method opens showing the full amount to collect. Typing overrides it.
+  const othersTendered = methodList.reduce(
+    (sum, m) => (m.id === selected || amounts[m.id] == null ? sum : sum + amounts[m.id]),
+    0,
+  )
+  const entered = amounts[selected] ?? Math.max(0, total - othersTendered)
+  const tendered = othersTendered + entered
   const remaining = Math.max(0, total - tendered)
   const change = Math.max(0, tendered - total)
   const settled = remaining <= 0.001
-
-  const label = change > 0.001 ? 'Change' : 'Amount Due'
-  const primary = change > 0.001 ? change : remaining
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   const orders = table.orders
 
   function selectMethod(id: number) {
     setSelectedId(id)
     setEntry(null)
-    // Auto-assign the outstanding balance to a freshly picked tender.
-    setAmounts((prev) => {
-      if (prev[id] != null) return prev
-      const others = Object.values(prev).reduce((sum, n) => sum + n, 0)
-      const due = Math.max(0, total - others)
-      return due > 0 ? { ...prev, [id]: due } : prev
-    })
   }
 
   function commit(next: string) {
@@ -142,7 +133,7 @@ export default function PaymentPage({
   }
 
   function pressKey(key: string) {
-    const current = entry ?? String(amounts[selected] ?? 0)
+    const current = entry ?? String(entered)
 
     if (key === 'del') return commit(current.slice(0, -1) || '0')
     if (key === '+/-') return commit(current.startsWith('-') ? current.slice(1) : `-${current}`)
@@ -151,20 +142,16 @@ export default function PaymentPage({
     return commit((entry === null ? '' : current) + key)
   }
 
-  // Clear every entered tender — Amount Due returns to the full order total.
-  function cancel() {
-    setAmounts({})
-    setEntry(null)
-  }
-
   // Hand the settled bill to the order flow so it can print the receipt and
   // record the money on the backend.
   function validate() {
-    const used = methodList.filter((m) => amounts[m.id] != null && amounts[m.id] !== 0)
+    // The selected method's implicit tender counts alongside the typed ones.
+    const effective: Record<number, number> = { ...amounts, [selected]: entered }
+    const used = methodList.filter((m) => effective[m.id] != null && effective[m.id] !== 0)
     // Group the entered tenders by backend channel, then cap them to the bill so
     // recorded revenue equals the total due (any cash overpay is change, not sales).
     const grouped = new Map<PayMethodBackend, number>()
-    for (const m of used) grouped.set(m.channel, (grouped.get(m.channel) ?? 0) + amounts[m.id])
+    for (const m of used) grouped.set(m.channel, (grouped.get(m.channel) ?? 0) + effective[m.id])
     const tenders: Tender[] = []
     let left = total
     for (const [method, amount] of grouped) {
@@ -285,7 +272,6 @@ export default function PaymentPage({
         {/* Left — payment methods */}
         <div className="w-[42%] min-w-[380px] overflow-y-auto border-r border-neutral-200 bg-white">
           {methodList.map((method) => {
-            const amount = amounts[method.id]
             const isSelected = method.id === selected
             return (
               <button
@@ -299,11 +285,6 @@ export default function PaymentPage({
                 }`}
               >
                 <span className="flex-1 text-lg font-medium text-neutral-800">{method.label}</span>
-                {amount != null && amount !== 0 && (
-                  <span className={`text-lg font-bold ${isSelected ? 'text-emerald-700' : 'text-neutral-500'}`}>
-                    {usd(amount)}
-                  </span>
-                )}
               </button>
             )
           })}
@@ -311,15 +292,15 @@ export default function PaymentPage({
 
         {/* Right — amount due + numpad */}
         <div className="flex flex-1 flex-col overflow-y-auto p-6">
-          {/* Amount due */}
+          {/* Amount due — shows the tender entered for the selected method */}
           <div className="flex flex-col items-center justify-center py-6">
-            <p className="text-lg font-semibold text-neutral-500">{label}</p>
+            <p className="text-lg font-semibold text-neutral-500">Amount Due</p>
             <p className={`mt-1 text-6xl font-bold ${settled ? 'text-emerald-600' : 'text-neutral-900'}`}>
-              {usd(primary)}
+              {usd(entered)}
             </p>
             <p className="my-2 text-lg text-neutral-400">Or</p>
             <p className={`text-5xl font-bold ${settled ? 'text-emerald-600/80' : 'text-neutral-700'}`}>
-              {khr(primary * khrRate)}
+              {khr(entered * khrRate)}
             </p>
           </div>
 
@@ -337,23 +318,18 @@ export default function PaymentPage({
             ))}
           </div>
 
-          {/* Cancel — clears every entered tender */}
-          <div className="mx-auto w-full max-w-2xl pt-3">
-            <button
-              type="button"
-              onClick={cancel}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-4 text-lg font-semibold text-rose-600 shadow-sm transition hover:bg-rose-100 active:scale-[0.99]"
-            >
-              <LuX className="h-6 w-6" />
-              Cancel
-            </button>
-          </div>
-
           {/* Running tally */}
           <div className="mx-auto mt-4 flex w-full max-w-2xl items-center justify-between text-sm text-neutral-500">
             <span>Order Total {usd(total)}</span>
-            <span>
-              Paid <span className="font-semibold text-neutral-700">{usd(tendered)}</span>
+            <span className="flex items-center gap-4">
+              {change > 0.001 && (
+                <span>
+                  Change <span className="font-semibold text-amber-600">{usd(change)}</span>
+                </span>
+              )}
+              <span>
+                Paid <span className="font-semibold text-neutral-700">{usd(tendered)}</span>
+              </span>
             </span>
           </div>
         </div>

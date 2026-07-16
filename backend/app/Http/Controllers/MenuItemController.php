@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\MenuItem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MenuItemController extends Controller
@@ -39,12 +40,18 @@ class MenuItemController extends Controller
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
-            'image' => ['nullable', 'string'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'is_available' => ['boolean'],
             'sort_order' => ['nullable', 'integer'],
         ]);
 
         $data['slug'] ??= Str::slug($data['name']);
+
+        if ($request->hasFile('image')) {
+            $data['image'] = '/storage/'.$request->file('image')->store('menu-items', 'public');
+        } else {
+            unset($data['image']);
+        }
 
         $item = MenuItem::create($data);
 
@@ -64,10 +71,21 @@ class MenuItemController extends Controller
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'price' => ['sometimes', 'required', 'numeric', 'min:0'],
-            'image' => ['nullable', 'string'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'is_available' => ['boolean'],
             'sort_order' => ['nullable', 'integer'],
         ]);
+
+        // Uploaded file replaces (and deletes) the old one; an explicit null
+        // clears it; an absent key leaves the current image untouched.
+        if ($request->hasFile('image')) {
+            self::deleteStoredImage($menuItem->image);
+            $data['image'] = '/storage/'.$request->file('image')->store('menu-items', 'public');
+        } elseif (array_key_exists('image', $data) && $data['image'] === null) {
+            self::deleteStoredImage($menuItem->image);
+        } else {
+            unset($data['image']);
+        }
 
         $menuItem->update($data);
 
@@ -76,8 +94,17 @@ class MenuItemController extends Controller
 
     public function destroy(MenuItem $menuItem): JsonResponse
     {
+        self::deleteStoredImage($menuItem->image);
         $menuItem->delete();
 
         return response()->json(['message' => 'Menu item deleted.']);
+    }
+
+    /** Remove an uploaded image from the public disk; external URLs are left alone. */
+    private static function deleteStoredImage(?string $image): void
+    {
+        if ($image && str_starts_with($image, '/storage/')) {
+            Storage::disk('public')->delete(substr($image, strlen('/storage/')));
+        }
     }
 }
