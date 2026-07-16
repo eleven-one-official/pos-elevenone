@@ -130,9 +130,10 @@ function HeaderBar({
         </div>
       </div>
 
-      {/* Right: session controls */}
+      {/* Right: session controls — all three exit the register (back to the
+          dashboard when it was opened from the admin side, login otherwise) */}
       <div className="flex items-center justify-end gap-1">
-        <HeaderIconButton icon={LuRefreshCw} label="Reload" onClick={() => window.location.reload()} />
+        <HeaderIconButton icon={LuRefreshCw} label="Reload" onClick={onLogout} />
         <div className="h-8 w-px bg-white/15" />
         <HeaderIconButton icon={LuLock} label="Lock" onClick={onLogout} />
         <div className="h-8 w-px bg-white/15" />

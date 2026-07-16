@@ -6,17 +6,21 @@ import WaiterFloorPage from './features/waiter/WaiterFloorPage'
 import WaiterOrderPage from './features/waiter/WaiterOrderPage'
 import AdminApp from './features/admin/AdminApp'
 import { logout as apiLogout } from './services/api/auth'
+import { api, getToken, setToken } from './services/api/client'
 import { SettingsProvider } from './hooks/useSettings'
 import type { Cashier } from './features/auth/CashierLoginDialog'
 import type { Waiter } from './features/waiter/WaiterLoginDialog'
+
+/** The admin session to return to when a register opened from the dashboard exits. */
+type AdminReturn = { staff: Cashier; token: string | null }
 
 // Who is signed in drives which "side" of the app renders: admins get the back
 // office (dashboard / reports / menu management); cashiers get the full POS
 // (order → payment → receipt); waiters get the tablet flow (order → send to
 // kitchen). Cashiers and waiters both start from the same table floor.
 type Session =
-  | { role: 'admin'; staff: Cashier }
-  | { role: 'cashier'; staff: Cashier }
+  | { role: 'admin'; staff: Cashier; token: string | null }
+  | { role: 'cashier'; staff: Cashier; admin?: AdminReturn }
   | { role: 'waiter'; staff: Waiter }
 
 export default function App() {
@@ -25,7 +29,7 @@ export default function App() {
   // without credentials. Compiled out of production builds.
   const [session, setSession] = useState<Session | null>(() =>
     import.meta.env.DEV && new URLSearchParams(window.location.search).has('admin-preview')
-      ? { role: 'admin', staff: { id: 'preview', name: 'Srun Soklim', role: 'Admin' } }
+      ? { role: 'admin', staff: { id: 'preview', name: 'Srun Soklim', role: 'Admin' }, token: getToken() }
       : null,
   )
   const [table, setTable] = useState<PosTable | null>(null)
@@ -35,10 +39,12 @@ export default function App() {
       <LoginPage
         onLogin={(user) =>
           // The username/password form is shared by admins and cashiers; the
-          // backend role decides which side they land on.
+          // backend role decides which side they land on. The admin's token is
+          // kept on the session so it can be restored after a register opened
+          // from the dashboard closes.
           setSession(
             user.role?.toLowerCase() === 'admin'
-              ? { role: 'admin', staff: user }
+              ? { role: 'admin', staff: user, token: getToken() }
               : { role: 'cashier', staff: user },
           )
         }
@@ -58,7 +64,21 @@ export default function App() {
   // are loaded once and shared with every side below.
   function renderSide(active: Session) {
     if (active.role === 'admin') {
-      return <AdminApp admin={active.staff} onLogout={logout} />
+      const adminReturn: AdminReturn = { staff: active.staff, token: active.token }
+      return (
+        <AdminApp
+          admin={active.staff}
+          onLogout={logout}
+          // PIN login on the POS session gate: staffLogin already swapped the
+          // bearer token to the cashier, so the whole app follows them onto
+          // the cashier side (table floor → order → payment). The launching
+          // admin rides along so Reload/Lock/Close can land back on the
+          // dashboard instead of the login screen.
+          onCashierLogin={(cashier) =>
+            setSession({ role: 'cashier', staff: cashier, admin: adminReturn })
+          }
+        />
+      )
     }
 
     if (active.role === 'waiter') {
@@ -68,8 +88,23 @@ export default function App() {
       return <WaiterOrderPage waiter={active.staff} table={table} onBack={() => setTable(null)} />
     }
 
+    // Register opened from the admin dashboard: exiting revokes the cashier's
+    // token and restores the admin session. A cashier who signed in directly
+    // from the login page just logs out as before.
+    const adminReturn = active.admin
+    const exitRegister = adminReturn
+      ? () => {
+          // api() snapshots the bearer token synchronously, so the revoke goes
+          // out with the cashier's token even though we swap back right after.
+          void api('/logout', { method: 'POST' }).catch(() => {})
+          setToken(adminReturn.token)
+          setTable(null)
+          setSession({ role: 'admin', staff: adminReturn.staff, token: adminReturn.token })
+        }
+      : logout
+
     if (!table) {
-      return <TableFloorPage cashier={active.staff} onSelectTable={setTable} onLogout={logout} />
+      return <TableFloorPage cashier={active.staff} onSelectTable={setTable} onLogout={exitRegister} />
     }
 
     return <OrderPage cashier={active.staff} table={table} onBack={() => setTable(null)} />

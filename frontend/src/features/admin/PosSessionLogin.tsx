@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { LuChevronLeft } from 'react-icons/lu'
+import CashierLoginDialog, { type Cashier } from '../auth/CashierLoginDialog'
 
 // ---------------------------------------------------------------------------
 // POS session login — the Odoo-style full-screen gate shown after pressing
 // "Continue selling" on a dashboard card: a muted low-poly backdrop with a
-// centered card offering badge scan or cashier selection. Pure UI for now;
-// "Select Cashier" will later open the cashier roster + PIN dialog.
+// centered card offering badge scan or cashier selection. "Select Cashier"
+// opens the shared cashier roster + PIN dialog.
 // ---------------------------------------------------------------------------
 
 // Deterministic EAN-ish barcode artwork: main bars + a dashed fringe below.
@@ -22,10 +24,14 @@ const BARCODE_WIDTH = BARS[BARS.length - 1].x + BARS[BARS.length - 1].w
 export default function PosSessionLogin({
   name,
   onBack,
+  onLoggedIn,
 }: {
   name: string
   onBack: () => void
+  onLoggedIn?: (cashier: Cashier) => void
 }) {
+  const [cashierDialogOpen, setCashierDialogOpen] = useState(false)
+
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-[#7d6e73]">
       {/* Low-poly facets, Odoo POS backdrop style */}
@@ -82,12 +88,23 @@ export default function PosSessionLogin({
 
           <button
             type="button"
+            onClick={() => setCashierDialogOpen(true)}
             className="rounded-[3px] border border-[#c9c8c5] bg-[#e8e7e5] px-7 py-5 text-[15px] text-[#4c4b47] shadow-sm transition hover:bg-[#dedddb]"
           >
             Select Cashier
           </button>
         </div>
       </div>
+
+      {cashierDialogOpen && (
+        <CashierLoginDialog
+          onClose={() => setCashierDialogOpen(false)}
+          onLoggedIn={(cashier) => {
+            setCashierDialogOpen(false)
+            onLoggedIn?.(cashier)
+          }}
+        />
+      )}
     </div>
   )
 }

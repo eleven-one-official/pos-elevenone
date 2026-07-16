@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import {
   LuArrowRight,
-  LuCheck,
   LuChefHat,
-  LuChevronDown,
   LuEye,
   LuEyeOff,
   LuLock,
@@ -16,81 +14,6 @@ import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
 import { passwordLogin } from '../../services/api/auth'
 import { ApiError } from '../../services/api/client'
 import { Loader } from '../../components/ui/Loader'
-
-const LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'km', label: 'ខ្មែរ' },
-] as const
-
-type LanguageCode = (typeof LANGUAGES)[number]['code']
-
-function FlagIcon({ code }: { code: LanguageCode }) {
-  if (code === 'km') {
-    return (
-      <svg viewBox="0 0 24 16" className="h-4 w-6 shrink-0 rounded-[3px]" aria-hidden>
-        <rect width="24" height="16" fill="#032ea1" />
-        <rect y="4" width="24" height="8" fill="#e00025" />
-        <g fill="#fff">
-          <path d="M12 5.2l1.1 2.3h-2.2z" />
-          <path d="M9.6 6.6l.9 1.6H8.7z" />
-          <path d="M14.4 6.6l.9 1.6h-1.8z" />
-          <rect x="8.4" y="8.2" width="7.2" height="2.6" rx="0.4" />
-        </g>
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 24 16" className="h-4 w-6 shrink-0 rounded-[3px]" aria-hidden>
-      <rect width="24" height="16" fill="#b22234" />
-      <g fill="#fff">
-        {[1, 3, 5, 7, 9, 11].map((i) => (
-          <rect key={i} y={i * 1.2308} width="24" height="1.2308" />
-        ))}
-      </g>
-      <rect width="9.6" height="8.6" fill="#3c3b6e" />
-    </svg>
-  )
-}
-
-function LanguageSelect() {
-  const [open, setOpen] = useState(false)
-  const [lang, setLang] = useState<(typeof LANGUAGES)[number]>(LANGUAGES[0])
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2.5 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50"
-      >
-        <FlagIcon code={lang.code} />
-        {lang.label}
-        <LuChevronDown className={`h-4 w-4 text-neutral-500 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 z-20 mt-2 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg">
-          {LANGUAGES.map((l) => (
-            <button
-              key={l.code}
-              type="button"
-              onClick={() => {
-                setLang(l)
-                setOpen(false)
-              }}
-              className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium transition hover:bg-neutral-50 ${
-                l.code === lang.code ? 'text-primary' : 'text-neutral-700'
-              }`}
-            >
-              <FlagIcon code={l.code} />
-              {l.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function BrandPanel() {
   return (
@@ -167,13 +90,13 @@ export default function LoginPage({
         <BrandPanel />
 
         <div className="flex flex-1 flex-col px-6 py-6 sm:px-12 lg:px-20">
-          <div className="flex justify-end">
-            <LanguageSelect />
-          </div>
-
           <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center py-10">
-            <h2 className="text-center text-4xl font-bold text-neutral-900">Welcome Back!</h2>
-            <p className="mt-3 text-center text-lg text-neutral-500">Please sign in to continue</p>
+            <img
+              src="/images/logo.png"
+              alt="elevenone Kitchen"
+              draggable={false}
+              className="mx-auto h-32 w-auto select-none"
+            />
 
             <form className="mt-11 space-y-6" onSubmit={handleSignIn}>
               <div>
@@ -221,19 +144,6 @@ export default function LoginPage({
                     {showPassword ? <LuEyeOff className="h-5 w-5" /> : <LuEye className="h-5 w-5" />}
                   </button>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <label className="flex cursor-pointer select-none items-center gap-3 text-neutral-700">
-                  <input type="checkbox" defaultChecked className="peer sr-only" />
-                  <span className="flex h-5 w-5 items-center justify-center rounded-md border border-neutral-300 bg-white text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
-                    <LuCheck className="h-3.5 w-3.5" strokeWidth={3.5} />
-                  </span>
-                  Remember me
-                </label>
-                <a href="#" className="font-medium text-primary transition hover:text-primary-dark">
-                  Forgot password?
-                </a>
               </div>
 
               {error && (

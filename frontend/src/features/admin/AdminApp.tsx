@@ -77,7 +77,16 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
 
 type PosTab = { menu: string; item?: string }
 
-export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout: () => void }) {
+export default function AdminApp({
+  admin,
+  onLogout,
+  onCashierLogin,
+}: {
+  admin: Cashier
+  onLogout: () => void
+  /** A cashier passed the PIN gate on the POS session login — open the register as them. */
+  onCashierLogin: (cashier: Cashier) => void
+}) {
   const [moduleKey, setModuleKey] = useState<ModuleKey>('pos')
   // Dev builds can jump to a menu screen with `?pos-tab=<menu>/<item>`.
   const [tab, setTab] = useState<PosTab>(() => {
@@ -103,7 +112,13 @@ export default function AdminApp({ admin, onLogout }: { admin: Cashier; onLogout
   const active = MODULES.find((m) => m.key === moduleKey) ?? MODULES[0]
 
   if (sessionLogin) {
-    return <PosSessionLogin name={sessionLogin} onBack={() => setSessionLogin(null)} />
+    return (
+      <PosSessionLogin
+        name={sessionLogin}
+        onBack={() => setSessionLogin(null)}
+        onLoggedIn={onCashierLogin}
+      />
+    )
   }
 
   const content =
