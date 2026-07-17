@@ -127,6 +127,35 @@ const PRODUCT_CATEGORIES = [
   'Water_ / Sparkling_',
 ]
 
+// Units of measure in Odoo's dropdown order — the first seven fill the
+// dropdown and the full list backs the "Search More..." dialog.
+const UOM_OPTIONS = [
+  'mm',
+  'g',
+  'cm',
+  'in³',
+  'in',
+  'oz',
+  'fl oz (US)',
+  'kg',
+  'Units',
+  'Dozens',
+  'm',
+  'km',
+  'mi',
+  'ft',
+  'yd',
+  'L',
+  'm³',
+  'ft³',
+  'gal (US)',
+  'qt (US)',
+  'lb',
+  't',
+  'Days',
+  'Hours',
+]
+
 export default function PosProductForm({
   onBack,
   onSave,
@@ -366,23 +395,13 @@ export default function PosProductForm({
 
                     <label className={LABEL}>Unit of Measure</label>
                     <span className="flex items-center gap-2">
-                      <select className={BLUE_SELECT}>
-                        <option>kg</option>
-                        <option>Units</option>
-                        <option>Pcs</option>
-                        <option>L</option>
-                      </select>
+                      <Many2OneField blue title="Unit of Measure" options={UOM_OPTIONS} value="kg" />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
 
                     <label className={LABEL}>Purchase UoM</label>
                     <span className="flex items-center gap-2">
-                      <select className={BLUE_SELECT}>
-                        <option>kg</option>
-                        <option>Units</option>
-                        <option>Pcs</option>
-                        <option>L</option>
-                      </select>
+                      <Many2OneField blue title="Unit of Measure" options={UOM_OPTIONS} value="kg" />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
                   </FieldGroup>

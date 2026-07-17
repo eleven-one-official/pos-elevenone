@@ -15,6 +15,7 @@ import SearchMenus from './SearchMenus'
 // "Search More...". Pure UI over the option list passed in: live search and
 // 80-row pages work, and Create swaps in the quick-create form (the record
 // list waits disabled behind it). Saving the form commits the typed name.
+// Product Category gets its full Odoo form; other fields just get the name.
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 80
@@ -35,6 +36,8 @@ export default function SearchMoreDialog({
   const [page, setPage] = useState(0)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+
+  const isCategory = title === 'Product Category'
 
   const matches = query
     ? options.filter((o) => o.toLowerCase().includes(query.toLowerCase()))
@@ -84,16 +87,19 @@ export default function SearchMoreDialog({
 
             {/* Quick-create form */}
             <div className="shrink-0 px-6 pb-6 pt-3">
-              <div className="text-[13px] font-bold text-neutral-800">Category</div>
+              <div className="text-[13px] font-bold text-neutral-800">
+                {isCategory ? 'Category' : title}
+              </div>
               <input
                 autoFocus
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Escape' && setCreating(false)}
-                placeholder="e.g. Lamps"
+                placeholder={isCategory ? 'e.g. Lamps' : undefined}
                 className={`mt-1.5 w-[72%] min-w-72 rounded-[2px] border border-neutral-300 ${FIELD_BG} px-3 py-1.5 text-[20px] text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-sky-600`}
               />
 
+              {isCategory && (
               <div className="mt-6 grid grid-cols-1 gap-x-16 gap-y-7 xl:grid-cols-2">
                 <FieldGroup>
                   <label className={LABEL}>Parent Category</label>
@@ -137,6 +143,7 @@ export default function SearchMoreDialog({
                   </span>
                 </FieldGroup>
               </div>
+              )}
             </div>
 
             {/* Save / Discard */}
