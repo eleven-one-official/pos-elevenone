@@ -136,6 +136,12 @@ export function Many2OneField({
               </button>
             </li>
           )}
+          {/* Odoo shows this hint while the lookup is still empty. */}
+          {!selected && (
+            <li className="block w-full whitespace-nowrap py-1.5 pl-7 pr-3 text-left text-[13px] italic text-neutral-500">
+              Start typing...
+            </li>
+          )}
         </ul>
       )}
       {searchOpen && (

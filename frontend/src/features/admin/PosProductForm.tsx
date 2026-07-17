@@ -156,6 +156,38 @@ const UOM_OPTIONS = [
   'Hours',
 ]
 
+// Chart of accounts, sorted by code — the first seven fill the dropdown and
+// the full list backs the "Search More..." dialog, Odoo style.
+const ACCOUNT_OPTIONS = [
+  '101000 Current Assets',
+  '101300 Account Receivable (PoS)',
+  '101401 Bank Suspense Account',
+  '101402 Outstanding Receipts',
+  '101403 Outstanding Payments',
+  '101404 Bank',
+  '101405 Sathyka & Viseth',
+  '101501 Cash',
+  '101701 Liquidity Transfer',
+  '110100 Stock Valuation',
+  '110200 Stock Interim (Received)',
+  '110300 Stock Interim (Delivered)',
+  '120000 Account Receivable',
+  '131000 Tax Paid',
+  '201000 Account Payable',
+  '251000 Tax Received',
+  '400000 Product Sales',
+  '450000 Cost of Goods Sold',
+  '600000 Expenses',
+  '999999 Undistributed Profits/Losses',
+]
+
+// Expense-side lookups exclude receivable/payable/bank/cash accounts, so their
+// dropdown leads with the suspense and stock accounts like Odoo's.
+const EXPENSE_ACCOUNT_EXCLUDED = ['101300', '101404', '101405', '101501', '120000', '201000']
+const EXPENSE_ACCOUNT_OPTIONS = ACCOUNT_OPTIONS.filter(
+  (a) => !EXPENSE_ACCOUNT_EXCLUDED.includes(a.split(' ')[0]),
+)
+
 export default function PosProductForm({
   onBack,
   onSave,
@@ -613,18 +645,18 @@ export default function PosProductForm({
               <div className="grid grid-cols-1 gap-x-16 gap-y-8 px-8 py-5 pb-24 xl:grid-cols-2">
                 <FieldGroup title="Receivables">
                   <label className={LABEL}>Income Account</label>
-                  <DropdownStub />
+                  <Many2OneField title="Income Account" options={ACCOUNT_OPTIONS} />
                 </FieldGroup>
 
                 <FieldGroup title="Payables">
                   <label className={LABEL}>Expense Account</label>
-                  <DropdownStub />
+                  <Many2OneField title="Expense Account" options={EXPENSE_ACCOUNT_OPTIONS} />
 
                   <label className={LABEL}>Asset Type</label>
-                  <DropdownStub />
+                  <Many2OneField title="Asset Type" options={[]} />
 
                   <label className={LABEL}>Price Difference Account</label>
-                  <DropdownStub />
+                  <Many2OneField title="Price Difference Account" options={ACCOUNT_OPTIONS} />
                 </FieldGroup>
               </div>
             )}
