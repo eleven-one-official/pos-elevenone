@@ -166,6 +166,28 @@ function bucketize(data: { c: string; v: number }[], dim: string): { c: string; 
   return buckets.map((b, i) => ({ c: b, v: (total * weights[i]) / weightSum }))
 }
 
+// Saved searches (Favorites menu), persisted to localStorage like Products.
+type SavedSearch = {
+  name: string
+  isDefault: boolean
+  shared: boolean
+  query: string
+  filters: string[]
+  groups: string[]
+  customFilters: CustomCondition[][]
+}
+
+const FAVORITES_KEY = 'pos-admin.orders-analysis.search-favorites'
+
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
 // Custom-filter conditions evaluate against the category axis; fields that
 // don't exist in the aggregate placeholder data (Account Tags, ...) match all.
 function matchesCondition(category: string, c: CustomCondition): boolean {
@@ -512,7 +534,12 @@ function OrdersChart({
 }
 
 export default function PosOrdersAnalysis() {
-  const [query, setQuery] = useState('')
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(() =>
+    loadJson<SavedSearch[]>(FAVORITES_KEY, []),
+  )
+  const defaultSearch = savedSearches.find((f) => f.isDefault)
+
+  const [query, setQuery] = useState(defaultSearch?.query ?? '')
   // Measures dropdown — dev builds can pre-open it with `?measures-open`.
   const [measuresOpen, setMeasuresOpen] = useState(
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('measures-open'),
@@ -554,12 +581,61 @@ export default function PosOrdersAnalysis() {
 
   // Search state — time filters, applied custom-filter condition groups
   // (groups AND together, conditions inside a group OR together, like Odoo)
-  // and the group-by list in nesting order.
-  const [checkedFilters, setCheckedFilters] = useState<Set<string>>(new Set())
-  const [customFilters, setCustomFilters] = useState<CustomCondition[][]>([])
-  const [groups, setGroups] = useState<string[]>([])
+  // and the group-by list in nesting order. A default favorite pre-fills it.
+  const [checkedFilters, setCheckedFilters] = useState<Set<string>>(
+    () => new Set(defaultSearch?.filters ?? []),
+  )
+  const [customFilters, setCustomFilters] = useState<CustomCondition[][]>(
+    defaultSearch?.customFilters ?? [],
+  )
+  const [groups, setGroups] = useState<string[]>(defaultSearch?.groups ?? [])
+  const [activeFavorite, setActiveFavorite] = useState<string | null>(defaultSearch?.name ?? null)
   const toggleGroup = (g: string) =>
     setGroups((gs) => (gs.includes(g) ? gs.filter((x) => x !== g) : [...gs, g]))
+
+  const persistFavorites = (next: SavedSearch[]) => {
+    setSavedSearches(next)
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(next))
+  }
+  const saveFavorite = (name: string, useByDefault: boolean, shareAll: boolean) => {
+    const entry: SavedSearch = {
+      name,
+      isDefault: useByDefault,
+      shared: shareAll,
+      query,
+      filters: [...checkedFilters],
+      groups,
+      customFilters,
+    }
+    persistFavorites([
+      ...savedSearches
+        .filter((f) => f.name !== name)
+        .map((f) => (useByDefault ? { ...f, isDefault: false } : f)),
+      entry,
+    ])
+    setActiveFavorite(name)
+  }
+  const applyFavorite = (name: string) => {
+    const fav = savedSearches.find((f) => f.name === name)
+    if (!fav) return
+    setQuery(fav.query)
+    setCheckedFilters(new Set(fav.filters))
+    setGroups(fav.groups)
+    setCustomFilters(fav.customFilters)
+    setActiveFavorite(name)
+  }
+  const deleteFavorite = (name: string) => {
+    persistFavorites(savedSearches.filter((f) => f.name !== name))
+    if (activeFavorite === name) setActiveFavorite(null)
+  }
+  // Removing the favorite facet clears the whole search, like Odoo.
+  const clearFavorite = () => {
+    setActiveFavorite(null)
+    setQuery('')
+    setCheckedFilters(new Set())
+    setGroups([])
+    setCustomFilters([])
+  }
 
   const timeChecked = TIME_FILTERS.filter((f) => checkedFilters.has(f))
   const timeFactor =
@@ -604,6 +680,8 @@ export default function PosOrdersAnalysis() {
       kind: 'group',
       onRemove: () => setGroups([]),
     })
+  if (activeFavorite)
+    facets.push({ key: 'fav', label: activeFavorite, kind: 'favorite', onRemove: clearFavorite })
 
   // The chart plots the first group-by dimension (deeper levels only show in
   // the facet chip, like Odoo's graph view flattens them).
@@ -813,6 +891,11 @@ export default function PosOrdersAnalysis() {
                 }
                 checkedGroups={groups}
                 onToggleGroup={toggleGroup}
+                favorites={savedSearches.map((f) => ({ name: f.name, shared: f.shared }))}
+                activeFavorite={activeFavorite}
+                onSaveFavorite={saveFavorite}
+                onSelectFavorite={applyFavorite}
+                onDeleteFavorite={deleteFavorite}
               />
 
               <div className="inline-flex rounded-[3px] border border-neutral-300">
