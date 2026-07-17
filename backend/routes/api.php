@@ -18,13 +18,15 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 | Public routes
 |--------------------------------------------------------------------------
+| Credential endpoints are throttled per IP to slow password/PIN brute
+| forcing (PINs are only 4-6 digits, so this limit matters).
 */
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 
 // PIN login for POS terminals / waiter tablets: fetch the tappable roster, then
 // authenticate with the chosen staff id + PIN.
-Route::get('/staff', [AuthController::class, 'staffRoster']);
-Route::post('/staff-login', [AuthController::class, 'staffLogin']);
+Route::get('/staff', [AuthController::class, 'staffRoster'])->middleware('throttle:30,1');
+Route::post('/staff-login', [AuthController::class, 'staffLogin'])->middleware('throttle:10,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -36,34 +38,62 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Menu
-    Route::apiResource('categories', CategoryController::class);
-    Route::apiResource('menu-items', MenuItemController::class);
+    // Catalog & floor reads — every signed-in role needs these to take orders.
+    Route::apiResource('categories', CategoryController::class)->only(['index', 'show']);
+    Route::apiResource('menu-items', MenuItemController::class)->only(['index', 'show']);
+    Route::apiResource('tables', TableController::class)->only(['index', 'show']);
 
-    // Tables
-    Route::apiResource('tables', TableController::class);
+    // Orders: waiters and cashiers create/update; deleting is a back-office op.
+    Route::apiResource('orders', OrderController::class)->except(['destroy']);
 
-    // Orders & payments
-    Route::apiResource('orders', OrderController::class);
-    // Payments are immutable once recorded (refund by creating a new record), so no update route.
-    Route::apiResource('payments', PaymentController::class)->except(['update']);
-
-    // Reports
-    Route::get('/reports/dashboard', [ReportController::class, 'dashboard']);
-    Route::get('/reports/daily-sales', [ReportController::class, 'dailySales']);
-    Route::get('/reports/top-items', [ReportController::class, 'topItems']);
-
-    // Staff management (admin only — enforced in UserController)
-    Route::get('/roles', fn () => Role::orderBy('name')->get(['id', 'name', 'slug']));
-    Route::apiResource('users', UserController::class);
+    // Customer directory — cashiers may look up and add customers on the fly.
+    Route::apiResource('customers', CustomerController::class)->only(['index', 'show', 'store']);
 
     // Store settings — any authed user may read (POS/receipt need them); only
     // admins may write (enforced in SettingController).
     Route::get('/settings', [SettingController::class, 'index']);
     Route::put('/settings', [SettingController::class, 'update']);
 
-    // Customer directory (cashiers may add on the fly) and the venue's payment
-    // journals (read by the POS; admin-only writes, enforced in the controller).
-    Route::apiResource('customers', CustomerController::class);
+    // Payment journals — reads for the POS; admin-only writes are enforced in
+    // the controller.
     Route::apiResource('payment-methods', PaymentMethodController::class);
+
+    // Staff management (admin only — enforced in UserController).
+    Route::apiResource('users', UserController::class);
+
+    /*
+    | Money handling — cashiers settle bills; waiters only take orders, so a
+    | waiter (or kitchen) token can neither record nor browse payments.
+    | Payments are immutable once recorded (refund by creating a new record),
+    | so there is no update route; deleting one is admin-only below.
+    */
+    Route::middleware('role:admin,manager,cashier')->group(function () {
+        Route::apiResource('payments', PaymentController::class)->only(['index', 'show', 'store']);
+    });
+
+    /*
+    | Back office — menu/floor management and sales reporting. Managers "manage
+    | menu, reports and staff" per the role seeder; staff management itself
+    | stays admin-only inside UserController.
+    */
+    Route::middleware('role:admin,manager')->group(function () {
+        Route::apiResource('categories', CategoryController::class)->only(['store', 'update', 'destroy']);
+        Route::apiResource('menu-items', MenuItemController::class)->only(['store', 'update', 'destroy']);
+        Route::apiResource('tables', TableController::class)->only(['store', 'update', 'destroy']);
+        Route::apiResource('orders', OrderController::class)->only(['destroy']);
+        Route::apiResource('customers', CustomerController::class)->only(['update', 'destroy']);
+
+        Route::get('/reports/dashboard', [ReportController::class, 'dashboard']);
+        Route::get('/reports/daily-sales', [ReportController::class, 'dailySales']);
+        Route::get('/reports/top-items', [ReportController::class, 'topItems']);
+    });
+
+    /*
+    | Admin only — deleting a recorded payment erases a money trail, and the
+    | roles list backs the admin-only staff form.
+    */
+    Route::middleware('role:admin')->group(function () {
+        Route::apiResource('payments', PaymentController::class)->only(['destroy']);
+        Route::get('/roles', fn () => Role::orderBy('name')->get(['id', 'name', 'slug']));
+    });
 });

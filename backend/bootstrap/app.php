@@ -17,6 +17,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // exception handler answer 401 JSON rather than crash with
         // "Route [login] not defined".
         $middleware->redirectGuestsTo(fn () => null);
+
+        // Route-level role checks, e.g. ->middleware('role:admin,manager').
+        $middleware->alias([
+            'role' => \App\Http\Middleware\EnsureUserHasRole::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // API-only app: always answer api/* requests with JSON (401 instead of

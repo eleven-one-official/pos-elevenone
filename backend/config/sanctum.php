@@ -50,7 +50,9 @@ return [
     |
     */
 
-    'expiration' => null,
+    // POS tokens live for one long shift (12h) by default; before this they
+    // never expired, so a leaked token worked forever.
+    'expiration' => (int) env('SANCTUM_TOKEN_EXPIRATION', 720),
 
     /*
     |--------------------------------------------------------------------------

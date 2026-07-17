@@ -59,7 +59,7 @@ class UserController extends Controller
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
             'phone' => ['nullable', 'string', 'max:50'],
             'role_id' => ['nullable', 'exists:roles,id'],
-            'password' => ['required', 'string', 'min:4'],
+            'password' => ['required', 'string', 'min:8'],
             'pin' => ['nullable', 'string', 'digits_between:4,6'],
             'is_active' => ['boolean'],
         ]);
@@ -96,7 +96,7 @@ class UserController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'role_id' => ['nullable', 'exists:roles,id'],
             // Password / PIN are only changed when a non-empty value is sent.
-            'password' => ['nullable', 'string', 'min:4'],
+            'password' => ['nullable', 'string', 'min:8'],
             'pin' => ['nullable', 'string', 'digits_between:4,6'],
             'is_active' => ['boolean'],
         ]);
