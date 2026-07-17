@@ -22,8 +22,9 @@ import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 // product category as a single-series bar chart, Odoo style. The series is
 // placeholder data shaped like the venue's real categories, but the search
 // panel works client-side: the search box and custom Product Category
-// conditions filter the category axis, and the Ordered Today/Week/Month/Year
-// filters scale the series to that period, with facet chips in the search box.
+// conditions filter the category axis, the Ordered Today/Week/Month/Year
+// filters scale the series to that period, and Group By re-buckets the axis
+// into the picked dimension — all with facet chips in the search box.
 // ---------------------------------------------------------------------------
 
 // Values are Total Price in thousands of dollars.
@@ -118,6 +119,51 @@ const TIME_FACTOR: Record<string, number> = {
   'Ordered This Week': 0.15,
   'Ordered This Month': 0.36,
   'Ordered This Year': 1,
+}
+
+const GROUP_OPTIONS = ['Point of Sale', 'Product', 'Product Category', 'Order Date']
+
+// Buckets each group-by dimension re-buckets the chart into. The placeholder
+// data only carries product-category totals, so the other dimensions get a
+// deterministic hash-weighted share of the visible total.
+const GROUP_BUCKETS: Record<string, string[]> = {
+  'Point of Sale': ['TTP', 'TTP Waiter'],
+  Product: [
+    'Fish Amok',
+    'Beef Lok Lak',
+    'Khmer Noodle Soup',
+    'Brown rice',
+    'Steamed Rice',
+    'Beef BBQ Rice',
+    'Bbq chicken panini',
+    '4 cheese pizza',
+    'French fries-b',
+    'Garlic bread',
+    'Americano hot',
+    'Iced Latte',
+    'Avocado shake',
+    'Angkor Beer (bottle)',
+    'Mango Sticky Rice',
+  ],
+  'Order Date': [
+    'January 2026',
+    'February 2026',
+    'March 2026',
+    'April 2026',
+    'May 2026',
+    'June 2026',
+    'July 2026',
+  ],
+}
+
+// Re-bucket the filtered series into a group-by dimension, conserving the
+// visible total so filters and group-bys compose coherently.
+function bucketize(data: { c: string; v: number }[], dim: string): { c: string; v: number }[] {
+  const total = data.reduce((sum, d) => sum + d.v, 0)
+  const buckets = GROUP_BUCKETS[dim] ?? []
+  const weights = buckets.map((b) => 0.35 + hash(dim + b))
+  const weightSum = weights.reduce((a, b) => a + b, 0)
+  return buckets.map((b, i) => ({ c: b, v: (total * weights[i]) / weightSum }))
 }
 
 // Custom-filter conditions evaluate against the category axis; fields that
@@ -339,11 +385,13 @@ function OrdersChart({
   data,
   label,
   kind,
+  xLabel,
 }: {
   type: 'bar' | 'line'
   data: { c: string; v: number }[]
   label: string
   kind: MeasureKind
+  xLabel: string
 }) {
   const W = 1720
   const plotL = 68
@@ -457,7 +505,7 @@ function OrdersChart({
         {label}
       </text>
       <text x={plotL + plotW / 2} y={H - 6} textAnchor="middle" fontSize="11.5" fill="#565656">
-        Product Category
+        {xLabel}
       </text>
     </svg>
   )
@@ -504,10 +552,14 @@ export default function PosOrdersAnalysis() {
   const pickMeasure = (m: string) =>
     oaView === 'graph' ? setGraphMeasure(m) : setPivotMeasures((s) => toggleIn(s, m))
 
-  // Search state — time filters and applied custom-filter condition groups
-  // (groups AND together, conditions inside a group OR together, like Odoo).
+  // Search state — time filters, applied custom-filter condition groups
+  // (groups AND together, conditions inside a group OR together, like Odoo)
+  // and the group-by list in nesting order.
   const [checkedFilters, setCheckedFilters] = useState<Set<string>>(new Set())
   const [customFilters, setCustomFilters] = useState<CustomCondition[][]>([])
+  const [groups, setGroups] = useState<string[]>([])
+  const toggleGroup = (g: string) =>
+    setGroups((gs) => (gs.includes(g) ? gs.filter((x) => x !== g) : [...gs, g]))
 
   const timeChecked = TIME_FILTERS.filter((f) => checkedFilters.has(f))
   const timeFactor =
@@ -545,9 +597,24 @@ export default function PosOrdersAnalysis() {
       onRemove: () => setCustomFilters((cs) => cs.filter((_, j) => j !== i)),
     }),
   )
+  if (groups.length > 0)
+    facets.push({
+      key: 'g',
+      label: groups.join(' > '),
+      kind: 'group',
+      onRemove: () => setGroups([]),
+    })
+
+  // The chart plots the first group-by dimension (deeper levels only show in
+  // the facet chip, like Odoo's graph view flattens them).
+  const groupDim = groups[0] ?? 'Product Category'
+  const groupedSeries =
+    groupDim === 'Product Category' || visibleSeries.length === 0
+      ? visibleSeries
+      : bucketize(visibleSeries, groupDim)
 
   const graphKind = MEASURE_DEFS[graphMeasure].kind
-  const graphData = measureSeries(graphMeasure, visibleSeries)
+  const graphData = measureSeries(graphMeasure, groupedSeries)
   const series =
     sortDir === 'none'
       ? graphData
@@ -737,13 +804,15 @@ export default function PosOrdersAnalysis() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <SearchMenus
                 filterSections={[TIME_FILTERS]}
-                groupOptions={['Point of Sale', 'Product', 'Product Category', 'Order Date']}
+                groupOptions={GROUP_OPTIONS}
                 favoriteName="Orders Analysis"
                 checkedFilters={checkedFilters}
                 onToggleFilter={(f) => setCheckedFilters((s) => toggleIn(s, f))}
                 onApplyCustomFilter={(conditions) =>
                   setCustomFilters((cs) => [...cs, conditions])
                 }
+                checkedGroups={groups}
+                onToggleGroup={toggleGroup}
               />
 
               <div className="inline-flex rounded-[3px] border border-neutral-300">
@@ -781,7 +850,7 @@ export default function PosOrdersAnalysis() {
 
       {/* Graph or pivot */}
       {oaView === 'pivot' ? (
-        <PivotTable measures={pivotCols} data={visibleSeries} />
+        <PivotTable measures={pivotCols} data={groupedSeries} />
       ) : series.length === 0 ? (
         <div className="flex flex-1 items-center justify-center pb-16 text-sm text-neutral-500">
           No data to display
@@ -797,7 +866,13 @@ export default function PosOrdersAnalysis() {
           {chartType === 'pie' ? (
             <PieChart data={series} label={graphMeasure} kind={graphKind} />
           ) : (
-            <OrdersChart type={chartType} data={series} label={graphMeasure} kind={graphKind} />
+            <OrdersChart
+              type={chartType}
+              data={series}
+              label={graphMeasure}
+              kind={graphKind}
+              xLabel={groupDim}
+            />
           )}
         </div>
       )}
