@@ -12,6 +12,7 @@ import {
   LuX,
 } from 'react-icons/lu'
 import FacetChip, { type Facet } from './FacetChip'
+import { parseCsv } from './parseCsv'
 import PosProductDetail from './PosProductDetail'
 import PosProductForm from './PosProductForm'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
@@ -187,35 +188,6 @@ type SavedSearch = {
 const FAVORITES_KEY = 'pos-admin.products.search-favorites'
 const STARRED_KEY = 'pos-admin.products.starred'
 const IMPORTED_KEY = 'pos-admin.products.imported'
-
-// Minimal CSV parser — handles quoted fields with commas/escaped quotes.
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue
-    const fields: string[] = []
-    let cur = ''
-    let inQuotes = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (inQuotes) {
-        if (ch === '"') {
-          if (line[i + 1] === '"') {
-            cur += '"'
-            i++
-          } else inQuotes = false
-        } else cur += ch
-      } else if (ch === '"') inQuotes = true
-      else if (ch === ',') {
-        fields.push(cur)
-        cur = ''
-      } else cur += ch
-    }
-    fields.push(cur)
-    rows.push(fields.map((f) => f.trim()))
-  }
-  return rows
-}
 
 // Category → POS category used when importing (mirrors the placeholder data).
 const IMPORT_POS_CATEGORY: Record<string, string> = {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   LuArrowDownWideNarrow,
   LuArrowUpNarrowWide,
@@ -13,8 +13,10 @@ import {
   LuRepeat,
   LuSearch,
   LuTable,
+  LuX,
 } from 'react-icons/lu'
 import FacetChip, { type Facet } from './FacetChip'
+import { parseCsv } from './parseCsv'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
@@ -178,6 +180,7 @@ type SavedSearch = {
 }
 
 const FAVORITES_KEY = 'pos-admin.orders-analysis.search-favorites'
+const IMPORTED_KEY = 'pos-admin.orders-analysis.imported'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -637,10 +640,64 @@ export default function PosOrdersAnalysis() {
     setCustomFilters([])
   }
 
+  // Favorites > Import records — CSV with columns: category, total (in $).
+  // Rows merge into an existing category or append a new one, and persist.
+  const [imported, setImported] = useState<{ c: string; v: number }[]>(() =>
+    loadJson(IMPORTED_KEY, []),
+  )
+  const [importStatus, setImportStatus] = useState<{ ok: boolean; text: string } | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const importFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const rows = parseCsv(String(reader.result ?? ''))
+      const dataRows = rows[0]?.[0]?.toLowerCase() === 'category' ? rows.slice(1) : rows
+      const added: { c: string; v: number }[] = []
+      let skipped = 0
+      for (const cells of dataRows) {
+        const category = cells[0] ?? ''
+        const total = Number.parseFloat((cells[1] ?? '').replace(/[^0-9.-]/g, ''))
+        if (!category || Number.isNaN(total)) {
+          skipped++
+          continue
+        }
+        added.push({ c: category, v: total / 1000 })
+      }
+      if (added.length === 0) {
+        setImportStatus({
+          ok: false,
+          text: `No sales imported from "${file.name}" — expected CSV columns: category, total.`,
+        })
+        return
+      }
+      setImported((prev) => {
+        const next = [...prev, ...added]
+        localStorage.setItem(IMPORTED_KEY, JSON.stringify(next))
+        return next
+      })
+      setImportStatus({
+        ok: true,
+        text:
+          `Imported ${added.length} categor${added.length === 1 ? 'y' : 'ies'} from "${file.name}"` +
+          (skipped > 0 ? ` (${skipped} row${skipped === 1 ? '' : 's'} skipped)` : '') +
+          '.',
+      })
+    }
+    reader.readAsText(file)
+  }
+
+  // Base data = placeholder series plus the imported category totals.
+  const baseSeries = [...SERIES]
+  for (const row of imported) {
+    const i = baseSeries.findIndex((d) => d.c === row.c)
+    if (i >= 0) baseSeries[i] = { c: row.c, v: baseSeries[i].v + row.v }
+    else baseSeries.push(row)
+  }
+
   const timeChecked = TIME_FILTERS.filter((f) => checkedFilters.has(f))
   const timeFactor =
     timeChecked.length > 0 ? Math.max(...timeChecked.map((f) => TIME_FACTOR[f])) : 1
-  const visibleSeries = SERIES.filter(
+  const visibleSeries = baseSeries.filter(
     (d) =>
       d.c.toLowerCase().includes(query.trim().toLowerCase()) &&
       customFilters.every((group) => group.some((c) => matchesCondition(d.c, c))),
@@ -701,6 +758,19 @@ export default function PosOrdersAnalysis() {
 
   return (
     <div className="flex h-full flex-col">
+      {/* Hidden file input backing Favorites > Import records */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) importFile(file)
+          e.target.value = ''
+        }}
+      />
+
       {/* Control panel */}
       <div className="border-b border-neutral-200/80 px-4 pb-2.5 pt-4">
         <div className="flex flex-wrap items-start justify-between gap-x-10 gap-y-3">
@@ -896,6 +966,7 @@ export default function PosOrdersAnalysis() {
                 onSaveFavorite={saveFavorite}
                 onSelectFavorite={applyFavorite}
                 onDeleteFavorite={deleteFavorite}
+                onImportRecords={() => importInputRef.current?.click()}
               />
 
               <div className="inline-flex rounded-[3px] border border-neutral-300">
@@ -930,6 +1001,26 @@ export default function PosOrdersAnalysis() {
           </div>
         </div>
       </div>
+
+      {importStatus && (
+        <div
+          className={`flex items-center justify-between gap-3 border-b px-4 py-2 text-[13px] ${
+            importStatus.ok
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-red-200 bg-red-50 text-red-700'
+          }`}
+        >
+          {importStatus.text}
+          <button
+            type="button"
+            aria-label="Dismiss import message"
+            onClick={() => setImportStatus(null)}
+            className="shrink-0 text-current transition hover:opacity-70"
+          >
+            <LuX className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Graph or pivot */}
       {oaView === 'pivot' ? (
