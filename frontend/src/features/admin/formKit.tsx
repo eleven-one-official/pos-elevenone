@@ -153,11 +153,16 @@ export function Many2OneField({
   )
 }
 
-/** Empty many2one lookup — bordered input with a dropdown caret. */
-export function DropdownStub() {
+/** Inert many2one lookup — bordered read-only input with a dropdown caret,
+ *  optionally pre-filled (e.g. "400000 Product Sales"). */
+export function DropdownStub({ value }: { value?: string }) {
   return (
-    <span className="relative block">
-      <input className={`${TEXT_INPUT} pr-7`} />
+    <span className="relative block w-full">
+      <input
+        readOnly
+        defaultValue={value}
+        className={`${TEXT_INPUT} cursor-pointer select-none caret-transparent pr-7`}
+      />
       <LuChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
     </span>
   )
