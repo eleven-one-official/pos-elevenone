@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  LuArrowRight,
   LuArrowRightLeft,
   LuCamera,
   LuChevronLeft,
@@ -334,6 +335,59 @@ export default function PosProductDetail({
                   </div>
                 </div>
               </>
+            ) : tab === 'Inventory' ? (
+              <div className="px-8 py-5 pb-10">
+                <div className="grid grid-cols-1 gap-x-16 gap-y-8 xl:grid-cols-2">
+                  <FieldGroup title="Operations">
+                    <label className={LABEL}>Routes</label>
+                    <div className="text-[13px] text-neutral-700">
+                      <label className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          defaultChecked
+                          className="h-3.5 w-3.5 accent-teal-700"
+                        />
+                        Buy
+                      </label>
+                      <button
+                        type="button"
+                        className="mt-2.5 flex items-center gap-1.5 transition hover:underline"
+                      >
+                        <LuArrowRight className="h-3.5 w-3.5 text-teal-600" />
+                        View Diagram
+                      </button>
+                    </div>
+                  </FieldGroup>
+
+                  <FieldGroup title="Logistics">
+                    <label className={LABEL}>Responsible</label>
+                    <span className="flex items-center gap-2 pt-1">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-fuchsia-700 text-[10px] font-bold text-white">
+                        S
+                      </span>
+                      <span className="truncate text-[13px] text-[#3d6e93]">Srun Soklim</span>
+                    </span>
+
+                    <label className={LABEL}>Weight</label>
+                    <span className={VALUE}>0.00</span>
+
+                    <label className={LABEL}>Volume</label>
+                    <span className={VALUE}>0.00</span>
+
+                    <label className={LABEL}>Customer Lead Time</label>
+                    <span className={VALUE}>0.00 days</span>
+                  </FieldGroup>
+                </div>
+
+                <div className="mt-10 grid grid-cols-1 gap-x-16 gap-y-6 xl:grid-cols-2">
+                  <div className="border-b border-neutral-300 pb-1 text-[12.5px] font-semibold text-[#54717e]">
+                    Description for Receipts
+                  </div>
+                  <div className="border-b border-neutral-300 pb-1 text-[12.5px] font-semibold text-[#54717e]">
+                    Description for Delivery Orders
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="px-8 py-10 text-center text-sm text-neutral-400">
                 {tab} — UI coming soon.

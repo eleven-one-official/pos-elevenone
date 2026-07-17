@@ -1,0 +1,28 @@
+# RestoPOS local HTTPS - Caddy terminates TLS and proxies to the dev servers.
+#
+#   frontend  https://192.168.1.166:5443  ->  http://127.0.0.1:5180  (Vite)
+#   API       https://192.168.1.166:8443  ->  http://127.0.0.1:8001  (artisan serve)
+#
+# Certificates come from Caddy's internal CA (local_certs). The root CA cert
+# lives at %AppData%\Caddy\pki\authorities\local\root.crt and must be installed
+# once on every tablet (see tablet-setup\README.txt).
+#
+# The PC's Wi-Fi IP is DHCP-assigned - reserve 192.168.1.166 for this machine
+# in the router, or update this file and frontend/.env when it changes.
+
+{
+	local_certs
+	# Browsers omit SNI when the URL host is an IP or "localhost"; serve the
+	# LAN-IP certificate on such connections so the tablets validate cleanly.
+	default_sni 192.168.1.166
+}
+
+# ---- RestoPOS frontend (Vite dev server) ----
+https://192.168.1.166:5443, https://localhost:5443, https://127.0.0.1:5443 {
+	reverse_proxy 127.0.0.1:5180
+}
+
+# ---- RestoPOS API (Laravel) ----
+https://192.168.1.166:8443, https://localhost:8443, https://127.0.0.1:8443 {
+	reverse_proxy 127.0.0.1:8001
+}

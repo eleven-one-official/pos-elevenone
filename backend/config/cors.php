@@ -17,9 +17,9 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        env('FRONTEND_URL', 'http://localhost:5199'),
-        'http://localhost:5199',
-        'http://127.0.0.1:5199',
+        env('FRONTEND_URL', 'https://192.168.1.166:5443'),
+        // Tablets load the POS over Caddy's TLS proxy on the LAN.
+        'https://192.168.1.166:5443',
     ],
 
     // Dev: Vite picks the first free port (5173, then 5174, ...), so allow any
