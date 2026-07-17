@@ -17,6 +17,7 @@ import {
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { Waiter } from '../waiter/WaiterLoginDialog'
 import ModulePlaceholder from './ModulePlaceholder'
+import PosAuditLog from './PosAuditLog'
 import PosDashboard from './PosDashboard'
 import PosOrdersAnalysis from './PosOrdersAnalysis'
 import PosPricelists from './PosPricelists'
@@ -71,6 +72,7 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
     items: [
       { id: 'reporting-orders', label: 'Orders' },
       { id: 'sales-details', label: 'Sales Details' },
+      { id: 'audit-log', label: 'Audit Log' },
     ],
   },
   { label: 'Configuration' },
@@ -172,6 +174,8 @@ export default function AdminApp({
       <PosProducts />
     ) : tab.menu === 'Products' && tab.item === 'Pricelists' ? (
       <PosPricelists />
+    ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
+      <PosAuditLog />
     ) : tab.menu === 'Reporting' ? (
       // Odoo shows Sales Details as a dialog OVER the Orders Analysis screen.
       <>

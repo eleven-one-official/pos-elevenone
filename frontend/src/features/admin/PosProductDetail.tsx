@@ -16,6 +16,7 @@ import {
 import ChooseLabelsLayoutDialog from './ChooseLabelsLayoutDialog'
 import { FieldGroup, LABEL } from './formKit'
 import type { Product } from './PosProducts'
+import StockRulesReport from './StockRulesReport'
 
 // ---------------------------------------------------------------------------
 // Product detail — the read-only Odoo form shown when a product is clicked in
@@ -53,6 +54,19 @@ export default function PosProductDetail({
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('action-open'),
   )
   const [printLabelsOpen, setPrintLabelsOpen] = useState(false)
+  // View Diagram on the Inventory tab swaps the screen for the Stock Rules
+  // Report, Odoo style.
+  const [diagramOpen, setDiagramOpen] = useState(false)
+
+  if (diagramOpen) {
+    return (
+      <StockRulesReport
+        productName={product.name}
+        onProducts={onBack}
+        onBack={() => setDiagramOpen(false)}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -351,6 +365,7 @@ export default function PosProductDetail({
                       </label>
                       <button
                         type="button"
+                        onClick={() => setDiagramOpen(true)}
                         className="mt-2.5 flex items-center gap-1.5 transition hover:underline"
                       >
                         <LuArrowRight className="h-3.5 w-3.5 text-teal-600" />

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Table;
@@ -66,14 +67,24 @@ class PaymentController extends Controller
             // Complete the order once total payments cover the order total.
             $completeOrder = $data['complete_order'] ?? true;
             $paidTotal = (float) $order->payments()->where('status', 'paid')->sum('amount');
+            $completed = $completeOrder && $paidTotal >= (float) $order->total;
 
-            if ($completeOrder && $paidTotal >= (float) $order->total) {
+            if ($completed) {
                 $order->update(['status' => 'completed']);
 
                 if ($order->table_id) {
                     Table::whereKey($order->table_id)->update(['status' => 'available']);
                 }
             }
+
+            // Business-level trail row on top of the generic Payment "created".
+            AuditLog::record('sale', $order, [], [
+                'method' => $payment->method,
+                'amount' => (float) $payment->amount,
+                'paid_total' => $paidTotal,
+                'order_total' => (float) $order->total,
+                'order_completed' => $completed,
+            ], $order->order_number);
 
             return $payment;
         });
@@ -83,6 +94,34 @@ class PaymentController extends Controller
 
     public function show(Payment $payment): JsonResponse
     {
+        return response()->json($payment->load('order'));
+    }
+
+    /**
+     * Mark a paid payment as refunded. The money trail stays intact: the row
+     * keeps its amount and flips to refunded, and the refund itself lands in
+     * the audit log with the reason given.
+     */
+    public function refund(Request $request, Payment $payment): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if ($payment->status !== 'paid') {
+            return response()->json(['message' => 'Only paid payments can be refunded.'], 422);
+        }
+
+        // Quiet update — the dedicated "refund" row below is the audit record.
+        $payment->updateQuietly(['status' => 'refunded']);
+
+        AuditLog::record('refund', $payment, ['status' => 'paid'], [
+            'status' => 'refunded',
+            'method' => $payment->method,
+            'amount' => (float) $payment->amount,
+            'reason' => $data['reason'] ?? null,
+        ], $payment->order?->order_number);
+
         return response()->json($payment->load('order'));
     }
 

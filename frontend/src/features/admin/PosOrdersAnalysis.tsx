@@ -118,10 +118,65 @@ const PIE_COLORS = [
   '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5',
 ]
 
-const tooltip = (d: { c: string; v: number }) =>
-  `${d.c}\nTotal Price: $ ${(d.v * 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+// Each measure gets deterministic placeholder values derived from the Total
+// Price series, so switching measures visibly reshapes the chart until the
+// backend serves real aggregates. `hash` keeps the fake spread stable.
+function hash(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 997
+  return h / 997
+}
 
-const money = (v: number) => (v * 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })
+type MeasureKind = 'money' | 'int' | 'float'
+
+const MEASURE_DEFS: Record<
+  string,
+  { kind: MeasureKind; value: (d: { c: string; v: number }) => number }
+> = {
+  'Average Price': { kind: 'money', value: (d) => 2.5 + hash(d.c) * 7 },
+  'Delay Validation': { kind: 'float', value: (d) => 2 + hash(`${d.c}delay`) * 25 },
+  Margin: { kind: 'money', value: (d) => d.v * 1000 * (0.5 + hash(`${d.c}margin`) * 0.15) },
+  'Product Quantity': { kind: 'int', value: (d) => Math.round((d.v * 1000) / (3 + hash(d.c) * 5)) },
+  'Sale Line Count': {
+    kind: 'int',
+    value: (d) => Math.round((d.v * 1000) / (8 + hash(d.c) * 10)),
+  },
+  // Subtotal w/o discount = Total Price + Total Discount (same hash seed).
+  'Subtotal w/o discount': {
+    kind: 'money',
+    value: (d) => d.v * 1000 * (1.04 + hash(`${d.c}disc`) * 0.05),
+  },
+  'Total Discount': { kind: 'money', value: (d) => d.v * 1000 * (0.04 + hash(`${d.c}disc`) * 0.05) },
+  'Total Price': { kind: 'money', value: (d) => d.v * 1000 },
+  Count: { kind: 'int', value: (d) => Math.round((d.v * 1000) / (14 + hash(d.c) * 12)) },
+}
+
+// Average-style measures aggregate as mean in the pivot Total row, not sum.
+const AVG_MEASURES = new Set(['Average Price', 'Delay Validation'])
+
+const measureSeries = (m: string) => SERIES.map((d) => ({ c: d.c, v: MEASURE_DEFS[m].value(d) }))
+
+const fmtNumber = (kind: MeasureKind, n: number) =>
+  kind === 'int'
+    ? Math.round(n).toLocaleString('en-US')
+    : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+const fmtTooltip = (kind: MeasureKind, n: number) =>
+  kind === 'money' ? `$ ${fmtNumber(kind, n)}` : fmtNumber(kind, n)
+
+// Y-axis ticks: ~9 "nice" steps up past the series maximum, Odoo style.
+function niceTicks(maxV: number): number[] {
+  const rawStep = Math.max(maxV, 1e-6) / 9
+  const mag = 10 ** Math.floor(Math.log10(rawStep))
+  const norm = rawStep / mag
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag
+  return Array.from({ length: Math.ceil(maxV / step) + 1 }, (_, i) => i * step)
+}
+
+const fmtTick = (t: number) =>
+  t >= 1000
+    ? `${(t / 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })}k`
+    : t.toLocaleString('en-US', { minimumFractionDigits: 2 })
 
 /** Odoo-style hover tooltip — parent button needs `group relative`. */
 function Tip({ label }: { label: string }) {
@@ -132,18 +187,28 @@ function Tip({ label }: { label: string }) {
   )
 }
 
-/** Pivot view — Total row plus one row per product category. */
-function PivotTable() {
-  const total = SERIES.reduce((sum, d) => sum + d.v, 0)
+/** Pivot view — Total row plus one row per product category, one value
+ *  column per measure checked in the Measures dropdown. */
+function PivotTable({ measures }: { measures: string[] }) {
+  const totals = measures.map((m) => {
+    const vals = SERIES.map((d) => MEASURE_DEFS[m].value(d))
+    const sum = vals.reduce((a, b) => a + b, 0)
+    return AVG_MEASURES.has(m) ? sum / vals.length : sum
+  })
   return (
-    <div className="overflow-y-auto p-4">
+    <div className="overflow-auto p-4">
       <table className="border-collapse text-[13px]">
         <thead>
           <tr>
             <th className="w-96 border border-neutral-200 bg-neutral-50 px-3 py-2" />
-            <th className="w-40 border border-neutral-200 bg-neutral-50 px-3 py-2 text-right font-medium text-neutral-700">
-              Total Price
-            </th>
+            {measures.map((m) => (
+              <th
+                key={m}
+                className="min-w-36 border border-neutral-200 bg-neutral-50 px-3 py-2 text-right font-medium text-neutral-700"
+              >
+                {m}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -154,16 +219,26 @@ function PivotTable() {
                 Total
               </span>
             </td>
-            <td className="border border-neutral-200 px-3 py-1.5 text-right font-bold text-neutral-800">
-              {money(total)}
-            </td>
+            {measures.map((m, i) => (
+              <td
+                key={m}
+                className="border border-neutral-200 px-3 py-1.5 text-right font-bold text-neutral-800"
+              >
+                {fmtNumber(MEASURE_DEFS[m].kind, totals[i])}
+              </td>
+            ))}
           </tr>
           {SERIES.map((d, i) => (
             <tr key={d.c + i} className="transition hover:bg-neutral-50">
               <td className="border border-neutral-200 py-1.5 pl-8 pr-3 text-neutral-700">{d.c}</td>
-              <td className="border border-neutral-200 px-3 py-1.5 text-right text-neutral-700">
-                {money(d.v)}
-              </td>
+              {measures.map((m) => (
+                <td
+                  key={m}
+                  className="border border-neutral-200 px-3 py-1.5 text-right text-neutral-700"
+                >
+                  {fmtNumber(MEASURE_DEFS[m].kind, MEASURE_DEFS[m].value(d))}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -172,8 +247,16 @@ function PivotTable() {
   )
 }
 
-function PieChart() {
-  const total = SERIES.reduce((sum, d) => sum + d.v, 0)
+function PieChart({
+  data,
+  label,
+  kind,
+}: {
+  data: { c: string; v: number }[]
+  label: string
+  kind: MeasureKind
+}) {
+  const total = data.reduce((sum, d) => sum + d.v, 0)
   const cx = 460
   const cy = 415
   const r = 400
@@ -181,7 +264,7 @@ function PieChart() {
 
   return (
     <svg viewBox="0 0 920 830" className="mx-auto block max-h-[75vh] w-full">
-      {SERIES.map((d, i) => {
+      {data.map((d, i) => {
         const a0 = angle
         const a1 = a0 + (d.v / total) * Math.PI * 2
         angle = a1
@@ -195,7 +278,7 @@ function PieChart() {
             stroke="#ffffff"
             strokeWidth="1"
           >
-            <title>{tooltip(d)}</title>
+            <title>{`${d.c}\n${label}: ${fmtTooltip(kind, d.v)}`}</title>
           </path>
         )
       })}
@@ -203,7 +286,17 @@ function PieChart() {
   )
 }
 
-function OrdersChart({ type, data }: { type: 'bar' | 'line'; data: typeof SERIES }) {
+function OrdersChart({
+  type,
+  data,
+  label,
+  kind,
+}: {
+  type: 'bar' | 'line'
+  data: { c: string; v: number }[]
+  label: string
+  kind: MeasureKind
+}) {
   const W = 1720
   const plotL = 68
   const plotR = 14
@@ -214,9 +307,9 @@ function OrdersChart({ type, data }: { type: 'bar' | 'line'; data: typeof SERIES
   const plotW = W - plotL - plotR
   const slot = plotW / data.length
   const barW = Math.min(slot * 0.62, 20)
-  const maxV = 90
+  const ticks = niceTicks(Math.max(...data.map((d) => d.v)))
+  const maxV = ticks[ticks.length - 1] || 1
   const y = (v: number) => plotT + plotH - (v / maxV) * plotH
-  const ticks = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]
   const points = data.map((d, i) => ({ x: plotL + i * slot + slot / 2, y: y(d.v) }))
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
   const areaPath = `M${points[0].x},${plotT + plotH} ${points
@@ -236,7 +329,7 @@ function OrdersChart({ type, data }: { type: 'bar' | 'line'; data: typeof SERIES
             fontSize="10.5"
             fill="#8a8a8a"
           >
-            {t === 0 ? '0.00' : `${t}.00k`}
+            {fmtTick(t)}
           </text>
         </g>
       ))}
@@ -266,7 +359,7 @@ function OrdersChart({ type, data }: { type: 'bar' | 'line'; data: typeof SERIES
               height={plotT + plotH - y(d.v)}
               fill={BAR_COLOR}
             >
-              <title>{tooltip(d)}</title>
+              <title>{`${d.c}\n${label}: ${fmtTooltip(kind, d.v)}`}</title>
             </rect>
           )
         })
@@ -276,7 +369,7 @@ function OrdersChart({ type, data }: { type: 'bar' | 'line'; data: typeof SERIES
           <path d={linePath} fill="none" stroke={BAR_COLOR} strokeWidth="2" />
           {data.map((d, i) => (
             <circle key={d.c + i} cx={points[i].x} cy={points[i].y} r="3.5" fill={BAR_COLOR}>
-              <title>{tooltip(d)}</title>
+              <title>{`${d.c}\n${label}: ${fmtTooltip(kind, d.v)}`}</title>
             </circle>
           ))}
         </>
@@ -313,7 +406,7 @@ function OrdersChart({ type, data }: { type: 'bar' | 'line'; data: typeof SERIES
         fontSize="11"
         fill="#6f6f6f"
       >
-        Total Price
+        {label}
       </text>
       <text x={plotL + plotW / 2} y={H - 6} textAnchor="middle" fontSize="11.5" fill="#565656">
         Product Category
@@ -328,7 +421,16 @@ export default function PosOrdersAnalysis() {
   const [measuresOpen, setMeasuresOpen] = useState(
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('measures-open'),
   )
-  const [checkedMeasures, setCheckedMeasures] = useState<Set<string>>(new Set(['Total Price']))
+  // Odoo semantics: the graph plots exactly one measure (picking another
+  // switches the chart), while the pivot toggles measures as columns. Dev
+  // builds can preselect the graph measure with `?measure=<name>`.
+  const [graphMeasure, setGraphMeasure] = useState(() => {
+    const m = import.meta.env.DEV
+      ? new URLSearchParams(window.location.search).get('measure')
+      : null
+    return m && MEASURE_DEFS[m] ? m : 'Total Price'
+  })
+  const [pivotMeasures, setPivotMeasures] = useState<Set<string>>(new Set(['Total Price']))
   // Chart type — dev builds can preselect with `?chart=line|pie`.
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(() => {
     const c = import.meta.env.DEV
@@ -349,10 +451,18 @@ export default function PosOrdersAnalysis() {
       ? 'pivot'
       : 'graph',
   )
+  const measureChecked = (m: string) =>
+    oaView === 'graph' ? graphMeasure === m : pivotMeasures.has(m)
+  const pickMeasure = (m: string) =>
+    oaView === 'graph' ? setGraphMeasure(m) : setPivotMeasures((s) => toggleIn(s, m))
+
+  const graphKind = MEASURE_DEFS[graphMeasure].kind
+  const graphData = measureSeries(graphMeasure)
   const series =
     sortDir === 'none'
-      ? SERIES
-      : [...SERIES].sort((a, b) => (sortDir === 'desc' ? b.v - a.v : a.v - b.v))
+      ? graphData
+      : [...graphData].sort((a, b) => (sortDir === 'desc' ? b.v - a.v : a.v - b.v))
+  const pivotCols = [...MEASURES, 'Count'].filter((m) => pivotMeasures.has(m))
 
   return (
     <div className="flex h-full flex-col">
@@ -386,18 +496,16 @@ export default function PosOrdersAnalysis() {
                           <button
                             key={m}
                             type="button"
-                            onClick={() => setCheckedMeasures((s) => toggleIn(s, m))}
+                            onClick={() => pickMeasure(m)}
                             className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition hover:bg-neutral-100"
                           >
                             <LuCheck
                               className={`h-3.5 w-3.5 shrink-0 ${
-                                checkedMeasures.has(m) ? 'text-neutral-700' : 'invisible'
+                                measureChecked(m) ? 'text-neutral-700' : 'invisible'
                               }`}
                             />
                             <span
-                              className={
-                                checkedMeasures.has(m) ? 'font-semibold text-neutral-800' : ''
-                              }
+                              className={measureChecked(m) ? 'font-semibold text-neutral-800' : ''}
                             >
                               {m}
                             </span>
@@ -406,18 +514,16 @@ export default function PosOrdersAnalysis() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setCheckedMeasures((s) => toggleIn(s, 'Count'))}
+                        onClick={() => pickMeasure('Count')}
                         className="mt-1 flex w-full items-center gap-2 px-3 py-1.5 text-left transition hover:bg-neutral-100"
                       >
                         <LuCheck
                           className={`h-3.5 w-3.5 shrink-0 ${
-                            checkedMeasures.has('Count') ? 'text-neutral-700' : 'invisible'
+                            measureChecked('Count') ? 'text-neutral-700' : 'invisible'
                           }`}
                         />
                         <span
-                          className={
-                            checkedMeasures.has('Count') ? 'font-semibold text-neutral-800' : ''
-                          }
+                          className={measureChecked('Count') ? 'font-semibold text-neutral-800' : ''}
                         >
                           Count
                         </span>
@@ -578,16 +684,20 @@ export default function PosOrdersAnalysis() {
 
       {/* Graph or pivot */}
       {oaView === 'pivot' ? (
-        <PivotTable />
+        <PivotTable measures={pivotCols} />
       ) : (
         <div className="overflow-y-auto px-4 pb-4 pt-2">
           {chartType !== 'pie' && (
             <div className="mb-1 flex items-center justify-center gap-2 text-[13px] text-neutral-600">
               <span className="h-3.5 w-8 rounded-[2px]" style={{ backgroundColor: BAR_COLOR }} />
-              Total Price
+              {graphMeasure}
             </div>
           )}
-          {chartType === 'pie' ? <PieChart /> : <OrdersChart type={chartType} data={series} />}
+          {chartType === 'pie' ? (
+            <PieChart data={series} label={graphMeasure} kind={graphKind} />
+          ) : (
+            <OrdersChart type={chartType} data={series} label={graphMeasure} kind={graphKind} />
+          )}
         </div>
       )}
     </div>

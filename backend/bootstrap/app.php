@@ -22,6 +22,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
         ]);
+
+        // Caddy terminates TLS on this machine and proxies over loopback
+        // (artisan serve binds 127.0.0.1 only, so nothing else can reach it).
+        // Trusting it lets request()->ip() — and the audit log — record the
+        // tablet's real LAN address from X-Forwarded-For.
+        $middleware->trustProxies(at: '127.0.0.1');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // API-only app: always answer api/* requests with JSON (401 instead of

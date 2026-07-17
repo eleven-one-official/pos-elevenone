@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MenuItem extends Model
 {
+    use Auditable;
+
     protected $fillable = [
         'category_id',
         'name',
@@ -16,6 +19,7 @@ class MenuItem extends Model
         'price',
         'image',
         'is_available',
+        'stock_quantity',
         'sort_order',
     ];
 
@@ -24,8 +28,15 @@ class MenuItem extends Model
         return [
             'price' => 'decimal:2',
             'is_available' => 'boolean',
+            'stock_quantity' => 'integer',
             'sort_order' => 'integer',
         ];
+    }
+
+    /** Price edits surface in the audit trail as their own event. */
+    protected function auditEventForUpdate(array $new): string
+    {
+        return array_key_exists('price', $new) ? 'price_change' : 'updated';
     }
 
     public function category(): BelongsTo

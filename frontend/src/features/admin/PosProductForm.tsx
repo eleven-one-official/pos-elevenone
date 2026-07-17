@@ -14,7 +14,17 @@ import {
   LuUser,
 } from 'react-icons/lu'
 import ChooseLabelsLayoutDialog from './ChooseLabelsLayoutDialog'
-import { BLUE_SELECT, DropdownStub, FIELD_BG, FieldGroup, LABEL, NoteSection, TEXT_INPUT } from './formKit'
+import {
+  BLUE_SELECT,
+  DropdownStub,
+  FIELD_BG,
+  FieldGroup,
+  LABEL,
+  Many2OneField,
+  NoteSection,
+  TEXT_INPUT,
+} from './formKit'
+import StockRulesReport from './StockRulesReport'
 
 // ---------------------------------------------------------------------------
 // Product form — Odoo-style, used both for Products / New and for editing an
@@ -23,6 +33,29 @@ import { BLUE_SELECT, DropdownStub, FIELD_BG, FieldGroup, LABEL, NoteSection, TE
 // ---------------------------------------------------------------------------
 
 const FORM_TABS = ['General Information', 'Sales', 'Purchase', 'Inventory', 'Accounting']
+
+// Product category tree, sorted by full path — the first seven fill the
+// dropdown and the rest sit behind "Search More...", Odoo style.
+const PRODUCT_CATEGORIES = [
+  'Addition_',
+  'Addition_ / ECO BOXES',
+  'Alcoholic Drink_',
+  'Alcoholic Drink_ / Beer_',
+  'Alcoholic Drink_ / Cocktails_',
+  'Alcoholic Drink_ / Cocktails_ / Monthly Special_',
+  'All',
+  'Coffee_',
+  'Coffee_ / Hot_',
+  'Coffee_ / Iced_',
+  'Food_',
+  'Food_ / Breakfast_',
+  'Food_ / Dessert_',
+  'Food_ / Main Course_',
+  'Juice_ & Shake_',
+  'Soft Drink_',
+  'Tea_',
+  'Water_',
+]
 
 export default function PosProductForm({
   onBack,
@@ -47,6 +80,19 @@ export default function PosProductForm({
   const [printLabelsOpen, setPrintLabelsOpen] = useState(
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('print-labels'),
   )
+  // View Diagram on the Inventory tab swaps the screen for the Stock Rules
+  // Report, Odoo style.
+  const [diagramOpen, setDiagramOpen] = useState(false)
+
+  if (diagramOpen) {
+    return (
+      <StockRulesReport
+        productName={product ? product.name : 'New'}
+        onProducts={onBack}
+        onBack={() => setDiagramOpen(false)}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -286,10 +332,7 @@ export default function PosProductForm({
 
                     <label className={LABEL}>Product Category</label>
                     <span className="flex items-center gap-2">
-                      <select className={BLUE_SELECT}>
-                        <option>All</option>
-                        <option>Saleable</option>
-                      </select>
+                      <Many2OneField blue options={PRODUCT_CATEGORIES} value="All" />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
 
@@ -420,6 +463,7 @@ export default function PosProductForm({
                       </label>
                       <button
                         type="button"
+                        onClick={() => setDiagramOpen(true)}
                         className="mt-2.5 flex items-center gap-1.5 transition hover:underline"
                       >
                         <LuArrowRight className="h-3.5 w-3.5 text-teal-600" />

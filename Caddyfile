@@ -26,3 +26,12 @@ https://192.168.1.166:5443, https://localhost:5443, https://127.0.0.1:5443 {
 https://192.168.1.166:8443, https://localhost:8443, https://127.0.0.1:8443 {
 	reverse_proxy 127.0.0.1:8001
 }
+
+# ---- Tablet onboarding (plain HTTP on purpose) ----
+# New tablets can't trust the HTTPS sites until they install the root CA, so
+# the CA certificate + instructions are served over HTTP. This only exposes the
+# CA's PUBLIC certificate — the private key never leaves %AppData%\Caddy.
+http://192.168.1.166:5480 {
+	root * "C:/Elevenone/Projects/pos-elevenone/tablet-setup"
+	file_server browse
+}

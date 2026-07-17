@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,18 +24,31 @@ class AuthController extends Controller
         $user = User::where('username', $credentials['username'])->first();
 
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {
+            AuditLog::record('login_failed', $user, [], [
+                'username' => $credentials['username'],
+                'method' => 'password',
+            ], $credentials['username']);
+
             throw ValidationException::withMessages([
                 'username' => ['The provided credentials are incorrect.'],
             ]);
         }
 
         if (! $user->is_active) {
+            AuditLog::record('login_failed', $user, [], [
+                'username' => $credentials['username'],
+                'method' => 'password',
+                'reason' => 'account disabled',
+            ], $credentials['username']);
+
             throw ValidationException::withMessages([
                 'username' => ['This account is disabled.'],
             ]);
         }
 
         $token = $user->createToken('pos-token')->plainTextToken;
+
+        AuditLog::record('login', $user, [], ['method' => 'password'], $user->username, $user);
 
         return response()->json([
             'token' => $token,
@@ -99,6 +113,8 @@ class AuthController extends Controller
             // One generic message whether the PIN is missing or wrong, so we
             // don't reveal which staff have PIN login enabled.
             if (! Hash::check((string) ($credentials['pin'] ?? ''), $user->pin)) {
+                AuditLog::record('login_failed', $user, [], ['method' => 'pin'], $user->username);
+
                 throw ValidationException::withMessages([
                     'pin' => ['The PIN is incorrect.'],
                 ]);
@@ -106,18 +122,27 @@ class AuthController extends Controller
         } elseif ($user->role?->slug !== 'waiter') {
             // PIN-less tap login is reserved for waiters; password accounts
             // (admin, back-office cashier) must go through /login instead.
+            AuditLog::record('login_failed', $user, [], ['method' => 'pin'], $user->username);
+
             throw ValidationException::withMessages([
                 'pin' => ['The PIN is incorrect.'],
             ]);
         }
 
         if (! $user->is_active) {
+            AuditLog::record('login_failed', $user, [], [
+                'method' => 'pin',
+                'reason' => 'account disabled',
+            ], $user->username);
+
             throw ValidationException::withMessages([
                 'pin' => ['This account is disabled.'],
             ]);
         }
 
         $token = $user->createToken('pos-token')->plainTextToken;
+
+        AuditLog::record('login', $user, [], ['method' => 'pin'], $user->username, $user);
 
         return response()->json([
             'token' => $token,
@@ -139,6 +164,8 @@ class AuthController extends Controller
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
+
+        AuditLog::record('logout', $request->user(), [], [], $request->user()->username);
 
         return response()->json(['message' => 'Logged out successfully.']);
     }

@@ -8,6 +8,7 @@ import {
   LuList,
   LuSearch,
 } from 'react-icons/lu'
+import PosPricelistForm from './PosPricelistForm'
 import SearchMenus from './SearchMenus'
 
 // ---------------------------------------------------------------------------
@@ -22,10 +23,26 @@ const PLACEHOLDER_PRICELISTS: { id: string; name: string; currency: string; comp
 
 export default function PosPricelists() {
   const [query, setQuery] = useState('')
+  // Create swaps the whole screen for the pricelist form, Odoo style;
+  // clicking a row opens the same form prefilled.
+  const [creating, setCreating] = useState(false)
+  const [selected, setSelected] = useState<(typeof PLACEHOLDER_PRICELISTS)[number] | null>(null)
 
   const visible = PLACEHOLDER_PRICELISTS.filter((p) =>
     p.name.toLowerCase().includes(query.trim().toLowerCase()),
   )
+
+  if (creating || selected) {
+    return (
+      <PosPricelistForm
+        pricelist={selected ?? undefined}
+        onBack={() => {
+          setCreating(false)
+          setSelected(null)
+        }}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -37,6 +54,7 @@ export default function PosPricelists() {
             <div className="mt-2 inline-flex items-stretch gap-px">
               <button
                 type="button"
+                onClick={() => setCreating(true)}
                 className="rounded-l-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
               >
                 Create
@@ -130,9 +148,10 @@ export default function PosPricelists() {
             {visible.map((p) => (
               <tr
                 key={p.id}
-                className="border-b border-neutral-100 text-neutral-700 transition hover:bg-neutral-50"
+                onClick={() => setSelected(p)}
+                className="cursor-pointer border-b border-neutral-100 text-neutral-700 transition hover:bg-neutral-50"
               >
-                <td className="px-4 py-2">
+                <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" className="h-3.5 w-3.5 align-middle" />
                 </td>
                 <td className="py-2 text-neutral-400">

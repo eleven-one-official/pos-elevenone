@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CustomerController;
@@ -79,6 +80,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin,manager')->group(function () {
         Route::apiResource('categories', CategoryController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('menu-items', MenuItemController::class)->only(['store', 'update', 'destroy']);
+        Route::post('/menu-items/{menu_item}/adjust-stock', [MenuItemController::class, 'adjustStock']);
+
+        // Refunds keep the money trail (row flips to refunded, audit row written);
+        // they are a supervisor action, not a cashier one.
+        Route::post('/payments/{payment}/refund', [PaymentController::class, 'refund']);
         Route::apiResource('tables', TableController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('orders', OrderController::class)->only(['destroy']);
         Route::apiResource('customers', CustomerController::class)->only(['update', 'destroy']);
@@ -95,5 +101,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::apiResource('payments', PaymentController::class)->only(['destroy']);
         Route::get('/roles', fn () => Role::orderBy('name')->get(['id', 'name', 'slug']));
+
+        // Who-did-what trail. Read-only by design — nothing can edit it.
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
     });
 });
