@@ -35,7 +35,7 @@ import StockRulesReport from './StockRulesReport'
 const FORM_TABS = ['General Information', 'Sales', 'Purchase', 'Inventory', 'Accounting']
 
 // Product category tree, sorted by full path — the first seven fill the
-// dropdown and the rest sit behind "Search More...", Odoo style.
+// dropdown and the full list backs the "Search More..." dialog, Odoo style.
 const PRODUCT_CATEGORIES = [
   'Addition_',
   'Addition_ / ECO BOXES',
@@ -44,17 +44,87 @@ const PRODUCT_CATEGORIES = [
   'Alcoholic Drink_ / Cocktails_',
   'Alcoholic Drink_ / Cocktails_ / Monthly Special_',
   'All',
+  'All / Expenses',
+  'All / Saleable',
+  'All / Saleable / PoS',
+  'All / mousse',
+  'Bakery',
+  'Bakery_',
+  'Bakery_ / Cake_',
+  'Bakery_ / Cake_ / Brownie_',
+  'Bakery_ / Cake_ / Cake of the month_',
+  'Bakery_ / Cake_ / Cake of the month_ / Cheese cake_',
+  'Bakery_ / Cake_ / Cake of the month_ / Cheese cake_ / Bar_',
+  'Bakery_ / Cake_ / Cookies_',
+  'Bakery_ / Cake_ / Eclairs_',
+  'Bakery_ / Cake_ / Macaron_',
+  'Bakery_ / Cake_ / Muffin_',
+  'Bakery_ / Cake_ / Tart_',
+  'Bakery_ / Croissant_',
+  'Bakery_ / Danish_',
+  'Bakery_ / Donut_',
+  'Bakery_ / Loaf_',
+  'Breakfast_',
+  'Breakfast_ / Set_',
+  'Brunch_',
+  'Brunch_ / Bread_',
+  'Brunch_ / Egg Benedict_',
+  'Brunch_ / Pancake_',
+  'Brunch_ / Sandwich_',
   'Coffee_',
+  'Coffee_ / Cold Brew_',
+  'Coffee_ / Espresso_',
   'Coffee_ / Hot_',
   'Coffee_ / Iced_',
+  'Coffee_ / Signature_',
+  'Dessert_',
+  'Dessert_ / Ice Cream_',
+  'Dessert_ / Pudding_',
+  'Dessert_ / Waffle_',
   'Food_',
-  'Food_ / Breakfast_',
-  'Food_ / Dessert_',
+  'Food_ / Burger_',
+  'Food_ / Khmer Food_',
   'Food_ / Main Course_',
-  'Juice_ & Shake_',
+  'Food_ / Noodle_',
+  'Food_ / Pasta_',
+  'Food_ / Pizza_',
+  'Food_ / Rice_',
+  'Food_ / Salad_',
+  'Food_ / Soup_',
+  'Food_ / Steak_',
+  'Food_ / Western_',
+  'Fruit_',
+  'Fruit_ / Fresh Cut_',
+  'Fruit_ / Platter_',
+  'Juice_',
+  'Juice_ / Fresh Juice_',
+  'Juice_ / Shake_',
+  'Juice_ / Smoothie_',
+  'Kids Menu_',
+  'Milk_',
+  'Milk_ / Fresh Milk_',
+  'Mocktail_',
+  'Non-Coffee_',
+  'Non-Coffee_ / Chocolate_',
+  'Non-Coffee_ / Matcha_',
+  'Retail_',
+  'Retail_ / Merchandise_',
+  'Seafood_',
+  'Seafood_ / Grilled_',
+  'Seafood_ / Hot Pot_',
+  'Side Dish_',
+  'Snack_',
+  'Snack_ / French Fries_',
   'Soft Drink_',
+  'Soft Drink_ / Bottle_',
+  'Soft Drink_ / Can_',
   'Tea_',
+  'Tea_ / Herbal_',
+  'Tea_ / Iced Tea_',
+  'Tea_ / Milk Tea_',
   'Water_',
+  'Water_ / Mineral_',
+  'Water_ / Sparkling_',
 ]
 
 export default function PosProductForm({
@@ -332,7 +402,12 @@ export default function PosProductForm({
 
                     <label className={LABEL}>Product Category</label>
                     <span className="flex items-center gap-2">
-                      <Many2OneField blue options={PRODUCT_CATEGORIES} value="All" />
+                      <Many2OneField
+                        blue
+                        title="Product Category"
+                        options={PRODUCT_CATEGORIES}
+                        value="All"
+                      />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
 

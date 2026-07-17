@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { LuChevronDown } from 'react-icons/lu'
+import SearchMoreDialog from './SearchMoreDialog'
 
 // ---------------------------------------------------------------------------
 // Shared Odoo-form building blocks for the admin side: field styling tokens,
@@ -33,43 +34,39 @@ export function FieldGroup({ title, children }: { title?: string; children: Reac
   )
 }
 
-/** Odoo many2one lookup — type-to-filter dropdown listing the record's full
- *  hierarchy path (e.g. "Alcoholic Drink_ / Beer_"). At most `limit` matches
- *  show until "Search More..." expands the list, Odoo style. */
+/** Odoo many2one lookup — read-only field listing the record's full hierarchy
+ *  path (e.g. "Alcoholic Drink_ / Beer_"). Clicking only opens the dropdown;
+ *  picking a row is the sole way to change the value (no free-text editing).
+ *  At most `limit` rows show; "Search More..." opens the record-picker dialog. */
 export function Many2OneField({
+  title,
   options,
   value = '',
   blue = false,
   limit = 7,
   onSelect,
 }: {
+  /** Field label — names the "Search: <title>" dialog and its column. */
+  title: string
   options: string[]
   /** Initially selected record label. */
   value?: string
   /** Paint the pale blue required-field fill. */
   blue?: boolean
-  /** Rows shown before "Search More..." expands the dropdown. */
+  /** Rows shown in the dropdown before "Search More...". */
   limit?: number
   onSelect?: (value: string) => void
 }) {
   const [selected, setSelected] = useState(value)
-  // null while not typing — the input then shows the committed selection.
-  const [query, setQuery] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [active, setActive] = useState(0)
 
-  const matches =
-    query === null
-      ? options
-      : options.filter((o) => o.toLowerCase().includes(query.toLowerCase()))
-  const visible = expanded ? matches : matches.slice(0, limit)
+  const visible = options.slice(0, limit)
   const activeIdx = Math.min(active, visible.length - 1)
 
   const close = () => {
     setOpen(false)
-    setQuery(null)
-    setExpanded(false)
     setActive(0)
   }
   const pick = (option: string) => {
@@ -81,37 +78,27 @@ export function Many2OneField({
   return (
     <span className="relative block w-full">
       <input
-        value={query ?? selected}
-        onFocus={(e) => {
-          setOpen(true)
-          e.currentTarget.select()
-        }}
-        onClick={() => setOpen(true)}
-        onChange={(e) => {
-          setQuery(e.currentTarget.value)
-          setOpen(true)
-          setExpanded(false)
-          setActive(0)
-        }}
+        readOnly
+        value={selected}
+        onClick={() => (open ? close() : setOpen(true))}
         onBlur={close}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setOpen(true)
-            setActive(Math.min(activeIdx + 1, visible.length - 1))
+            if (open) setActive(Math.min(activeIdx + 1, visible.length - 1))
+            else setOpen(true)
           } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setActive(Math.max(activeIdx - 1, 0))
           } else if (e.key === 'Enter') {
-            if (open && visible[activeIdx]) {
-              e.preventDefault()
-              pick(visible[activeIdx])
-            }
+            e.preventDefault()
+            if (open && visible[activeIdx]) pick(visible[activeIdx])
+            else setOpen(true)
           } else if (e.key === 'Escape') {
             close()
           }
         }}
-        className={`${blue ? BLUE_SELECT : TEXT_INPUT} pr-7`}
+        className={`${blue ? BLUE_SELECT : TEXT_INPUT} cursor-pointer select-none caret-transparent pr-7`}
       />
       <LuChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
       {open && (
@@ -134,16 +121,14 @@ export function Many2OneField({
               </button>
             </li>
           ))}
-          {visible.length === 0 && (
-            <li className="px-3 py-1.5 text-[13px] italic text-neutral-500">No records</li>
-          )}
-          {!expanded && matches.length > limit && (
+          {options.length > limit && (
             <li>
               <button
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault()
-                  setExpanded(true)
+                  close()
+                  setSearchOpen(true)
                 }}
                 className="block w-full py-1.5 pl-7 pr-3 text-left text-[13px] text-neutral-700 hover:bg-neutral-100"
               >
@@ -152,6 +137,17 @@ export function Many2OneField({
             </li>
           )}
         </ul>
+      )}
+      {searchOpen && (
+        <SearchMoreDialog
+          title={title}
+          options={options}
+          onPick={(v) => {
+            pick(v)
+            setSearchOpen(false)
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
       )}
     </span>
   )
