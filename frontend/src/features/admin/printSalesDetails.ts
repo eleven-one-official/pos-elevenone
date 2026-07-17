@@ -5,27 +5,41 @@
 // real session sales summary; the venue charges no tax, so the report shows
 // products, payments and totals only.
 
+export type SalesReportType = 'Product' | 'Category' | 'Both'
+
 export type SalesDetailsParams = {
   startDate: string
   endDate: string
-  reportType: string
+  reportType: SalesReportType
   configs: { pos: string; company: string }[]
 }
 
-type ReportLine = { name: string; qty: number; amount: number }
+type ReportLine = { name: string; category: string; qty: number; amount: number }
 
 const PLACEHOLDER_LINES: ReportLine[] = [
-  { name: 'Brown rice', qty: 12, amount: 12.0 },
-  { name: 'Steamed Rice', qty: 20, amount: 10.0 },
-  { name: 'Americano hot', qty: 8, amount: 20.0 },
-  { name: 'Angkor Beer (bottle)', qty: 15, amount: 26.25 },
-  { name: 'Avocado shake', qty: 6, amount: 21.0 },
-  { name: 'French fries-b', qty: 7, amount: 21.0 },
-  { name: 'Garlic bread', qty: 4, amount: 10.0 },
-  { name: 'Bbq chicken panini', qty: 5, amount: 31.25 },
-  { name: 'Beef BBQ Rice', qty: 9, amount: 51.75 },
-  { name: '4 cheese pizza', qty: 3, amount: 33.0 },
+  { name: 'Brown rice', category: 'Meals', qty: 12, amount: 12.0 },
+  { name: 'Steamed Rice', category: 'Meals', qty: 20, amount: 10.0 },
+  { name: 'Americano hot', category: 'Drinks', qty: 8, amount: 20.0 },
+  { name: 'Angkor Beer (bottle)', category: 'Drinks', qty: 15, amount: 26.25 },
+  { name: 'Avocado shake', category: 'Drinks', qty: 6, amount: 21.0 },
+  { name: 'French fries-b', category: 'Sides', qty: 7, amount: 21.0 },
+  { name: 'Garlic bread', category: 'Sides', qty: 4, amount: 10.0 },
+  { name: 'Bbq chicken panini', category: 'Meals', qty: 5, amount: 31.25 },
+  { name: 'Beef BBQ Rice', category: 'Meals', qty: 9, amount: 51.75 },
+  { name: '4 cheese pizza', category: 'Meals', qty: 3, amount: 33.0 },
 ]
+
+/** Roll the product lines up into POS-category totals, in first-seen order. */
+function categoryTotals(): { name: string; qty: number; amount: number }[] {
+  const totals = new Map<string, { qty: number; amount: number }>()
+  for (const line of PLACEHOLDER_LINES) {
+    const t = totals.get(line.category) ?? { qty: 0, amount: 0 }
+    t.qty += line.qty
+    t.amount += line.amount
+    totals.set(line.category, t)
+  }
+  return [...totals].map(([name, t]) => ({ name, ...t }))
+}
 
 const PLACEHOLDER_PAYMENTS: { method: string; amount: number }[] = [
   { method: 'Cash', amount: 120.0 },
@@ -56,6 +70,41 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
         <td class="num">${money(l.amount)}</td>
       </tr>`,
   ).join('')
+
+  const categoryRows = categoryTotals()
+    .map(
+      (c) => `
+      <tr>
+        <td>${escapeHtml(c.name)}</td>
+        <td class="num">${c.qty}</td>
+        <td class="num">${money(c.amount)}</td>
+      </tr>`,
+    )
+    .join('')
+
+  const productsSection = `
+  <h2>Products</h2>
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
+    </thead>
+    <tbody>${productRows}</tbody>
+    <tfoot>
+      <tr><td>Total</td><td></td><td class="num">${money(total)}</td></tr>
+    </tfoot>
+  </table>`
+
+  const categoriesSection = `
+  <h2>Categories</h2>
+  <table>
+    <thead>
+      <tr><th>Category</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
+    </thead>
+    <tbody>${categoryRows}</tbody>
+    <tfoot>
+      <tr><td>Total</td><td></td><td class="num">${money(total)}</td></tr>
+    </tfoot>
+  </table>`
 
   const paymentRows = PLACEHOLDER_PAYMENTS.map(
     (p) => `
@@ -117,16 +166,8 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
     <div><b>Report Type:</b> ${escapeHtml(params.reportType)}</div>
   </div>
 
-  <h2>Products</h2>
-  <table>
-    <thead>
-      <tr><th>Product</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
-    </thead>
-    <tbody>${productRows}</tbody>
-    <tfoot>
-      <tr><td>Total</td><td></td><td class="num">${money(total)}</td></tr>
-    </tfoot>
-  </table>
+  ${params.reportType !== 'Category' ? productsSection : ''}
+  ${params.reportType !== 'Product' ? categoriesSection : ''}
 
   <h2>Payments</h2>
   <table>

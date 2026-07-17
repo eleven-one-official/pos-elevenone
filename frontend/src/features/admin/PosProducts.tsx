@@ -4,15 +4,14 @@ import {
   LuChevronLeft,
   LuChevronRight,
   LuClock,
-  LuFilter,
   LuImage,
   LuLayoutGrid,
   LuList,
-  LuMenu,
   LuSearch,
   LuStar,
   LuX,
 } from 'react-icons/lu'
+import FacetChip, { type Facet } from './FacetChip'
 import PosProductDetail from './PosProductDetail'
 import PosProductForm from './PosProductForm'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
@@ -234,13 +233,6 @@ function loadJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback
   }
-}
-
-type Facet = {
-  key: string
-  label: string
-  kind: 'filter' | 'group' | 'favorite'
-  onRemove: () => void
 }
 
 export default function PosProducts() {
@@ -504,37 +496,6 @@ export default function PosProducts() {
   if (activeFavorite)
     facets.push({ key: 'fav', label: activeFavorite, kind: 'favorite', onRemove: clearFavorite })
 
-  const facetChip = (facet: Facet) => {
-    const style =
-      facet.kind === 'group'
-        ? { badge: 'bg-[#00888a]', body: 'bg-[#e0f1f1]', border: 'border-[#8fc7c7]/70' }
-        : facet.kind === 'favorite'
-          ? { badge: 'bg-[#b88414]', body: 'bg-[#fdf2d9]', border: 'border-[#e2c078]/80' }
-          : { badge: 'bg-[#4b6e8c]', body: 'bg-[#eaf1f6]', border: 'border-[#9db4c0]/70' }
-    const Icon = facet.kind === 'group' ? LuMenu : facet.kind === 'favorite' ? LuStar : LuFilter
-    return (
-      <span
-        key={facet.key}
-        className={`flex shrink-0 items-stretch overflow-hidden rounded-[2px] border text-[12px] ${style.border}`}
-      >
-        <span className={`flex items-center px-1 ${style.badge}`}>
-          <Icon className="h-3 w-3 text-white" />
-        </span>
-        <span className={`flex items-center gap-1 px-1.5 text-neutral-700 ${style.body}`}>
-          {facet.label}
-          <button
-            type="button"
-            aria-label={`Remove ${facet.label}`}
-            onClick={facet.onRemove}
-            className="text-neutral-500 transition hover:text-neutral-800"
-          >
-            <LuX className="h-3 w-3" />
-          </button>
-        </span>
-      </span>
-    )
-  }
-
   const productCard = (p: Product) => {
     const idx = catalog.indexOf(p)
     return (
@@ -665,7 +626,9 @@ export default function PosProducts() {
           <div className="flex min-w-72 max-w-[880px] flex-1 flex-col gap-2">
             {/* Search box with the active facet chips inside */}
             <div className="relative flex w-full flex-wrap items-center gap-1.5 rounded-[3px] border border-neutral-300 py-1 pl-1.5 pr-9 focus-within:border-sky-600">
-              {facets.map(facetChip)}
+              {facets.map((f) => (
+                <FacetChip key={f.key} facet={f} />
+              ))}
               <input
                 value={query}
                 onChange={(e) => {

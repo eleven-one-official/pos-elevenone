@@ -14,12 +14,16 @@ import {
   LuSearch,
   LuTable,
 } from 'react-icons/lu'
-import SearchMenus, { toggleIn } from './SearchMenus'
+import FacetChip, { type Facet } from './FacetChip'
+import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
 // Reporting › Orders — the "Orders Analysis" graph view: Total Price by
-// product category as a single-series bar chart, Odoo style. Pure UI: the
-// series below is placeholder data shaped like the venue's real categories.
+// product category as a single-series bar chart, Odoo style. The series is
+// placeholder data shaped like the venue's real categories, but the search
+// panel works client-side: the search box and custom Product Category
+// conditions filter the category axis, and the Ordered Today/Week/Month/Year
+// filters scale the series to that period, with facet chips in the search box.
 // ---------------------------------------------------------------------------
 
 // Values are Total Price in thousands of dollars.
@@ -99,6 +103,43 @@ const SERIES: { c: string; v: number }[] = [
 
 const BAR_COLOR = '#3f7cb1'
 
+const TIME_FILTERS = [
+  'Ordered Today',
+  'Ordered This Week',
+  'Ordered This Month',
+  'Ordered This Year',
+]
+
+// Fraction of the yearly totals each period covers. Checked periods OR
+// together, and since they nest the widest one wins; a per-category jitter
+// keeps the narrowed chart from being a flat rescale of the yearly one.
+const TIME_FACTOR: Record<string, number> = {
+  'Ordered Today': 0.03,
+  'Ordered This Week': 0.15,
+  'Ordered This Month': 0.36,
+  'Ordered This Year': 1,
+}
+
+// Custom-filter conditions evaluate against the category axis; fields that
+// don't exist in the aggregate placeholder data (Account Tags, ...) match all.
+function matchesCondition(category: string, c: CustomCondition): boolean {
+  if (c.field !== 'Product Category') return true
+  const text = category.toLowerCase()
+  const value = c.value.trim().toLowerCase()
+  switch (c.operator) {
+    case 'contains':
+      return text.includes(value)
+    case 'does not contain':
+      return !text.includes(value)
+    case 'is equal to':
+      return text === value
+    case 'is not equal to':
+      return text !== value
+    default:
+      return true
+  }
+}
+
 // Toggleable measures in the Measures dropdown; Count sits below a divider.
 const MEASURES = [
   'Average Price',
@@ -154,7 +195,8 @@ const MEASURE_DEFS: Record<
 // Average-style measures aggregate as mean in the pivot Total row, not sum.
 const AVG_MEASURES = new Set(['Average Price', 'Delay Validation'])
 
-const measureSeries = (m: string) => SERIES.map((d) => ({ c: d.c, v: MEASURE_DEFS[m].value(d) }))
+const measureSeries = (m: string, data: { c: string; v: number }[]) =>
+  data.map((d) => ({ c: d.c, v: MEASURE_DEFS[m].value(d) }))
 
 const fmtNumber = (kind: MeasureKind, n: number) =>
   kind === 'int'
@@ -189,11 +231,17 @@ function Tip({ label }: { label: string }) {
 
 /** Pivot view — Total row plus one row per product category, one value
  *  column per measure checked in the Measures dropdown. */
-function PivotTable({ measures }: { measures: string[] }) {
+function PivotTable({
+  measures,
+  data,
+}: {
+  measures: string[]
+  data: { c: string; v: number }[]
+}) {
   const totals = measures.map((m) => {
-    const vals = SERIES.map((d) => MEASURE_DEFS[m].value(d))
+    const vals = data.map((d) => MEASURE_DEFS[m].value(d))
     const sum = vals.reduce((a, b) => a + b, 0)
-    return AVG_MEASURES.has(m) ? sum / vals.length : sum
+    return AVG_MEASURES.has(m) && vals.length > 0 ? sum / vals.length : sum
   })
   return (
     <div className="overflow-auto p-4">
@@ -228,7 +276,7 @@ function PivotTable({ measures }: { measures: string[] }) {
               </td>
             ))}
           </tr>
-          {SERIES.map((d, i) => (
+          {data.map((d, i) => (
             <tr key={d.c + i} className="transition hover:bg-neutral-50">
               <td className="border border-neutral-200 py-1.5 pl-8 pr-3 text-neutral-700">{d.c}</td>
               {measures.map((m) => (
@@ -456,8 +504,50 @@ export default function PosOrdersAnalysis() {
   const pickMeasure = (m: string) =>
     oaView === 'graph' ? setGraphMeasure(m) : setPivotMeasures((s) => toggleIn(s, m))
 
+  // Search state — time filters and applied custom-filter condition groups
+  // (groups AND together, conditions inside a group OR together, like Odoo).
+  const [checkedFilters, setCheckedFilters] = useState<Set<string>>(new Set())
+  const [customFilters, setCustomFilters] = useState<CustomCondition[][]>([])
+
+  const timeChecked = TIME_FILTERS.filter((f) => checkedFilters.has(f))
+  const timeFactor =
+    timeChecked.length > 0 ? Math.max(...timeChecked.map((f) => TIME_FACTOR[f])) : 1
+  const visibleSeries = SERIES.filter(
+    (d) =>
+      d.c.toLowerCase().includes(query.trim().toLowerCase()) &&
+      customFilters.every((group) => group.some((c) => matchesCondition(d.c, c))),
+  ).map((d) =>
+    timeFactor === 1
+      ? d
+      : { c: d.c, v: d.v * timeFactor * (0.7 + hash(d.c + timeChecked.join()) * 0.6) },
+  )
+
+  // Facet chips inside the search box — one for the time-filter section, one
+  // per applied custom filter.
+  const facets: Facet[] = []
+  if (timeChecked.length > 0)
+    facets.push({
+      key: 'f-time',
+      label: timeChecked.join(' or '),
+      kind: 'filter',
+      onRemove: () =>
+        setCheckedFilters((s) => {
+          const next = new Set(s)
+          TIME_FILTERS.forEach((f) => next.delete(f))
+          return next
+        }),
+    })
+  customFilters.forEach((group, i) =>
+    facets.push({
+      key: `c-${i}`,
+      label: group.map((c) => `${c.field} ${c.operator} "${c.value.trim()}"`).join(' or '),
+      kind: 'filter',
+      onRemove: () => setCustomFilters((cs) => cs.filter((_, j) => j !== i)),
+    }),
+  )
+
   const graphKind = MEASURE_DEFS[graphMeasure].kind
-  const graphData = measureSeries(graphMeasure)
+  const graphData = measureSeries(graphMeasure, visibleSeries)
   const series =
     sortDir === 'none'
       ? graphData
@@ -630,23 +720,30 @@ export default function PosOrdersAnalysis() {
           </div>
 
           <div className="flex min-w-72 max-w-[880px] flex-1 flex-col gap-2">
-            <label className="relative block">
+            {/* Search box with the active facet chips inside */}
+            <div className="relative flex w-full flex-wrap items-center gap-1.5 rounded-[3px] border border-neutral-300 py-1 pl-1.5 pr-9 focus-within:border-sky-600">
+              {facets.map((f) => (
+                <FacetChip key={f.key} facet={f} />
+              ))}
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search..."
-                className="w-full rounded-[3px] border border-neutral-300 px-3 py-1.5 pr-9 text-sm outline-none transition focus:border-sky-600"
+                className="min-w-24 flex-1 py-0.5 text-sm outline-none"
               />
               <LuSearch className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500" />
-            </label>
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <SearchMenus
-                filterSections={[
-                  ['Ordered Today', 'Ordered This Week', 'Ordered This Month', 'Ordered This Year'],
-                ]}
+                filterSections={[TIME_FILTERS]}
                 groupOptions={['Point of Sale', 'Product', 'Product Category', 'Order Date']}
                 favoriteName="Orders Analysis"
+                checkedFilters={checkedFilters}
+                onToggleFilter={(f) => setCheckedFilters((s) => toggleIn(s, f))}
+                onApplyCustomFilter={(conditions) =>
+                  setCustomFilters((cs) => [...cs, conditions])
+                }
               />
 
               <div className="inline-flex rounded-[3px] border border-neutral-300">
@@ -684,7 +781,11 @@ export default function PosOrdersAnalysis() {
 
       {/* Graph or pivot */}
       {oaView === 'pivot' ? (
-        <PivotTable measures={pivotCols} />
+        <PivotTable measures={pivotCols} data={visibleSeries} />
+      ) : series.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center pb-16 text-sm text-neutral-500">
+          No data to display
+        </div>
       ) : (
         <div className="overflow-y-auto px-4 pb-4 pt-2">
           {chartType !== 'pie' && (
