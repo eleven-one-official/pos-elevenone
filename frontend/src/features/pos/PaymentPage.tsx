@@ -387,7 +387,7 @@ export default function PaymentPage({
                 Remaining {usd(remaining)}
               </p>
               <p className="mt-2 text-xl font-medium text-neutral-600">Total Due {usd(total)}</p>
-              <p className="mt-1 text-lg text-neutral-500">Total Due (KHR): {khr(total * khrRate)}</p>
+              <p className="mt-1 text-lg text-neutral-500">Total Due (KHR) {khr(total * khrRate)}</p>
             </div>
             <div className="text-right">
               <p className={`text-4xl font-bold ${change > 0.001 ? 'text-amber-600' : 'text-neutral-900'}`}>

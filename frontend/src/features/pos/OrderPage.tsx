@@ -695,7 +695,7 @@ export default function OrderPage({
                         {line.name}
                       </p>
                       <p className={`mt-0.5 text-sm ${refund ? 'text-rose-500' : 'text-emerald-600'}`}>
-                        {line.qty.toFixed(2)} Units x {money(line.price)} / Units
+                        {Number(line.qty.toFixed(2))} × {money(line.price)}
                       </p>
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {line.discount ? (

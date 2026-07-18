@@ -160,6 +160,8 @@ export function TableCard({ table, onSelect }: { table: PosTable; onSelect: (tab
   const ui = SECTION_UI[table.section]
   const isTakeaway = table.section === 'takeaway'
   const seated = table.guests > 0
+  // More guests than seats (e.g. 5/4) — make the pill stand out as a warning.
+  const overfull = !isTakeaway && table.guests > table.seats
 
   return (
     <button
@@ -182,7 +184,9 @@ export function TableCard({ table, onSelect }: { table: PosTable; onSelect: (tab
       </div>
 
       <span
-        className={`mt-2 rounded-md py-1 text-center text-sm font-semibold ${seated ? 'bg-black/25' : 'bg-black/15'}`}
+        className={`mt-2 rounded-md py-1 text-center text-sm font-semibold ${
+          overfull ? 'bg-rose-600/90' : seated ? 'bg-black/25' : 'bg-black/15'
+        }`}
       >
         {isTakeaway ? '-' : `${table.guests}/${table.seats}`}
       </span>
