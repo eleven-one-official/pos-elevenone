@@ -37,7 +37,6 @@ export type AdminMenuItem = {
   can_be_sold: boolean
   can_be_purchased: boolean
   is_archived: boolean
-  stock_quantity: number | null
   sort_order: number
   category: { id: number; name: string; slug: string } | null
 }
@@ -88,7 +87,6 @@ export type MenuItemInput = {
   can_be_sold?: boolean
   can_be_purchased?: boolean
   is_archived?: boolean
-  stock_quantity?: number | null
   sort_order?: number | null
   /** New photo to upload; pass null to remove the current one, omit to keep it. */
   image?: File | null

@@ -83,7 +83,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('categories', CategoryController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('menu-items', MenuItemController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('pricelists', PricelistController::class)->only(['store', 'update', 'destroy']);
-        Route::post('/menu-items/{menu_item}/adjust-stock', [MenuItemController::class, 'adjustStock']);
 
         // Refunds keep the money trail (row flips to refunded, audit row written);
         // they are a supervisor action, not a cashier one.
@@ -97,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/top-items', [ReportController::class, 'topItems']);
         Route::get('/reports/orders-analysis', [ReportController::class, 'ordersAnalysis']);
         Route::get('/reports/sales-details', [ReportController::class, 'salesDetails']);
+        Route::get('/reports/pos-configs', [ReportController::class, 'posConfigs']);
     });
 
     /*

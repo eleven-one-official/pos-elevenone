@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Table;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +62,49 @@ class ReportController extends Controller
             'tax' => (float) (clone $orders)->sum('tax'),
             'net_sales' => (float) (clone $orders)->sum('total'),
             'payment_summary' => $paymentSummary,
+        ]);
+    }
+
+    /**
+     * Stats behind the dashboard's register cards. There is no session model;
+     * the registers are the two "sides" (cashier POS vs waiter tablets), told
+     * apart by the role of the user who fired the order. "Last closing" is the
+     * most recent day with a completed order; its cash balance sums that day's
+     * paid cash payments (only cashiers record payments).
+     */
+    public function posConfigs(): JsonResponse
+    {
+        $waiterIds = User::whereHas('role', fn ($q) => $q->where('slug', 'waiter'))->pluck('id');
+
+        $sideStats = function ($ordersQuery, bool $withCash) {
+            $open = (clone $ordersQuery)
+                ->whereIn('status', ['new', 'preparing', 'ready', 'served'])
+                ->count();
+            $lastCompleted = (clone $ordersQuery)->where('status', 'completed')->latest()->first();
+
+            $cash = null;
+            if ($withCash && $lastCompleted) {
+                $cash = (float) Payment::where('status', 'paid')
+                    ->where('method', 'cash')
+                    ->whereDate('created_at', $lastCompleted->created_at->toDateString())
+                    ->sum('amount');
+            }
+
+            return [
+                'open_orders' => $open,
+                'last_closing_date' => $lastCompleted?->created_at->toDateString(),
+                'last_closing_cash' => $cash,
+            ];
+        };
+
+        return response()->json([
+            'cashier' => $sideStats(
+                Order::query()->where(function ($q) use ($waiterIds) {
+                    $q->whereNotIn('user_id', $waiterIds)->orWhereNull('user_id');
+                }),
+                true,
+            ),
+            'waiter' => $sideStats(Order::query()->whereIn('user_id', $waiterIds), false),
         ]);
     }
 

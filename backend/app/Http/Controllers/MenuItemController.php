@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AuditLog;
 use App\Models\MenuItem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -57,7 +56,6 @@ class MenuItemController extends Controller
             'can_be_sold' => ['boolean'],
             'can_be_purchased' => ['boolean'],
             'is_archived' => ['boolean'],
-            'stock_quantity' => ['nullable', 'integer'],
             'sort_order' => ['nullable', 'integer'],
         ]);
 
@@ -122,32 +120,6 @@ class MenuItemController extends Controller
         $menuItem->delete();
 
         return response()->json(['message' => 'Menu item deleted.']);
-    }
-
-    /**
-     * Adjust stock by a signed amount (e.g. +10 delivery, -3 waste). Untracked
-     * stock (null) counts as 0. The quiet update keeps the generic "updated"
-     * row out — the dedicated "stock_adjustment" row below is the record.
-     */
-    public function adjustStock(Request $request, MenuItem $menuItem): JsonResponse
-    {
-        $data = $request->validate([
-            'adjustment' => ['required', 'integer', 'not_in:0'],
-            'reason' => ['nullable', 'string', 'max:255'],
-        ]);
-
-        $old = (int) ($menuItem->stock_quantity ?? 0);
-        $new = $old + (int) $data['adjustment'];
-
-        $menuItem->updateQuietly(['stock_quantity' => $new]);
-
-        AuditLog::record('stock_adjustment', $menuItem, ['stock_quantity' => $old], [
-            'stock_quantity' => $new,
-            'adjustment' => (int) $data['adjustment'],
-            'reason' => $data['reason'] ?? null,
-        ], $menuItem->name);
-
-        return response()->json($menuItem->load('category'));
     }
 
     /** Remove an uploaded image from the public disk; external URLs are left alone. */

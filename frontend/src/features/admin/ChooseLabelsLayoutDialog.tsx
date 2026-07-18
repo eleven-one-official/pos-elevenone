@@ -1,9 +1,12 @@
+import { useState } from 'react'
 import { LuX } from 'react-icons/lu'
 import { FIELD_BG, FieldGroup, LABEL, TEXT_INPUT } from './formKit'
+import { printProductLabels, type LabelProduct } from './printProductLabels'
 
 // ---------------------------------------------------------------------------
-// "Choose Labels Layout" — the wizard Odoo opens from Print Labels. Pure UI;
-// Confirm just closes until label printing is wired.
+// "Choose Labels Layout" — the wizard Odoo opens from Print Labels. Confirm
+// prints a sheet of labels for the product through the hidden-iframe pipeline
+// (sheet formats grid onto A4; Dymo/ZPL print one label per row).
 // ---------------------------------------------------------------------------
 
 const FORMATS = [
@@ -16,7 +19,20 @@ const FORMATS = [
   'ZPL Labels with price',
 ]
 
-export default function ChooseLabelsLayoutDialog({ onClose }: { onClose: () => void }) {
+export default function ChooseLabelsLayoutDialog({
+  product,
+  onClose,
+}: {
+  product: LabelProduct
+  onClose: () => void
+}) {
+  const [quantityText, setQuantityText] = useState('1')
+  const [format, setFormat] = useState('2 x 7 with price')
+  const [extra, setExtra] = useState('')
+
+  const quantity = Number.parseInt(quantityText, 10)
+  const valid = Number.isInteger(quantity) && quantity >= 1 && quantity <= 500
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/25 p-6 pt-24">
       <button
@@ -43,7 +59,8 @@ export default function ChooseLabelsLayoutDialog({ onClose }: { onClose: () => v
           <FieldGroup>
             <label className={LABEL}>Quantity</label>
             <input
-              defaultValue="1"
+              value={quantityText}
+              onChange={(e) => setQuantityText(e.target.value)}
               className={`w-full rounded-[2px] border border-neutral-400/70 ${FIELD_BG} px-2 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-sky-600`}
             />
 
@@ -54,7 +71,8 @@ export default function ChooseLabelsLayoutDialog({ onClose }: { onClose: () => v
                   <input
                     type="radio"
                     name="label-format"
-                    defaultChecked={f === '2 x 7 with price'}
+                    checked={format === f}
+                    onChange={() => setFormat(f)}
                     className="h-3.5 w-3.5 accent-[#3572b0]"
                   />
                   {f}
@@ -65,15 +83,23 @@ export default function ChooseLabelsLayoutDialog({ onClose }: { onClose: () => v
 
           <FieldGroup>
             <label className={LABEL}>Extra Content</label>
-            <input className={TEXT_INPUT} />
+            <input
+              value={extra}
+              onChange={(e) => setExtra(e.target.value)}
+              className={TEXT_INPUT}
+            />
           </FieldGroup>
         </div>
 
         <div className="flex items-center gap-2 border-t border-neutral-200 px-6 py-4">
           <button
             type="button"
-            onClick={onClose}
-            className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
+            disabled={!valid}
+            onClick={() => {
+              printProductLabels({ product, quantity, format, extra })
+              onClose()
+            }}
+            className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d] disabled:opacity-50"
           >
             Confirm
           </button>

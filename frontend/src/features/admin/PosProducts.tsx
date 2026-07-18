@@ -3,7 +3,6 @@ import {
   LuChevronDown,
   LuChevronLeft,
   LuChevronRight,
-  LuClock,
   LuImage,
   LuLayoutGrid,
   LuList,
@@ -43,7 +42,6 @@ export type Product = {
   id: number
   name: string
   price: string // display string, e.g. "$ 6.50"
-  onHand: string | null
   type: 'Goods' | 'Service'
   category: string
   availableInPos: boolean
@@ -59,7 +57,6 @@ function toProduct(item: AdminMenuItem): Product {
     id: item.id,
     name: item.name,
     price: `$ ${Number(item.price).toFixed(2)}`,
-    onHand: item.stock_quantity === null ? null : `${item.stock_quantity.toFixed(2)} Units`,
     type: item.product_type === 'service' ? 'Service' : 'Goods',
     category: item.category?.name ?? 'None',
     availableInPos: item.is_available,
@@ -76,7 +73,6 @@ const FILTER_SECTIONS = [
   ['Services', 'Products'],
   ['Available in POS', 'Can be Sold', 'Can be Purchased'],
   ['Favorites'],
-  ['Warnings'],
   ['Archived'],
 ]
 const GROUP_OPTIONS = ['Product Type', 'Product Category', 'POS Product Category']
@@ -393,8 +389,6 @@ export default function PosProducts() {
         return p.canBePurchased
       case 'Favorites':
         return starred.has(p.id)
-      case 'Warnings':
-        return (p.onHand ?? '').startsWith('-')
       default:
         return true
     }
@@ -484,7 +478,6 @@ export default function PosProducts() {
       <div className="min-w-0 flex-1 pr-6 text-[13px]">
         <h3 className="leading-snug text-[#374a63]">{p.name}</h3>
         <p className="mt-1 text-neutral-600">Price: {p.price}</p>
-        {p.onHand && <p className="text-neutral-600">On hand: {p.onHand}</p>}
       </div>
       <button
         type="button"
@@ -510,7 +503,6 @@ export default function PosProducts() {
     >
       <td className="px-4 py-2.5 text-neutral-800">{p.name}</td>
       <td className="px-4 py-2.5 text-neutral-700">{p.price}</td>
-      <td className="px-4 py-2.5 text-neutral-700">{p.onHand ?? '—'}</td>
     </tr>
   )
 
@@ -727,13 +719,6 @@ export default function PosProducts() {
                   >
                     <LuList className="h-4 w-4" />
                   </button>
-                  <button
-                    type="button"
-                    aria-label="Activity view"
-                    className="border-l border-neutral-300 bg-white px-2.5 py-1.5 text-neutral-500 transition hover:bg-neutral-50"
-                  >
-                    <LuClock className="h-4 w-4" />
-                  </button>
                 </div>
               </div>
             </div>
@@ -804,14 +789,13 @@ export default function PosProducts() {
                 <tr className="border-b border-neutral-200 text-left text-neutral-600">
                   <th className="px-4 py-2.5 font-medium">Product</th>
                   <th className="px-4 py-2.5 font-medium">Price</th>
-                  <th className="px-4 py-2.5 font-medium">On Hand</th>
                 </tr>
               </thead>
               {grouped ? (
                 grouped.map(([label, items2]) => (
                   <tbody key={label}>
                     <tr className="border-b border-neutral-100 bg-neutral-50/80">
-                      <td colSpan={3} className="px-4 py-2">
+                      <td colSpan={2} className="px-4 py-2">
                         {groupHeader(label, items2.length)}
                       </td>
                     </tr>

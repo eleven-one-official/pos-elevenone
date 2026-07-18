@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  LuChevronDown,
   LuChevronLeft,
   LuChevronRight,
   LuChevronsUpDown,
@@ -13,16 +14,33 @@ import { LoadingState } from '../../components/ui/Loader'
 import { fetchAdminMenuItems } from '../../services/api/adminMenu'
 import { deletePricelist, fetchPricelists, type Pricelist } from '../../services/api/pricelists'
 import PosPricelistForm from './PosPricelistForm'
-import SearchMenus from './SearchMenus'
+import SearchMenus, { toggleIn } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
-// Pricelists — Odoo-style list over the real pricelists table. Create and
-// row-click open the form; checking rows surfaces a Delete button that
-// removes the selection through the API (with confirmation).
+// Pricelists — Odoo-style list/kanban over the real pricelists table. Create
+// and row-click open the form; checking rows surfaces a Delete button; Export
+// downloads the visible pricelists (one CSV row per price rule). Currency
+// filters and the Currency/Company group-bys work client-side.
 // ---------------------------------------------------------------------------
+
+const CURRENCY_FILTERS = ['USD', 'KHR']
+const GROUP_OPTIONS = ['Currency', 'Company']
+const COMPANY = 'ElevenOne TTP'
+const PAGE_SIZE = 40
+
+const GROUP_VALUE: Record<string, (p: Pricelist) => string> = {
+  Currency: (p) => p.currency,
+  Company: () => COMPANY,
+}
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : 'Something went wrong. Try again.'
+}
+
+/** Quote a CSV cell when it needs it. */
+function csvCell(value: string | number | null): string {
+  const s = value === null ? '' : String(value)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 export default function PosPricelists() {
@@ -30,6 +48,11 @@ export default function PosPricelists() {
   const [products, setProducts] = useState<{ id: number; name: string }[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<'list' | 'kanban'>('list')
+  const [page, setPage] = useState(0)
+  const [checkedFilters, setCheckedFilters] = useState<Set<string>>(new Set())
+  const [groups, setGroups] = useState<string[]>([])
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -50,9 +73,30 @@ export default function PosPricelists() {
     load().catch((e: unknown) => setLoadError(errorText(e)))
   }, [load])
 
-  const visible = (pricelists ?? []).filter((p) =>
-    p.name.toLowerCase().includes(query.trim().toLowerCase()),
+  const activeCurrencies = CURRENCY_FILTERS.filter((c) => checkedFilters.has(c))
+  const visible = (pricelists ?? []).filter(
+    (p) =>
+      p.name.toLowerCase().includes(query.trim().toLowerCase()) &&
+      (activeCurrencies.length === 0 || activeCurrencies.includes(p.currency)),
   )
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  const pageIndex = Math.min(page, pageCount - 1)
+  const pageItems = visible.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE)
+
+  const grouped: Array<[string, Pricelist[]]> | null =
+    groups.length > 0
+      ? (() => {
+          const buckets = new Map<string, Pricelist[]>()
+          for (const p of pageItems) {
+            const key = groups.map((g) => GROUP_VALUE[g]?.(p) ?? 'None').join(' / ')
+            const bucket = buckets.get(key)
+            if (bucket) bucket.push(p)
+            else buckets.set(key, [p])
+          }
+          return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+        })()
+      : null
 
   const toggleChecked = (id: number) =>
     setChecked((s) => {
@@ -73,6 +117,39 @@ export default function PosPricelists() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // Export — the visible pricelists flattened to one CSV row per price rule.
+  const exportCsv = () => {
+    const header = [
+      'pricelist',
+      'currency',
+      'discount_policy',
+      'applied_on',
+      'min_quantity',
+      'fixed_price',
+      'date_start',
+      'date_end',
+    ]
+    const rows = visible.flatMap((p) => {
+      const base = [p.name, p.currency, p.discount_policy]
+      if (p.rules.length === 0) return [[...base, '', '', '', '', '']]
+      return p.rules.map((r) => [
+        ...base,
+        r.menu_item?.name ?? 'All Products',
+        r.min_quantity,
+        r.fixed_price,
+        r.date_start ?? '',
+        r.date_end ?? '',
+      ])
+    })
+    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'pricelists.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   if (loadError) {
@@ -115,6 +192,65 @@ export default function PosPricelists() {
     )
   }
 
+  const groupHeader = (label: string, count: number) => (
+    <button
+      type="button"
+      onClick={() => setCollapsed((s) => toggleIn(s, label))}
+      className="flex items-center gap-1.5 text-[13px] font-medium text-neutral-700 transition hover:text-neutral-900"
+    >
+      {collapsed.has(label) ? (
+        <LuChevronRight className="h-3.5 w-3.5 text-neutral-400" />
+      ) : (
+        <LuChevronDown className="h-3.5 w-3.5 text-neutral-400" />
+      )}
+      {label}
+      <span className="font-normal text-neutral-400">({count})</span>
+    </button>
+  )
+
+  const pricelistCard = (p: Pricelist) => (
+    <article
+      key={p.id}
+      onClick={() => setSelected(p)}
+      className="cursor-pointer rounded-[3px] border border-neutral-200 bg-white p-3.5 transition hover:shadow-[0_1px_4px_rgba(0,0,0,0.1)]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-[14px] text-[#374a63]">{p.name}</h3>
+        <span className="shrink-0 rounded-[2px] bg-neutral-100 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-600">
+          {p.currency}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[13px] text-neutral-600">
+        {p.rules.length === 1 ? '1 price rule' : `${p.rules.length} price rules`}
+      </p>
+    </article>
+  )
+
+  const pricelistRow = (p: Pricelist) => (
+    <tr
+      key={p.id}
+      onClick={() => setSelected(p)}
+      className="cursor-pointer border-b border-neutral-100 text-neutral-700 transition hover:bg-neutral-50"
+    >
+      <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          aria-label={`Select ${p.name}`}
+          checked={checked.has(p.id)}
+          onChange={() => toggleChecked(p.id)}
+          className="h-3.5 w-3.5 align-middle"
+        />
+      </td>
+      <td className="py-2 text-neutral-400">
+        <LuChevronsUpDown className="h-3.5 w-3.5" />
+      </td>
+      <td className="py-2 pr-4 text-neutral-800">{p.name}</td>
+      <td className="py-2 pr-4">{p.currency}</td>
+      <td className="py-2 pr-4">{p.rules.length}</td>
+      <td className="py-2 pr-4">{COMPANY}</td>
+    </tr>
+  )
+
   return (
     <div className="flex h-full flex-col">
       {/* Control panel */}
@@ -134,6 +270,7 @@ export default function PosPricelists() {
                 <button
                   type="button"
                   aria-label="Export"
+                  onClick={exportCsv}
                   className="rounded-r-[3px] border border-neutral-300 bg-white px-2.5 text-neutral-600 transition hover:bg-neutral-50"
                 >
                   <LuDownload className="h-4 w-4" />
@@ -157,7 +294,10 @@ export default function PosPricelists() {
             <label className="relative block">
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setPage(0)
+                }}
                 placeholder="Search..."
                 className="w-full rounded-[3px] border border-neutral-300 px-3 py-1.5 pr-9 text-sm outline-none transition focus:border-sky-600"
               />
@@ -166,19 +306,33 @@ export default function PosPricelists() {
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <SearchMenus
-                filterSections={[['Archived']]}
-                groupOptions={['Currency', 'Company']}
+                filterSections={[CURRENCY_FILTERS]}
+                groupOptions={GROUP_OPTIONS}
                 favoriteName="Pricelists"
+                checkedFilters={checkedFilters}
+                onToggleFilter={(f) => {
+                  setCheckedFilters((s) => toggleIn(s, f))
+                  setPage(0)
+                }}
+                checkedGroups={groups}
+                onToggleGroup={(g) => {
+                  setGroups((gs) => (gs.includes(g) ? gs.filter((x) => x !== g) : [...gs, g]))
+                  setCollapsed(new Set())
+                }}
               />
 
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-neutral-600">
-                  {visible.length === 0 ? '0-0' : `1-${visible.length}`} / {visible.length}
+                  {visible.length === 0
+                    ? '0-0'
+                    : `${pageIndex * PAGE_SIZE + 1}-${pageIndex * PAGE_SIZE + pageItems.length}`}{' '}
+                  / {visible.length}
                 </span>
                 <div className="flex items-center">
                   <button
                     type="button"
                     aria-label="Previous page"
+                    onClick={() => setPage((pageIndex - 1 + pageCount) % pageCount)}
                     className="rounded p-1 text-neutral-500 transition hover:bg-neutral-100"
                   >
                     <LuChevronLeft className="h-4.5 w-4.5" />
@@ -186,6 +340,7 @@ export default function PosPricelists() {
                   <button
                     type="button"
                     aria-label="Next page"
+                    onClick={() => setPage((pageIndex + 1) % pageCount)}
                     className="rounded p-1 text-neutral-500 transition hover:bg-neutral-100"
                   >
                     <LuChevronRight className="h-4.5 w-4.5" />
@@ -196,14 +351,24 @@ export default function PosPricelists() {
                   <button
                     type="button"
                     aria-label="List view"
-                    className="bg-[#57779a] px-2.5 py-1.5 text-white"
+                    onClick={() => setView('list')}
+                    className={`px-2.5 py-1.5 transition ${
+                      view === 'list'
+                        ? 'bg-[#57779a] text-white'
+                        : 'bg-white text-neutral-500 hover:bg-neutral-50'
+                    }`}
                   >
                     <LuList className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
                     aria-label="Kanban view"
-                    className="border-l border-neutral-300 bg-white px-2.5 py-1.5 text-neutral-500 transition hover:bg-neutral-50"
+                    onClick={() => setView('kanban')}
+                    className={`border-l border-neutral-300 px-2.5 py-1.5 transition ${
+                      view === 'kanban'
+                        ? 'bg-[#57779a] text-white'
+                        : 'bg-white text-neutral-500 hover:bg-neutral-50'
+                    }`}
                   >
                     <LuLayoutGrid className="h-4 w-4" />
                   </button>
@@ -220,64 +385,74 @@ export default function PosPricelists() {
         </div>
       )}
 
-      {/* Editable-list style table */}
-      <div className="overflow-y-auto">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-neutral-200 text-left text-neutral-800">
-              <th className="w-10 px-4 py-2.5">
-                <input
-                  type="checkbox"
-                  aria-label="Select all"
-                  checked={visible.length > 0 && visible.every((p) => checked.has(p.id))}
-                  onChange={(e) =>
-                    setChecked(e.target.checked ? new Set(visible.map((p) => p.id)) : new Set())
-                  }
-                  className="h-3.5 w-3.5 align-middle"
-                />
-              </th>
-              <th className="w-8" />
-              <th className="py-2.5 pr-4 font-bold">Pricelist Name</th>
-              <th className="w-[20%] py-2.5 pr-4 font-bold">Currency</th>
-              <th className="w-[15%] py-2.5 pr-4 font-bold">Price Rules</th>
-              <th className="w-[20%] py-2.5 pr-4 font-bold">Company</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((p) => (
-              <tr
-                key={p.id}
-                onClick={() => setSelected(p)}
-                className="cursor-pointer border-b border-neutral-100 text-neutral-700 transition hover:bg-neutral-50"
-              >
-                <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+      {/* Records */}
+      {visible.length === 0 ? (
+        <div className="p-10 text-center text-sm text-neutral-500">
+          {query.trim()
+            ? `No pricelist matches "${query}".`
+            : pricelists.length === 0
+              ? 'No pricelists yet — hit Create to add the first one.'
+              : 'No pricelist matches the current filters.'}
+        </div>
+      ) : view === 'kanban' ? (
+        grouped ? (
+          <div className="flex flex-col overflow-y-auto p-4">
+            {grouped.map(([label, items]) => (
+              <section key={label}>
+                <div className="px-1 py-2">{groupHeader(label, items.length)}</div>
+                {!collapsed.has(label) && (
+                  <div className="grid content-start gap-3.5 pb-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+                    {items.map(pricelistCard)}
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="grid content-start gap-3.5 overflow-y-auto p-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+            {pageItems.map(pricelistCard)}
+          </div>
+        )
+      ) : (
+        <div className="overflow-y-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-neutral-200 text-left text-neutral-800">
+                <th className="w-10 px-4 py-2.5">
                   <input
                     type="checkbox"
-                    aria-label={`Select ${p.name}`}
-                    checked={checked.has(p.id)}
-                    onChange={() => toggleChecked(p.id)}
+                    aria-label="Select all"
+                    checked={pageItems.length > 0 && pageItems.every((p) => checked.has(p.id))}
+                    onChange={(e) =>
+                      setChecked(e.target.checked ? new Set(pageItems.map((p) => p.id)) : new Set())
+                    }
                     className="h-3.5 w-3.5 align-middle"
                   />
-                </td>
-                <td className="py-2 text-neutral-400">
-                  <LuChevronsUpDown className="h-3.5 w-3.5" />
-                </td>
-                <td className="py-2 pr-4 text-neutral-800">{p.name}</td>
-                <td className="py-2 pr-4">{p.currency}</td>
-                <td className="py-2 pr-4">{p.rules.length}</td>
-                <td className="py-2 pr-4" />
+                </th>
+                <th className="w-8" />
+                <th className="py-2.5 pr-4 font-bold">Pricelist Name</th>
+                <th className="w-[20%] py-2.5 pr-4 font-bold">Currency</th>
+                <th className="w-[15%] py-2.5 pr-4 font-bold">Price Rules</th>
+                <th className="w-[20%] py-2.5 pr-4 font-bold">Company</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {visible.length === 0 && (
-          <div className="p-10 text-center text-sm text-neutral-500">
-            {query.trim()
-              ? `No pricelist matches "${query}".`
-              : 'No pricelists yet — hit Create to add the first one.'}
-          </div>
-        )}
-      </div>
+            </thead>
+            {grouped ? (
+              grouped.map(([label, items]) => (
+                <tbody key={label}>
+                  <tr className="border-b border-neutral-100 bg-neutral-50/80">
+                    <td colSpan={6} className="px-4 py-2">
+                      {groupHeader(label, items.length)}
+                    </td>
+                  </tr>
+                  {!collapsed.has(label) && items.map(pricelistRow)}
+                </tbody>
+              ))
+            ) : (
+              <tbody>{pageItems.map(pricelistRow)}</tbody>
+            )}
+          </table>
+        </div>
+      )}
 
       {/* Delete confirmation, Odoo style */}
       {confirmDelete && (

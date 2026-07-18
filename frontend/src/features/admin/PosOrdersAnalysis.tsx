@@ -7,9 +7,7 @@ import {
   LuChartPie,
   LuCheck,
   LuChevronDown,
-  LuDatabase,
   LuDownload,
-  LuExpand,
   LuRepeat,
   LuSearch,
   LuTable,
@@ -180,13 +178,71 @@ function Tip({ label }: { label: string }) {
 }
 
 /** Pivot view — Total row plus one row per bucket, one value column per
- *  measure checked in the Measures dropdown. */
-function PivotTable({ measures, rows }: { measures: string[]; rows: OrdersAnalysisRow[] }) {
+ *  measure checked in the Measures dropdown. Flip axis transposes it:
+ *  measures become the rows and buckets the columns. */
+function PivotTable({
+  measures,
+  rows,
+  flipped,
+}: {
+  measures: string[]
+  rows: OrdersAnalysisRow[]
+  flipped: boolean
+}) {
   const totals = measures.map((m) => {
     const vals = rows.map((r) => measureValue(m, r))
     const sum = vals.reduce((a, b) => a + b, 0)
     return AVG_MEASURES.has(m) && vals.length > 0 ? sum / vals.length : sum
   })
+
+  if (flipped) {
+    return (
+      <div className="overflow-auto p-4">
+        <table className="border-collapse text-[13px]">
+          <thead>
+            <tr>
+              <th className="min-w-44 border border-neutral-200 bg-neutral-50 px-3 py-2" />
+              <th className="min-w-28 border border-neutral-200 bg-neutral-50 px-3 py-2 text-right font-bold text-neutral-800">
+                <span className="inline-flex items-center gap-1">
+                  <LuChevronDown className="h-3 w-3 text-neutral-500" />
+                  Total
+                </span>
+              </th>
+              {rows.map((r) => (
+                <th
+                  key={r.label}
+                  className="min-w-28 border border-neutral-200 bg-neutral-50 px-3 py-2 text-right font-medium text-neutral-700"
+                >
+                  {r.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {measures.map((m, i) => (
+              <tr key={m} className="transition hover:bg-neutral-50">
+                <td className="border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700">
+                  {m}
+                </td>
+                <td className="border border-neutral-200 px-3 py-1.5 text-right font-bold text-neutral-800">
+                  {fmtNumber(MEASURE_DEFS[m].kind, totals[i])}
+                </td>
+                {rows.map((r) => (
+                  <td
+                    key={r.label}
+                    className="border border-neutral-200 px-3 py-1.5 text-right text-neutral-700"
+                  >
+                    {fmtNumber(MEASURE_DEFS[m].kind, measureValue(m, r))}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
   return (
     <div className="overflow-auto p-4">
       <table className="border-collapse text-[13px]">
@@ -531,6 +587,8 @@ export default function PosOrdersAnalysis() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Pivot-only: transpose rows/columns, Odoo's "Flip axis".
+  const [flipped, setFlipped] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -598,6 +656,23 @@ export default function PosOrdersAnalysis() {
       ? graphData
       : [...graphData].sort((a, b) => (sortDir === 'desc' ? b.v - a.v : a.v - b.v))
   const pivotCols = [...MEASURES, 'Count'].filter((m) => pivotMeasures.has(m))
+
+  // Download the pivot as CSV — one row per bucket, one column per measure.
+  const downloadCsv = () => {
+    const cell = (v: string | number) => {
+      const s = String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const header = [groupDim, ...pivotCols]
+    const body = visibleRows.map((r) => [r.label, ...pivotCols.map((m) => measureValue(m, r))])
+    const csv = [header, ...body].map((row) => row.map(cell).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'orders-analysis.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -697,38 +772,34 @@ export default function PosOrdersAnalysis() {
 
               {oaView === 'pivot' && (
                 <div className="inline-flex divide-x divide-neutral-300 overflow-hidden rounded-[3px] border border-neutral-300">
-                  {(
-                    [
-                      { label: 'Flip axis', Icon: LuRepeat },
-                      { label: 'Expand all', Icon: LuExpand },
-                      { label: 'Download xlsx', Icon: LuDownload },
-                    ] as const
-                  ).map(({ label, Icon }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      aria-label={label}
-                      className="group relative bg-white px-2.5 py-1.5 text-neutral-500 transition hover:bg-neutral-50"
-                    >
-                      <Icon className="h-4 w-4" />
-                      <Tip label={label} />
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    aria-label="Flip axis"
+                    onClick={() => setFlipped((v) => !v)}
+                    className={`group relative px-2.5 py-1.5 transition ${
+                      flipped
+                        ? 'bg-neutral-100 text-neutral-700'
+                        : 'bg-white text-neutral-500 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <LuRepeat className="h-4 w-4" />
+                    <Tip label="Flip axis" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Download csv"
+                    onClick={downloadCsv}
+                    className="group relative bg-white px-2.5 py-1.5 text-neutral-500 transition hover:bg-neutral-50"
+                  >
+                    <LuDownload className="h-4 w-4" />
+                    <Tip label="Download csv" />
+                  </button>
                 </div>
               )}
 
-              {/* Stacked applies to bars only; sorting has no meaning on a pie */}
+              {/* Sorting has no meaning on a pie */}
               {oaView === 'graph' && chartType !== 'pie' && (
                 <div className="inline-flex divide-x divide-neutral-300 overflow-hidden rounded-[3px] border border-neutral-300">
-                  {chartType === 'bar' && (
-                    <button
-                      type="button"
-                      aria-label="Stacked"
-                      className="bg-neutral-100 px-2.5 py-1.5 text-neutral-700"
-                    >
-                      <LuDatabase className="h-4 w-4" />
-                    </button>
-                  )}
                   <button
                     type="button"
                     aria-label="Descending"
@@ -844,7 +915,7 @@ export default function PosOrdersAnalysis() {
           </button>
         </div>
       ) : oaView === 'pivot' ? (
-        <PivotTable measures={pivotCols} rows={visibleRows} />
+        <PivotTable measures={pivotCols} rows={visibleRows} flipped={flipped} />
       ) : series.length === 0 ? (
         <div className="flex flex-1 items-center justify-center pb-16 text-sm text-neutral-500">
           No data to display

@@ -283,9 +283,6 @@ export default function AdminApp({
             className="relative rounded p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
           >
             <LuMessageSquare className="h-4.5 w-4.5" />
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none">
-              2
-            </span>
           </button>
           <button
             type="button"

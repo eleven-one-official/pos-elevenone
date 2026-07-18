@@ -168,6 +168,7 @@ export default function PosProductForm({
   const [barcode, setBarcode] = useState(product?.barcode ?? '')
   const [availableInPos, setAvailableInPos] = useState(product?.is_available ?? true)
   const [internalNotes, setInternalNotes] = useState(product?.internal_notes ?? '')
+  const [description, setDescription] = useState(product?.description ?? '')
   const [imageFile, setImageFile] = useState<File | null>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
@@ -199,6 +200,7 @@ export default function PosProductForm({
       name: name.trim(),
       price,
       cost: Number.parseFloat(costText.replace(/[^0-9.]/g, '')) || 0,
+      description: description.trim() || null,
       barcode: barcode.trim() || null,
       internal_reference: internalReference.trim() || null,
       internal_notes: internalNotes.trim() || null,
@@ -585,6 +587,8 @@ export default function PosProductForm({
                   title="Sales Description"
                   placeholder="This note is added to sales orders and invoices."
                   className="mt-10 max-w-xl"
+                  value={description}
+                  onChange={setDescription}
                 />
               </div>
             )}
@@ -795,7 +799,16 @@ export default function PosProductForm({
         </aside>
       </div>
 
-      {printLabelsOpen && <ChooseLabelsLayoutDialog onClose={() => setPrintLabelsOpen(false)} />}
+      {printLabelsOpen && (
+        <ChooseLabelsLayoutDialog
+          product={{
+            name: name.trim() || 'New Product',
+            price: `$ ${(Number.parseFloat(priceText.replace(/[^0-9.]/g, '')) || 0).toFixed(2)}`,
+            barcode: barcode.trim() || null,
+          }}
+          onClose={() => setPrintLabelsOpen(false)}
+        />
+      )}
     </div>
   )
 }

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import {
   LuArrowRight,
-  LuArrowRightLeft,
   LuCamera,
   LuChevronLeft,
   LuChevronRight,
@@ -184,13 +183,6 @@ export default function PosProductDetail({
                   >
                     Delete
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActionOpen(false)}
-                    className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
-                  >
-                    Generate Pricelist Report
-                  </button>
                 </div>
               </>
             )}
@@ -272,16 +264,6 @@ export default function PosProductDetail({
                   <span className="text-[12px] leading-tight text-neutral-700">
                     <span className="block font-semibold">0</span>
                     Extra Prices
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center gap-2.5 px-4 py-2 text-left transition hover:bg-neutral-50"
-                >
-                  <LuArrowRightLeft className="h-4.5 w-4.5 text-neutral-500" />
-                  <span className="text-[12px] leading-tight text-neutral-700">
-                    <span className="block">On hand:</span>
-                    {product.onHand ?? '—'}
                   </span>
                 </button>
                 <button
@@ -455,9 +437,6 @@ export default function PosProductDetail({
                       <span className="truncate text-[13px] text-[#3d6e93]">Srun Soklim</span>
                     </span>
 
-                    <label className={LABEL}>On Hand</label>
-                    <span className={VALUE}>{product.onHand ?? 'Not tracked'}</span>
-
                     <label className={LABEL}>Weight</label>
                     <span className={VALUE}>0.00</span>
 
@@ -473,6 +452,41 @@ export default function PosProductDetail({
                   <div className="border-b border-neutral-300 pb-1 text-[12.5px] font-semibold text-[#54717e]">
                     Description for Delivery Orders
                   </div>
+                </div>
+              </div>
+            ) : tab === 'Sales' ? (
+              <div className="px-8 py-5 pb-10">
+                <div className="max-w-xl">
+                  <FieldGroup title="Point of Sale">
+                    <label className={LABEL}>Available in POS</label>
+                    <span className={VALUE}>{product.availableInPos ? 'Yes' : 'No'}</span>
+
+                    <label className={LABEL}>Category</label>
+                    <span className={VALUE}>{product.category}</span>
+                  </FieldGroup>
+                </div>
+
+                <div className="mt-10 max-w-xl">
+                  <div className="border-b border-neutral-300 pb-1 text-[12.5px] font-semibold text-[#54717e]">
+                    Sales Description
+                  </div>
+                  {raw.description && (
+                    <p className="whitespace-pre-wrap pt-2 text-[13px] text-neutral-700">
+                      {raw.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : tab === 'Purchase' ? (
+              <div className="px-8 py-5 pb-10">
+                <div className="max-w-xl">
+                  <FieldGroup title="Procurement">
+                    <label className={LABEL}>Can be Purchased</label>
+                    <span className={VALUE}>{product.canBePurchased ? 'Yes' : 'No'}</span>
+
+                    <label className={LABEL}>Cost</label>
+                    <span className={VALUE}>$ {Number(raw.cost).toFixed(2)}&ensp;per Pcs</span>
+                  </FieldGroup>
                 </div>
               </div>
             ) : (
@@ -554,7 +568,12 @@ export default function PosProductDetail({
         </div>
       )}
 
-      {printLabelsOpen && <ChooseLabelsLayoutDialog onClose={() => setPrintLabelsOpen(false)} />}
+      {printLabelsOpen && (
+        <ChooseLabelsLayoutDialog
+          product={{ name: product.name, price: product.price, barcode: raw.barcode }}
+          onClose={() => setPrintLabelsOpen(false)}
+        />
+      )}
     </div>
   )
 }

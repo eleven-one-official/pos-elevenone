@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   LuChevronLeft,
   LuChevronRight,
@@ -7,13 +7,14 @@ import {
   LuList,
   LuSearch,
 } from 'react-icons/lu'
-import SearchMenus from './SearchMenus'
+import { LoadingState } from '../../components/ui/Loader'
+import { fetchPosConfigs, type PosConfigStats } from '../../services/api/reports'
+import SearchMenus, { toggleIn } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
-// Point of Sale dashboard — Odoo-style kanban of POS configurations, each card
-// showing the last closing info and a "Continue selling" entry point. Pure UI
-// for now: the cards below are placeholder data until the backend exposes real
-// session summaries.
+// Point of Sale dashboard — Odoo-style kanban of the venue's two registers
+// (cashier POS and waiter tablets), each card showing real last-closing info
+// from /reports/pos-configs and a "Continue selling" entry point.
 // ---------------------------------------------------------------------------
 
 type PosConfig = {
@@ -21,36 +22,18 @@ type PosConfig = {
   name: string
   /** Which staff role this register serves — drives the session login gate. */
   kind: 'cashier' | 'waiter'
-  toClose?: boolean
-  lastClosingDate: string
-  lastClosingCash?: string
-  openSessions?: number
-  ownerInitial: string
-  ownerColor: string
+  stats: PosConfigStats
 }
 
-const PLACEHOLDER_CONFIGS: PosConfig[] = [
-  {
-    id: 'ttp',
-    name: 'TTP',
-    kind: 'cashier',
-    lastClosingDate: '15-Jul-2026',
-    lastClosingCash: '$ 318.34',
-    openSessions: 2,
-    ownerInitial: 'K',
-    ownerColor: 'bg-[#28a745]',
-  },
-  {
-    id: 'ttp-waiter',
-    name: 'TTP Waiter',
-    kind: 'waiter',
-    toClose: true,
-    lastClosingDate: '16-Dec-2024',
-    lastClosingCash: '$ 0.00',
-    ownerInitial: 'K',
-    ownerColor: 'bg-[#28a745]',
-  },
-]
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** Odoo-style date label, e.g. "17-Jul-2026". */
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(`${iso}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return iso
+  return `${pad(d.getDate())}-${d.toLocaleString('en-GB', { month: 'short' })}-${d.getFullYear()}`
+}
 
 export default function PosDashboard({
   onContinueSelling,
@@ -59,9 +42,53 @@ export default function PosDashboard({
 }) {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
+  const [checkedFilters, setCheckedFilters] = useState<Set<string>>(new Set())
+  const [stats, setStats] = useState<{ cashier: PosConfigStats; waiter: PosConfigStats } | null>(
+    null,
+  )
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const visible = PLACEHOLDER_CONFIGS.filter((c) =>
-    c.name.toLowerCase().includes(query.trim().toLowerCase()),
+  const load = () => {
+    setLoadError(null)
+    fetchPosConfigs()
+      .then(setStats)
+      .catch((e: unknown) =>
+        setLoadError(e instanceof Error ? e.message : 'Failed to load the dashboard.'),
+      )
+  }
+
+  useEffect(load, [])
+
+  if (loadError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+        <p className="text-sm text-red-600">{loadError}</p>
+        <button
+          type="button"
+          onClick={load}
+          className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  if (stats === null) {
+    return <LoadingState label="Loading registers..." className="h-full" />
+  }
+
+  const configs: PosConfig[] = [
+    { id: 'ttp', name: 'TTP', kind: 'cashier', stats: stats.cashier },
+    { id: 'ttp-waiter', name: 'TTP Waiter', kind: 'waiter', stats: stats.waiter },
+  ]
+
+  const toClose = (c: PosConfig) => c.stats.open_orders > 0
+
+  const visible = configs.filter(
+    (c) =>
+      c.name.toLowerCase().includes(query.trim().toLowerCase()) &&
+      (!checkedFilters.has('To Close') || toClose(c)),
   )
 
   return (
@@ -85,9 +112,11 @@ export default function PosDashboard({
             <div className="flex flex-wrap items-center justify-between gap-2">
               {/* Filters / Group By / Favorites — shared Odoo search menus */}
               <SearchMenus
-                filterSections={[['To Close'], ['Archived']]}
+                filterSections={[['To Close']]}
                 groupOptions={['Company']}
                 favoriteName="Point of Sale"
+                checkedFilters={checkedFilters}
+                onToggleFilter={(f) => setCheckedFilters((s) => toggleIn(s, f))}
               />
 
               <div className="flex items-center gap-2">
@@ -98,14 +127,16 @@ export default function PosDashboard({
                   <button
                     type="button"
                     aria-label="Previous page"
-                    className="rounded p-1 text-neutral-500 transition hover:bg-neutral-100"
+                    disabled
+                    className="rounded p-1 text-neutral-500 opacity-40"
                   >
                     <LuChevronLeft className="h-4.5 w-4.5" />
                   </button>
                   <button
                     type="button"
                     aria-label="Next page"
-                    className="rounded p-1 text-neutral-500 transition hover:bg-neutral-100"
+                    disabled
+                    className="rounded p-1 text-neutral-500 opacity-40"
                   >
                     <LuChevronRight className="h-4.5 w-4.5" />
                   </button>
@@ -147,7 +178,9 @@ export default function PosDashboard({
       {/* Records */}
       {visible.length === 0 ? (
         <div className="p-10 text-center text-sm text-neutral-500">
-          {`No point of sale matches "${query}".`}
+          {query.trim()
+            ? `No point of sale matches "${query}".`
+            : 'No register matches the current filters.'}
         </div>
       ) : view === 'kanban' ? (
         <div className="grid content-start gap-5 p-4 [grid-template-columns:repeat(auto-fill,minmax(520px,1fr))]">
@@ -159,7 +192,7 @@ export default function PosDashboard({
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="text-[15px] text-neutral-800">{c.name}</h2>
-                  {c.toClose && (
+                  {toClose(c) && (
                     <span className="mt-1.5 inline-block rounded-[2px] bg-[#dc3545] px-1.5 py-px text-[10px] font-bold text-white">
                       To Close
                     </span>
@@ -186,29 +219,30 @@ export default function PosDashboard({
                 {/* Label / value columns, values left-aligned — Odoo kanban style */}
                 <div className="ml-auto mr-4 grid min-w-0 grid-cols-[minmax(0,10rem)_auto] gap-x-8 gap-y-0.5 text-[13px]">
                   <span className="text-neutral-700">Last Closing Date</span>
-                  <span className="whitespace-nowrap text-neutral-800">{c.lastClosingDate}</span>
-                  {c.lastClosingCash && (
+                  <span className="whitespace-nowrap text-neutral-800">
+                    {fmtDate(c.stats.last_closing_date)}
+                  </span>
+                  {c.stats.last_closing_cash !== null && (
                     <>
                       <span className="text-neutral-700">Last Closing Cash Balance</span>
-                      <span className="whitespace-nowrap text-neutral-800">{c.lastClosingCash}</span>
+                      <span className="whitespace-nowrap text-neutral-800">
+                        $ {c.stats.last_closing_cash.toFixed(2)}
+                      </span>
                     </>
                   )}
-                  {c.openSessions != null && (
-                    <button
-                      type="button"
-                      className="col-span-2 mt-1 justify-self-start text-[13px] text-neutral-600 underline transition hover:text-sky-800"
-                    >
-                      There are {c.openSessions} open sessions
-                    </button>
+                  {c.stats.open_orders > 0 && (
+                    <span className="col-span-2 mt-1 text-[13px] text-neutral-600">
+                      {c.stats.open_orders === 1
+                        ? 'There is 1 open order'
+                        : `There are ${c.stats.open_orders} open orders`}
+                    </span>
                   )}
                 </div>
               </div>
 
               <div className="flex items-center justify-end">
-                <span
-                  className={`flex h-5.5 w-5.5 items-center justify-center rounded-full text-[10px] font-semibold text-white ${c.ownerColor}`}
-                >
-                  {c.ownerInitial}
+                <span className="flex h-5.5 w-5.5 items-center justify-center rounded-full bg-[#28a745] text-[10px] font-semibold text-white">
+                  {c.name.charAt(0)}
                 </span>
               </div>
             </article>
@@ -223,6 +257,7 @@ export default function PosDashboard({
                   <th className="px-4 py-2.5 font-medium">Point of Sale</th>
                   <th className="px-4 py-2.5 font-medium">Last Closing Date</th>
                   <th className="px-4 py-2.5 font-medium">Last Closing Cash Balance</th>
+                  <th className="px-4 py-2.5 font-medium">Open Orders</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                 </tr>
               </thead>
@@ -233,10 +268,17 @@ export default function PosDashboard({
                     className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
                   >
                     <td className="px-4 py-2.5 text-neutral-800">{c.name}</td>
-                    <td className="px-4 py-2.5 text-neutral-700">{c.lastClosingDate}</td>
-                    <td className="px-4 py-2.5 text-neutral-700">{c.lastClosingCash ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-neutral-700">
+                      {fmtDate(c.stats.last_closing_date)}
+                    </td>
+                    <td className="px-4 py-2.5 text-neutral-700">
+                      {c.stats.last_closing_cash !== null
+                        ? `$ ${c.stats.last_closing_cash.toFixed(2)}`
+                        : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-neutral-700">{c.stats.open_orders}</td>
                     <td className="px-4 py-2.5">
-                      {c.toClose ? (
+                      {toClose(c) ? (
                         <span className="rounded-[2px] bg-[#dc3545] px-1.5 py-px text-[10px] font-bold text-white">
                           To Close
                         </span>
