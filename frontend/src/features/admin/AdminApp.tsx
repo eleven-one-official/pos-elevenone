@@ -16,8 +16,10 @@ import {
 } from 'react-icons/lu'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { Waiter } from '../waiter/WaiterLoginDialog'
+import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
+import PosCustomers from './PosCustomers'
 import PosDashboard from './PosDashboard'
 import PosOrders from './PosOrders'
 import PosOrdersAnalysis from './PosOrdersAnalysis'
@@ -26,13 +28,14 @@ import PosPricelists from './PosPricelists'
 import PosProducts from './PosProducts'
 import PosSessionLogin from './PosSessionLogin'
 import PosSettings from './PosSettings'
+import PosTables from './PosTables'
 import SalesDetailsDialog from './SalesDetailsDialog'
 
 // ---------------------------------------------------------------------------
 // Admin "side" — an Odoo-style back office. The black sidebar on the left is
 // an app switcher listing the business modules; the dark top bar carries the
-// active module's menus. Only Point of Sale → Dashboard is a real screen so
-// far; every other module and menu renders a UI-first placeholder.
+// active module's menus. Point of Sale and Employees are real; every other
+// module and menu renders a UI-first placeholder.
 // ---------------------------------------------------------------------------
 
 type ModuleKey =
@@ -62,7 +65,13 @@ const MODULES: { key: ModuleKey; label: string; icon: IconType; tint: string }[]
 // Odoo-style dropdown; the rest switch the screen directly.
 const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = [
   { label: 'Dashboard' },
-  { label: 'Orders' },
+  {
+    label: 'Orders',
+    items: [
+      { id: 'orders', label: 'Orders' },
+      { id: 'customers', label: 'Customers' },
+    ],
+  },
   {
     label: 'Products',
     items: [
@@ -83,9 +92,21 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
     items: [
       { id: 'settings', label: 'Settings' },
       { id: 'payment-methods', label: 'Payment Methods' },
+      { id: 'tables', label: 'Tables' },
     ],
   },
 ]
+
+// The Employees module is a single screen, but it still gets a top-bar menu so
+// the chrome reads the same as Point of Sale.
+const EMPLOYEE_MENUS: typeof POS_MENUS = [{ label: 'Employees' }]
+
+// Modules with real screens hang their top-bar menus here; the rest render a
+// placeholder with no menus.
+const MODULE_MENUS: Partial<Record<ModuleKey, typeof POS_MENUS>> = {
+  pos: POS_MENUS,
+  employees: EMPLOYEE_MENUS,
+}
 
 // Companies for the Odoo-style switcher in the top bar — placeholder list
 // until the backend models branches.
@@ -175,10 +196,14 @@ export default function AdminApp({
   }
 
   const content =
-    active.key !== 'pos' ? (
+    active.key === 'employees' ? (
+      <HrEmployees />
+    ) : active.key !== 'pos' ? (
       <ModulePlaceholder icon={active.icon} title={active.label} />
     ) : tab.menu === 'Dashboard' ? (
       <PosDashboard onContinueSelling={setSessionLogin} />
+    ) : tab.menu === 'Orders' && tab.item === 'Customers' ? (
+      <PosCustomers />
     ) : tab.menu === 'Orders' ? (
       <PosOrders />
     ) : tab.menu === 'Products' && tab.item === 'Products' ? (
@@ -189,6 +214,8 @@ export default function AdminApp({
       <PosSettings />
     ) : tab.menu === 'Configuration' && tab.item === 'Payment Methods' ? (
       <PosPaymentMethods />
+    ) : tab.menu === 'Configuration' && tab.item === 'Tables' ? (
+      <PosTables />
     ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
       <PosAuditLog />
     ) : tab.menu === 'Reporting' ? (
@@ -216,9 +243,9 @@ export default function AdminApp({
           <span className="whitespace-nowrap text-[17px] font-bold">{active.label}</span>
         </div>
 
-        {active.key === 'pos' && (
+        {MODULE_MENUS[active.key] && (
           <nav className="flex items-center text-sm">
-            {POS_MENUS.map((m) =>
+            {MODULE_MENUS[active.key]!.map((m) =>
               m.items ? (
                 <div key={m.label} className="relative">
                   <button
@@ -392,7 +419,7 @@ export default function AdminApp({
                 type="button"
                 onClick={() => {
                   setModuleKey(m.key)
-                  setTab({ menu: 'Dashboard' })
+                  setTab({ menu: m.key === 'employees' ? 'Employees' : 'Dashboard' })
                   setOpenMenu(null)
                 }}
                 className={`flex w-full items-center gap-2 px-2.5 py-[7px] text-left transition ${
@@ -407,7 +434,7 @@ export default function AdminApp({
                   <m.icon className="h-3.5 w-3.5 text-white" />
                 </span>
                 <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                {m.key !== 'pos' && (
+                {m.key !== 'pos' && m.key !== 'employees' && (
                   <span
                     className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide ${
                       isActive ? 'bg-white/25 text-white' : 'bg-white/10 text-neutral-400'

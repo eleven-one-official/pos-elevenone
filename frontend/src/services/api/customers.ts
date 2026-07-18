@@ -29,3 +29,13 @@ export type CustomerInput = {
 export function createCustomer(input: CustomerInput): Promise<Customer> {
   return api<Customer>('/customers', { method: 'POST', body: input })
 }
+
+// Editing and deleting are back-office ops (admin/manager on the backend).
+
+export function updateCustomer(id: number, input: Partial<CustomerInput>): Promise<Customer> {
+  return api<Customer>(`/customers/${id}`, { method: 'PUT', body: input })
+}
+
+export function deleteCustomer(id: number): Promise<{ message: string }> {
+  return api<{ message: string }>(`/customers/${id}`, { method: 'DELETE' })
+}
