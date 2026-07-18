@@ -65,6 +65,102 @@ class ReportController extends Controller
     }
 
     /**
+     * Aggregates for the admin's Orders Analysis screen. Groups every order
+     * line (cancelled orders excluded) into ?group_by= buckets — category
+     * (default), product, order_date (month), order_type or employee — and
+     * limits the window with ?period= today|week|month|year (default: all).
+     *
+     * The order-level discount is spread over its lines by their share of the
+     * subtotal, so Total Price sums to the real money taken. Margin uses the
+     * product's current cost.
+     */
+    public function ordersAnalysis(Request $request): JsonResponse
+    {
+        $groupBy = $request->string('group_by')->toString() ?: 'category';
+
+        $start = match ($request->string('period')->toString()) {
+            'today' => now()->startOfDay(),
+            'week' => now()->startOfWeek(),
+            'month' => now()->startOfMonth(),
+            'year' => now()->startOfYear(),
+            default => null,
+        };
+
+        $typeLabels = ['dine_in' => 'Dine-in', 'take_away' => 'Take-away', 'delivery' => 'Delivery'];
+
+        $lines = OrderItem::query()
+            ->with(['order.user:id,name', 'menuItem:id,category_id,cost', 'menuItem.category:id,name'])
+            ->whereHas('order', function ($q) use ($start) {
+                $q->where('status', '!=', 'cancelled');
+                if ($start) {
+                    $q->where('created_at', '>=', $start);
+                }
+            })
+            ->get();
+
+        /** @var array<string, array<string, mixed>> $buckets */
+        $buckets = [];
+
+        foreach ($lines as $line) {
+            $order = $line->order;
+            $label = match ($groupBy) {
+                'product' => $line->name,
+                'order_date' => $order->created_at->format('F Y'),
+                'order_type' => $typeLabels[$order->order_type] ?? $order->order_type,
+                'employee' => $order->user->name ?? 'Unknown',
+                default => $line->menuItem?->category?->name ?? 'None',
+            };
+
+            $gross = (float) $line->line_total;
+            $subtotal = (float) $order->subtotal;
+            $discountShare = $subtotal > 0 ? (float) $order->discount * $gross / $subtotal : 0.0;
+            $net = $gross - $discountShare;
+            $cost = (float) ($line->menuItem->cost ?? 0) * $line->quantity;
+
+            $bucket = $buckets[$label] ?? [
+                'label' => $label,
+                'total_price' => 0.0,
+                'subtotal_wo_discount' => 0.0,
+                'total_discount' => 0.0,
+                'margin' => 0.0,
+                'product_quantity' => 0,
+                'sale_line_count' => 0,
+                'order_ids' => [],
+            ];
+
+            $bucket['total_price'] += $net;
+            $bucket['subtotal_wo_discount'] += $gross;
+            $bucket['total_discount'] += $discountShare;
+            $bucket['margin'] += $net - $cost;
+            $bucket['product_quantity'] += $line->quantity;
+            $bucket['sale_line_count']++;
+            $bucket['order_ids'][$order->id] = true;
+
+            $buckets[$label] = $bucket;
+        }
+
+        ksort($buckets);
+
+        $rows = array_values(array_map(function (array $b) {
+            return [
+                'label' => $b['label'],
+                'total_price' => round($b['total_price'], 2),
+                'subtotal_wo_discount' => round($b['subtotal_wo_discount'], 2),
+                'total_discount' => round($b['total_discount'], 2),
+                'margin' => round($b['margin'], 2),
+                'product_quantity' => $b['product_quantity'],
+                'sale_line_count' => $b['sale_line_count'],
+                'order_count' => count($b['order_ids']),
+                'average_price' => $b['product_quantity'] > 0
+                    ? round($b['total_price'] / $b['product_quantity'], 2)
+                    : 0.0,
+            ];
+        }, $buckets));
+
+        return response()->json($rows);
+    }
+
+    /**
      * Top selling menu items by quantity. Limit via ?limit= (default 10).
      */
     public function topItems(Request $request): JsonResponse

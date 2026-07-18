@@ -37,6 +37,9 @@ class PaymentMethodController extends Controller
             'sort_order' => ['nullable', 'integer'],
         ]);
 
+        // The column is NOT NULL — an omitted sequence lands at the end.
+        $data['sort_order'] ??= ((int) PaymentMethod::max('sort_order')) + 1;
+
         return response()->json(PaymentMethod::create($data), 201);
     }
 
@@ -55,6 +58,11 @@ class PaymentMethodController extends Controller
             'is_active' => ['boolean'],
             'sort_order' => ['nullable', 'integer'],
         ]);
+
+        // NOT NULL column — clearing the sequence keeps the current position.
+        if (array_key_exists('sort_order', $data) && $data['sort_order'] === null) {
+            unset($data['sort_order']);
+        }
 
         $paymentMethod->update($data);
 

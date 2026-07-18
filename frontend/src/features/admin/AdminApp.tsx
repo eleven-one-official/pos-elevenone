@@ -21,9 +21,11 @@ import PosAuditLog from './PosAuditLog'
 import PosDashboard from './PosDashboard'
 import PosOrders from './PosOrders'
 import PosOrdersAnalysis from './PosOrdersAnalysis'
+import PosPaymentMethods from './PosPaymentMethods'
 import PosPricelists from './PosPricelists'
 import PosProducts from './PosProducts'
 import PosSessionLogin from './PosSessionLogin'
+import PosSettings from './PosSettings'
 import SalesDetailsDialog from './SalesDetailsDialog'
 
 // ---------------------------------------------------------------------------
@@ -76,7 +78,13 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
       { id: 'audit-log', label: 'Audit Log' },
     ],
   },
-  { label: 'Configuration' },
+  {
+    label: 'Configuration',
+    items: [
+      { id: 'settings', label: 'Settings' },
+      { id: 'payment-methods', label: 'Payment Methods' },
+    ],
+  },
 ]
 
 // Companies for the Odoo-style switcher in the top bar — placeholder list
@@ -177,6 +185,10 @@ export default function AdminApp({
       <PosProducts />
     ) : tab.menu === 'Products' && tab.item === 'Pricelists' ? (
       <PosPricelists />
+    ) : tab.menu === 'Configuration' && tab.item === 'Settings' ? (
+      <PosSettings />
+    ) : tab.menu === 'Configuration' && tab.item === 'Payment Methods' ? (
+      <PosPaymentMethods />
     ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
       <PosAuditLog />
     ) : tab.menu === 'Reporting' ? (

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   LuArrowDownWideNarrow,
   LuArrowUpNarrowWide,
@@ -13,96 +13,24 @@ import {
   LuRepeat,
   LuSearch,
   LuTable,
-  LuX,
 } from 'react-icons/lu'
+import { Loader } from '../../components/ui/Loader'
+import {
+  fetchOrdersAnalysis,
+  type AnalysisGroupBy,
+  type AnalysisPeriod,
+  type OrdersAnalysisRow,
+} from '../../services/api/reports'
 import FacetChip, { type Facet } from './FacetChip'
-import { parseCsv } from './parseCsv'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
-// Reporting › Orders — the "Orders Analysis" graph view: Total Price by
-// product category as a single-series bar chart, Odoo style. The series is
-// placeholder data shaped like the venue's real categories, but the search
-// panel works client-side: the search box and custom Product Category
-// conditions filter the category axis, the Ordered Today/Week/Month/Year
-// filters scale the series to that period, and Group By re-buckets the axis
-// into the picked dimension — all with facet chips in the search box.
+// Reporting › Orders — the "Orders Analysis" graph/pivot view over the real
+// order history (via /reports/orders-analysis). The Ordered Today/Week/Month/
+// Year filters and the Group By dimension query the backend; the search box
+// and custom Product Category conditions then filter the returned axis
+// client-side — all with facet chips in the search box, Odoo style.
 // ---------------------------------------------------------------------------
-
-// Values are Total Price in thousands of dollars.
-const SERIES: { c: string; v: number }[] = [
-  { c: 'Addition_', v: 24.5 },
-  { c: 'Addition_ / ECO BOXES', v: 15.2 },
-  { c: 'Alcoholic Drink_ / Beer_', v: 11.3 },
-  { c: 'Alcoholic Drink_ / Cocktails_', v: 6.6 },
-  { c: 'Alcoholic Drink_ / Cocktails_ / Monthly Special_', v: 0.8 },
-  { c: 'All', v: 0.1 },
-  { c: 'Bakery_', v: 3.9 },
-  { c: 'Bakery_ / Cake_', v: 5.9 },
-  { c: 'Bakery_ / Cake_ / Brownie_', v: 2.1 },
-  { c: 'Bakery_ / Cake_ / Cake of the month_ / Cheese cake_', v: 0.5 },
-  { c: 'Bakery_ / Cake_ / Bar_', v: 5.7 },
-  { c: 'Bakery_ / Cake_ / Cookies_', v: 0.6 },
-  { c: 'Bakery_ / Cake_ / Eclairs_', v: 0.2 },
-  { c: 'Bakery_ / Cake_ / Macaron_', v: 1.0 },
-  { c: 'Bakery_ / Cake_ / Muffin_', v: 1.0 },
-  { c: 'Bakery_ / Cake_ / Tart_', v: 3.0 },
-  { c: 'Breakfast_', v: 29.5 },
-  { c: 'Brunch_', v: 12.0 },
-  { c: 'Brunch_ / Bread_', v: 0.4 },
-  { c: 'Brunch_ / Drink_ / Coffee_', v: 0.7 },
-  { c: 'Brunch_ / Drink_ / Juice_', v: 0.6 },
-  { c: 'Brunch_ / Drink_ / Other_', v: 0.3 },
-  { c: 'Brunch_ / Drink_ / Smoothie Bowl_', v: 0.5 },
-  { c: 'Brunch_ / Viennoiseries_', v: 0.4 },
-  { c: 'COFFEE & TEA & Milk_ / COFFEE_', v: 13.7 },
-  { c: 'COFFEE & TEA & Milk_ / Fresh Milk', v: 0.3 },
-  { c: 'COFFEE & TEA & Milk_ / TEA', v: 2.4 },
-  { c: 'Desserts_', v: 11.2 },
-  { c: 'Desserts_ / Ice Cream_', v: 1.5 },
-  { c: 'Desserts_ / Topping_', v: 0.2 },
-  { c: 'Desserts_ / Special Homemade_', v: 0.9 },
-  { c: 'Drink_ / Free Flow_', v: 0.2 },
-  { c: 'Drinks', v: 2.1 },
-  { c: 'HOME MADE_ / Syrup_', v: 0.3 },
-  { c: 'Khmer Breakfast_', v: 21.0 },
-  { c: 'Lunch SET_ / Set 1_', v: 2.1 },
-  { c: 'Lunch SET_ / Set 2_', v: 1.1 },
-  { c: 'Lunch SET_ / Set 3_', v: 1.3 },
-  { c: 'Lunch SET_ / Set 4_', v: 1.3 },
-  { c: 'Lunch SET_ / Set 5_', v: 1.4 },
-  { c: 'Lunch SET_ / Set 6_', v: 1.5 },
-  { c: 'Lunch SET_ / Set 7_', v: 1.5 },
-  { c: 'Lunch SET_ / Set 9_', v: 1.4 },
-  { c: 'Main Courses_ / Burgers_', v: 15.6 },
-  { c: 'Main Courses_ / Khmer Cuisine / Popular_', v: 74.5 },
-  { c: 'Main Courses_ / Khmer Cuisine_ / Signature_', v: 80.3 },
-  { c: 'Main Courses_ / Regionals_ / Battambang_', v: 1.3 },
-  { c: 'Main Courses_ / Regionals_ / Kampong Thom_', v: 3.9 },
-  { c: 'Main Courses_ / Regionals_ / Prey Veng_', v: 3.2 },
-  { c: 'Main Courses_ / Regionals_ / Siem Reap_', v: 13.6 },
-  { c: 'Main Courses_ / Regionals_ / Svay Rieng_', v: 7.0 },
-  { c: 'Main Courses_ / Special Menu_', v: 21.5 },
-  { c: 'Main Courses_ / Special Menu 1_', v: 2.6 },
-  { c: 'Main Courses_ / TAKE AWAY_', v: 0.1 },
-  { c: 'Main Courses_ / Western Cuisine_', v: 20.0 },
-  { c: 'NON Alcoholic_ / Drink CAN_', v: 10.6 },
-  { c: 'NON Alcoholic_ / Fruit JUICE_', v: 20.7 },
-  { c: 'NON Alcoholic_ / Fruit SHAKE_', v: 28.6 },
-  { c: 'PIZZA_ / Pizza_', v: 17.5 },
-  { c: 'SALAD_', v: 41.5 },
-  { c: 'SOUP_ / Soup_', v: 25.3 },
-  { c: 'SOUP_ / Vegetarian_', v: 13.0 },
-  { c: 'Starter_', v: 56.5 },
-  { c: 'Wines_ / Happy Hours Beer_', v: 5.4 },
-  { c: 'Wines_ / Happy Hours Cocktail_', v: 3.0 },
-  { c: 'Wines_ / Happy Hours Wine_', v: 2.9 },
-  { c: 'Wines_ / House Wine_', v: 3.5 },
-  { c: 'Wines_ / RED wine_', v: 1.1 },
-  { c: 'Wines_ / ROSE_', v: 0.3 },
-  { c: 'Wines_ / Sparkling_', v: 0.2 },
-  { c: 'Wines_ / White wine_', v: 1.9 },
-]
 
 const BAR_COLOR = '#3f7cb1'
 
@@ -113,59 +41,29 @@ const TIME_FILTERS = [
   'Ordered This Year',
 ]
 
-// Fraction of the yearly totals each period covers. Checked periods OR
-// together, and since they nest the widest one wins; a per-category jitter
-// keeps the narrowed chart from being a flat rescale of the yearly one.
-const TIME_FACTOR: Record<string, number> = {
-  'Ordered Today': 0.03,
-  'Ordered This Week': 0.15,
-  'Ordered This Month': 0.36,
-  'Ordered This Year': 1,
+// Checked periods OR together, and since they nest the widest one wins.
+const TIME_PERIOD: Record<string, AnalysisPeriod> = {
+  'Ordered Today': 'today',
+  'Ordered This Week': 'week',
+  'Ordered This Month': 'month',
+  'Ordered This Year': 'year',
+}
+const PERIOD_WIDTH: Record<AnalysisPeriod, number> = {
+  today: 1,
+  week: 2,
+  month: 3,
+  year: 4,
+  '': 5,
 }
 
-const GROUP_OPTIONS = ['Point of Sale', 'Product', 'Product Category', 'Order Date']
+const GROUP_OPTIONS = ['Product Category', 'Product', 'Order Date', 'Order Type', 'Employee']
 
-// Buckets each group-by dimension re-buckets the chart into. The placeholder
-// data only carries product-category totals, so the other dimensions get a
-// deterministic hash-weighted share of the visible total.
-const GROUP_BUCKETS: Record<string, string[]> = {
-  'Point of Sale': ['TTP', 'TTP Waiter'],
-  Product: [
-    'Fish Amok',
-    'Beef Lok Lak',
-    'Khmer Noodle Soup',
-    'Brown rice',
-    'Steamed Rice',
-    'Beef BBQ Rice',
-    'Bbq chicken panini',
-    '4 cheese pizza',
-    'French fries-b',
-    'Garlic bread',
-    'Americano hot',
-    'Iced Latte',
-    'Avocado shake',
-    'Angkor Beer (bottle)',
-    'Mango Sticky Rice',
-  ],
-  'Order Date': [
-    'January 2026',
-    'February 2026',
-    'March 2026',
-    'April 2026',
-    'May 2026',
-    'June 2026',
-    'July 2026',
-  ],
-}
-
-// Re-bucket the filtered series into a group-by dimension, conserving the
-// visible total so filters and group-bys compose coherently.
-function bucketize(data: { c: string; v: number }[], dim: string): { c: string; v: number }[] {
-  const total = data.reduce((sum, d) => sum + d.v, 0)
-  const buckets = GROUP_BUCKETS[dim] ?? []
-  const weights = buckets.map((b) => 0.35 + hash(dim + b))
-  const weightSum = weights.reduce((a, b) => a + b, 0)
-  return buckets.map((b, i) => ({ c: b, v: (total * weights[i]) / weightSum }))
+const GROUP_KEY: Record<string, AnalysisGroupBy> = {
+  'Product Category': 'category',
+  Product: 'product',
+  'Order Date': 'order_date',
+  'Order Type': 'order_type',
+  Employee: 'employee',
 }
 
 // Saved searches (Favorites menu), persisted to localStorage like Products.
@@ -180,7 +78,6 @@ type SavedSearch = {
 }
 
 const FAVORITES_KEY = 'pos-admin.orders-analysis.search-favorites'
-const IMPORTED_KEY = 'pos-admin.orders-analysis.imported'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -191,11 +88,11 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
-// Custom-filter conditions evaluate against the category axis; fields that
-// don't exist in the aggregate placeholder data (Account Tags, ...) match all.
-function matchesCondition(category: string, c: CustomCondition): boolean {
+// Custom-filter conditions evaluate against the bucket axis; fields that the
+// aggregate rows don't carry (Account Tags, ...) match all.
+function matchesCondition(label: string, c: CustomCondition): boolean {
   if (c.field !== 'Product Category') return true
-  const text = category.toLowerCase()
+  const text = label.toLowerCase()
   const value = c.value.trim().toLowerCase()
   switch (c.operator) {
     case 'contains':
@@ -212,9 +109,9 @@ function matchesCondition(category: string, c: CustomCondition): boolean {
 }
 
 // Toggleable measures in the Measures dropdown; Count sits below a divider.
+// Each maps straight onto a column of the aggregate rows.
 const MEASURES = [
   'Average Price',
-  'Delay Validation',
   'Margin',
   'Product Quantity',
   'Sale Line Count',
@@ -223,51 +120,33 @@ const MEASURES = [
   'Total Price',
 ]
 
+type MeasureKind = 'money' | 'int'
+
+const MEASURE_DEFS: Record<
+  string,
+  { kind: MeasureKind; key: Exclude<keyof OrdersAnalysisRow, 'label'> }
+> = {
+  'Average Price': { kind: 'money', key: 'average_price' },
+  Margin: { kind: 'money', key: 'margin' },
+  'Product Quantity': { kind: 'int', key: 'product_quantity' },
+  'Sale Line Count': { kind: 'int', key: 'sale_line_count' },
+  'Subtotal w/o discount': { kind: 'money', key: 'subtotal_wo_discount' },
+  'Total Discount': { kind: 'money', key: 'total_discount' },
+  'Total Price': { kind: 'money', key: 'total_price' },
+  Count: { kind: 'int', key: 'order_count' },
+}
+
+// Average-style measures aggregate as mean in the pivot Total row, not sum.
+const AVG_MEASURES = new Set(['Average Price'])
+
+const measureValue = (m: string, row: OrdersAnalysisRow) => row[MEASURE_DEFS[m].key]
+
 // d3/Chart.js category palette, the one Odoo cycles through for pies.
 const PIE_COLORS = [
   '#1f77b4', '#ff7f0e', '#aec7e8', '#ffbb78', '#2ca02c', '#98df8a', '#d62728',
   '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2',
   '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5',
 ]
-
-// Each measure gets deterministic placeholder values derived from the Total
-// Price series, so switching measures visibly reshapes the chart until the
-// backend serves real aggregates. `hash` keeps the fake spread stable.
-function hash(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 997
-  return h / 997
-}
-
-type MeasureKind = 'money' | 'int' | 'float'
-
-const MEASURE_DEFS: Record<
-  string,
-  { kind: MeasureKind; value: (d: { c: string; v: number }) => number }
-> = {
-  'Average Price': { kind: 'money', value: (d) => 2.5 + hash(d.c) * 7 },
-  'Delay Validation': { kind: 'float', value: (d) => 2 + hash(`${d.c}delay`) * 25 },
-  Margin: { kind: 'money', value: (d) => d.v * 1000 * (0.5 + hash(`${d.c}margin`) * 0.15) },
-  'Product Quantity': { kind: 'int', value: (d) => Math.round((d.v * 1000) / (3 + hash(d.c) * 5)) },
-  'Sale Line Count': {
-    kind: 'int',
-    value: (d) => Math.round((d.v * 1000) / (8 + hash(d.c) * 10)),
-  },
-  // Subtotal w/o discount = Total Price + Total Discount (same hash seed).
-  'Subtotal w/o discount': {
-    kind: 'money',
-    value: (d) => d.v * 1000 * (1.04 + hash(`${d.c}disc`) * 0.05),
-  },
-  'Total Discount': { kind: 'money', value: (d) => d.v * 1000 * (0.04 + hash(`${d.c}disc`) * 0.05) },
-  'Total Price': { kind: 'money', value: (d) => d.v * 1000 },
-  Count: { kind: 'int', value: (d) => Math.round((d.v * 1000) / (14 + hash(d.c) * 12)) },
-}
-
-// Average-style measures aggregate as mean in the pivot Total row, not sum.
-const AVG_MEASURES = new Set(['Average Price', 'Delay Validation'])
-
-const measureSeries = (m: string, data: { c: string; v: number }[]) =>
-  data.map((d) => ({ c: d.c, v: MEASURE_DEFS[m].value(d) }))
 
 const fmtNumber = (kind: MeasureKind, n: number) =>
   kind === 'int'
@@ -300,17 +179,11 @@ function Tip({ label }: { label: string }) {
   )
 }
 
-/** Pivot view — Total row plus one row per product category, one value
- *  column per measure checked in the Measures dropdown. */
-function PivotTable({
-  measures,
-  data,
-}: {
-  measures: string[]
-  data: { c: string; v: number }[]
-}) {
+/** Pivot view — Total row plus one row per bucket, one value column per
+ *  measure checked in the Measures dropdown. */
+function PivotTable({ measures, rows }: { measures: string[]; rows: OrdersAnalysisRow[] }) {
   const totals = measures.map((m) => {
-    const vals = data.map((d) => MEASURE_DEFS[m].value(d))
+    const vals = rows.map((r) => measureValue(m, r))
     const sum = vals.reduce((a, b) => a + b, 0)
     return AVG_MEASURES.has(m) && vals.length > 0 ? sum / vals.length : sum
   })
@@ -347,15 +220,17 @@ function PivotTable({
               </td>
             ))}
           </tr>
-          {data.map((d, i) => (
-            <tr key={d.c + i} className="transition hover:bg-neutral-50">
-              <td className="border border-neutral-200 py-1.5 pl-8 pr-3 text-neutral-700">{d.c}</td>
+          {rows.map((r) => (
+            <tr key={r.label} className="transition hover:bg-neutral-50">
+              <td className="border border-neutral-200 py-1.5 pl-8 pr-3 text-neutral-700">
+                {r.label}
+              </td>
               {measures.map((m) => (
                 <td
                   key={m}
                   className="border border-neutral-200 px-3 py-1.5 text-right text-neutral-700"
                 >
-                  {fmtNumber(MEASURE_DEFS[m].kind, MEASURE_DEFS[m].value(d))}
+                  {fmtNumber(MEASURE_DEFS[m].kind, measureValue(m, r))}
                 </td>
               ))}
             </tr>
@@ -640,71 +515,47 @@ export default function PosOrdersAnalysis() {
     setCustomFilters([])
   }
 
-  // Favorites > Import records — CSV with columns: category, total (in $).
-  // Rows merge into an existing category or append a new one, and persist.
-  const [imported, setImported] = useState<{ c: string; v: number }[]>(() =>
-    loadJson(IMPORTED_KEY, []),
-  )
-  const [importStatus, setImportStatus] = useState<{ ok: boolean; text: string } | null>(null)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const importFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const rows = parseCsv(String(reader.result ?? ''))
-      const dataRows = rows[0]?.[0]?.toLowerCase() === 'category' ? rows.slice(1) : rows
-      const added: { c: string; v: number }[] = []
-      let skipped = 0
-      for (const cells of dataRows) {
-        const category = cells[0] ?? ''
-        const total = Number.parseFloat((cells[1] ?? '').replace(/[^0-9.-]/g, ''))
-        if (!category || Number.isNaN(total)) {
-          skipped++
-          continue
-        }
-        added.push({ c: category, v: total / 1000 })
-      }
-      if (added.length === 0) {
-        setImportStatus({
-          ok: false,
-          text: `No sales imported from "${file.name}" — expected CSV columns: category, total.`,
-        })
-        return
-      }
-      setImported((prev) => {
-        const next = [...prev, ...added]
-        localStorage.setItem(IMPORTED_KEY, JSON.stringify(next))
-        return next
-      })
-      setImportStatus({
-        ok: true,
-        text:
-          `Imported ${added.length} categor${added.length === 1 ? 'y' : 'ies'} from "${file.name}"` +
-          (skipped > 0 ? ` (${skipped} row${skipped === 1 ? '' : 's'} skipped)` : '') +
-          '.',
-      })
-    }
-    reader.readAsText(file)
-  }
-
-  // Base data = placeholder series plus the imported category totals.
-  const baseSeries = [...SERIES]
-  for (const row of imported) {
-    const i = baseSeries.findIndex((d) => d.c === row.c)
-    if (i >= 0) baseSeries[i] = { c: row.c, v: baseSeries[i].v + row.v }
-    else baseSeries.push(row)
-  }
-
+  // The chart plots the first group-by dimension (deeper levels only show in
+  // the facet chip, like Odoo's graph view flattens them). The dimension and
+  // the widest checked time filter query the backend.
+  const groupDim = groups[0] ?? 'Product Category'
   const timeChecked = TIME_FILTERS.filter((f) => checkedFilters.has(f))
-  const timeFactor =
-    timeChecked.length > 0 ? Math.max(...timeChecked.map((f) => TIME_FACTOR[f])) : 1
-  const visibleSeries = baseSeries.filter(
-    (d) =>
-      d.c.toLowerCase().includes(query.trim().toLowerCase()) &&
-      customFilters.every((group) => group.some((c) => matchesCondition(d.c, c))),
-  ).map((d) =>
-    timeFactor === 1
-      ? d
-      : { c: d.c, v: d.v * timeFactor * (0.7 + hash(d.c + timeChecked.join()) * 0.6) },
+  const period: AnalysisPeriod =
+    timeChecked.length === 0
+      ? ''
+      : timeChecked
+          .map((f) => TIME_PERIOD[f])
+          .reduce((a, b) => (PERIOD_WIDTH[a] >= PERIOD_WIDTH[b] ? a : b))
+
+  const [rows, setRows] = useState<OrdersAnalysisRow[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetchOrdersAnalysis(GROUP_KEY[groupDim] ?? 'category', period)
+      .then((res) => {
+        if (!cancelled) setRows(res)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : 'Failed to load the orders analysis.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [groupDim, period, refreshKey])
+
+  const visibleRows = (rows ?? []).filter(
+    (r) =>
+      r.label.toLowerCase().includes(query.trim().toLowerCase()) &&
+      customFilters.every((group) => group.some((c) => matchesCondition(r.label, c))),
   )
 
   // Facet chips inside the search box — one for the time-filter section, one
@@ -740,16 +591,8 @@ export default function PosOrdersAnalysis() {
   if (activeFavorite)
     facets.push({ key: 'fav', label: activeFavorite, kind: 'favorite', onRemove: clearFavorite })
 
-  // The chart plots the first group-by dimension (deeper levels only show in
-  // the facet chip, like Odoo's graph view flattens them).
-  const groupDim = groups[0] ?? 'Product Category'
-  const groupedSeries =
-    groupDim === 'Product Category' || visibleSeries.length === 0
-      ? visibleSeries
-      : bucketize(visibleSeries, groupDim)
-
   const graphKind = MEASURE_DEFS[graphMeasure].kind
-  const graphData = measureSeries(graphMeasure, groupedSeries)
+  const graphData = visibleRows.map((r) => ({ c: r.label, v: measureValue(graphMeasure, r) }))
   const series =
     sortDir === 'none'
       ? graphData
@@ -758,19 +601,6 @@ export default function PosOrdersAnalysis() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Hidden file input backing Favorites > Import records */}
-      <input
-        ref={importInputRef}
-        type="file"
-        accept=".csv,text/csv"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) importFile(file)
-          e.target.value = ''
-        }}
-      />
-
       {/* Control panel */}
       <div className="border-b border-neutral-200/80 px-4 pb-2.5 pt-4">
         <div className="flex flex-wrap items-start justify-between gap-x-10 gap-y-3">
@@ -910,9 +740,7 @@ export default function PosOrdersAnalysis() {
                     }`}
                   >
                     <LuArrowDownWideNarrow className="h-4 w-4" />
-                    <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-[2px] border border-neutral-200 bg-white px-2 py-1 text-[11.5px] text-neutral-700 shadow-md group-hover:block">
-                      Descending
-                    </span>
+                    <Tip label="Descending" />
                   </button>
                   <button
                     type="button"
@@ -925,9 +753,7 @@ export default function PosOrdersAnalysis() {
                     }`}
                   >
                     <LuArrowUpNarrowWide className="h-4 w-4" />
-                    <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-[2px] border border-neutral-200 bg-white px-2 py-1 text-[11.5px] text-neutral-700 shadow-md group-hover:block">
-                      Ascending
-                    </span>
+                    <Tip label="Ascending" />
                   </button>
                 </div>
               )}
@@ -966,7 +792,6 @@ export default function PosOrdersAnalysis() {
                 onSaveFavorite={saveFavorite}
                 onSelectFavorite={applyFavorite}
                 onDeleteFavorite={deleteFavorite}
-                onImportRecords={() => importInputRef.current?.click()}
               />
 
               <div className="inline-flex rounded-[3px] border border-neutral-300">
@@ -1002,29 +827,24 @@ export default function PosOrdersAnalysis() {
         </div>
       </div>
 
-      {importStatus && (
-        <div
-          className={`flex items-center justify-between gap-3 border-b px-4 py-2 text-[13px] ${
-            importStatus.ok
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-              : 'border-red-200 bg-red-50 text-red-700'
-          }`}
-        >
-          {importStatus.text}
+      {/* Aggregates load per dimension/period */}
+      {loading && rows === null ? (
+        <div className="flex flex-1 items-center justify-center pb-16">
+          <Loader />
+        </div>
+      ) : error ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 pb-16 text-center">
+          <p className="text-sm text-red-600">{error}</p>
           <button
             type="button"
-            aria-label="Dismiss import message"
-            onClick={() => setImportStatus(null)}
-            className="shrink-0 text-current transition hover:opacity-70"
+            onClick={() => setRefreshKey((k) => k + 1)}
+            className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
           >
-            <LuX className="h-3.5 w-3.5" />
+            Retry
           </button>
         </div>
-      )}
-
-      {/* Graph or pivot */}
-      {oaView === 'pivot' ? (
-        <PivotTable measures={pivotCols} data={groupedSeries} />
+      ) : oaView === 'pivot' ? (
+        <PivotTable measures={pivotCols} rows={visibleRows} />
       ) : series.length === 0 ? (
         <div className="flex flex-1 items-center justify-center pb-16 text-sm text-neutral-500">
           No data to display

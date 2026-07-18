@@ -64,3 +64,34 @@ export type TopItem = {
 export function fetchTopItems(limit = 10): Promise<TopItem[]> {
   return api<TopItem[]>(`/reports/top-items?limit=${limit}`)
 }
+
+// --- Orders Analysis -------------------------------------------------------
+
+/** One bucket of the Orders Analysis aggregation (cancelled orders excluded).
+ *  total_price is net of the order-level discount, spread over its lines;
+ *  margin uses each product's current cost. */
+export type OrdersAnalysisRow = {
+  label: string
+  total_price: number
+  subtotal_wo_discount: number
+  total_discount: number
+  margin: number
+  product_quantity: number
+  sale_line_count: number
+  order_count: number
+  average_price: number
+}
+
+export type AnalysisGroupBy = 'category' | 'product' | 'order_date' | 'order_type' | 'employee'
+
+/** Empty string = all time. */
+export type AnalysisPeriod = '' | 'today' | 'week' | 'month' | 'year'
+
+export function fetchOrdersAnalysis(
+  groupBy: AnalysisGroupBy,
+  period: AnalysisPeriod,
+): Promise<OrdersAnalysisRow[]> {
+  const params = new URLSearchParams({ group_by: groupBy })
+  if (period) params.set('period', period)
+  return api<OrdersAnalysisRow[]>(`/reports/orders-analysis?${params}`)
+}
