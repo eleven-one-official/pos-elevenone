@@ -1,50 +1,45 @@
 // Sales Details report printing — fired from the Sales Details dialog's Print
 // button. Follows the kitchen-ticket pattern: the report is written into a
 // hidden <iframe> and printed from there (works with Chrome --kiosk-printing,
-// no popup blockers). Data below is placeholder until the backend exposes the
-// real session sales summary; the venue charges no tax, so the report shows
-// products, payments and totals only.
+// no popup blockers). The dialog fetches the real summary from
+// /reports/sales-details and hands it over; the venue charges no tax, so the
+// report shows products, payments and totals only.
+
+import type { SalesDetailsData } from '../../services/api/reports'
 
 export type SalesReportType = 'Product' | 'Category' | 'Both'
 
 export type SalesDetailsParams = {
+  /** Display labels for the report header (already formatted). */
   startDate: string
   endDate: string
   reportType: SalesReportType
   configs: { pos: string; company: string }[]
 }
 
-type ReportLine = { name: string; category: string; qty: number; amount: number }
+// Payment channels print with their journal labels; unknown methods print raw.
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Cash',
+  aba_qr: 'ABA QR',
+  khqr: 'KHQR',
+  card: 'Card',
+}
 
-const PLACEHOLDER_LINES: ReportLine[] = [
-  { name: 'Brown rice', category: 'Meals', qty: 12, amount: 12.0 },
-  { name: 'Steamed Rice', category: 'Meals', qty: 20, amount: 10.0 },
-  { name: 'Americano hot', category: 'Drinks', qty: 8, amount: 20.0 },
-  { name: 'Angkor Beer (bottle)', category: 'Drinks', qty: 15, amount: 26.25 },
-  { name: 'Avocado shake', category: 'Drinks', qty: 6, amount: 21.0 },
-  { name: 'French fries-b', category: 'Sides', qty: 7, amount: 21.0 },
-  { name: 'Garlic bread', category: 'Sides', qty: 4, amount: 10.0 },
-  { name: 'Bbq chicken panini', category: 'Meals', qty: 5, amount: 31.25 },
-  { name: 'Beef BBQ Rice', category: 'Meals', qty: 9, amount: 51.75 },
-  { name: '4 cheese pizza', category: 'Meals', qty: 3, amount: 33.0 },
-]
-
-/** Roll the product lines up into POS-category totals, in first-seen order. */
-function categoryTotals(): { name: string; qty: number; amount: number }[] {
+/** Roll the product lines up into category totals, alphabetical order. */
+function categoryTotals(
+  products: SalesDetailsData['products'],
+): { name: string; qty: number; amount: number }[] {
   const totals = new Map<string, { qty: number; amount: number }>()
-  for (const line of PLACEHOLDER_LINES) {
+  for (const line of products) {
     const t = totals.get(line.category) ?? { qty: 0, amount: 0 }
-    t.qty += line.qty
+    t.qty += line.quantity
     t.amount += line.amount
     totals.set(line.category, t)
   }
-  return [...totals].map(([name, t]) => ({ name, ...t }))
+  return [...totals]
+    .map(([name, t]) => ({ name, ...t }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
-
-const PLACEHOLDER_PAYMENTS: { method: string; amount: number }[] = [
-  { method: 'Cash', amount: 120.0 },
-  { method: 'ABA KHQR', amount: 116.25 },
-]
 
 function escapeHtml(value: string): string {
   return value
@@ -56,22 +51,21 @@ function escapeHtml(value: string): string {
 
 const money = (v: number) => `$ ${v.toFixed(2)}`
 
-export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
-  const total = PLACEHOLDER_LINES.reduce((sum, l) => sum + l.amount, 0)
-  const paid = PLACEHOLDER_PAYMENTS.reduce((sum, p) => sum + p.amount, 0)
+export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDetailsData): string {
+  const paid = data.payments.reduce((sum, p) => sum + Number(p.amount), 0)
   const company = params.configs[0]?.company ?? ''
   const printedAt = new Date().toLocaleString('en-GB')
 
-  const productRows = PLACEHOLDER_LINES.map(
+  const productRows = data.products.map(
     (l) => `
       <tr>
         <td>${escapeHtml(l.name)}</td>
-        <td class="num">${l.qty}</td>
+        <td class="num">${l.quantity}</td>
         <td class="num">${money(l.amount)}</td>
       </tr>`,
   ).join('')
 
-  const categoryRows = categoryTotals()
+  const categoryRows = categoryTotals(data.products)
     .map(
       (c) => `
       <tr>
@@ -82,15 +76,18 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
     )
     .join('')
 
+  const emptyRow = (cols: number) =>
+    `<tr><td colspan="${cols}" class="empty">No sales in this period.</td></tr>`
+
   const productsSection = `
   <h2>Products</h2>
   <table>
     <thead>
       <tr><th>Product</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
     </thead>
-    <tbody>${productRows}</tbody>
+    <tbody>${productRows || emptyRow(3)}</tbody>
     <tfoot>
-      <tr><td>Total</td><td></td><td class="num">${money(total)}</td></tr>
+      <tr><td>Total</td><td></td><td class="num">${money(data.total)}</td></tr>
     </tfoot>
   </table>`
 
@@ -100,17 +97,17 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
     <thead>
       <tr><th>Category</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
     </thead>
-    <tbody>${categoryRows}</tbody>
+    <tbody>${categoryRows || emptyRow(3)}</tbody>
     <tfoot>
-      <tr><td>Total</td><td></td><td class="num">${money(total)}</td></tr>
+      <tr><td>Total</td><td></td><td class="num">${money(data.total)}</td></tr>
     </tfoot>
   </table>`
 
-  const paymentRows = PLACEHOLDER_PAYMENTS.map(
+  const paymentRows = data.payments.map(
     (p) => `
       <tr>
-        <td>${escapeHtml(p.method)}</td>
-        <td class="num">${money(p.amount)}</td>
+        <td>${escapeHtml(METHOD_LABELS[p.method] ?? p.method)}</td>
+        <td class="num">${money(Number(p.amount))}</td>
       </tr>`,
   ).join('')
 
@@ -144,6 +141,7 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
   th, td { padding: 5px 8px; border-bottom: 1px solid #ddd; text-align: left; }
   th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: #555; }
   .num { text-align: right; white-space: nowrap; }
+  .empty { color: #888; font-style: italic; }
   tfoot td { font-weight: 700; border-top: 2px solid #1a1a1a; border-bottom: none; }
   .total-line {
     margin-top: 18px;
@@ -164,6 +162,7 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
     <div><b>Period:</b> ${escapeHtml(params.startDate)} &rarr; ${escapeHtml(params.endDate)}</div>
     <div><b>Point of Sale:</b> ${escapeHtml(params.configs.map((c) => c.pos).join(', '))}</div>
     <div><b>Report Type:</b> ${escapeHtml(params.reportType)}</div>
+    <div><b>Completed Orders:</b> ${data.orders_count}</div>
   </div>
 
   ${params.reportType !== 'Category' ? productsSection : ''}
@@ -174,21 +173,21 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams): string {
     <thead>
       <tr><th>Payment Method</th><th class="num">Amount</th></tr>
     </thead>
-    <tbody>${paymentRows}</tbody>
+    <tbody>${paymentRows || emptyRow(2)}</tbody>
     <tfoot>
       <tr><td>Total Paid</td><td class="num">${money(paid)}</td></tr>
     </tfoot>
   </table>
 
-  <div class="total-line">Total: ${money(total)}</div>
+  <div class="total-line">Total: ${money(data.total)}</div>
 
-  <div class="foot">Printed ${printedAt} &mdash; placeholder data until the report is wired to the backend.</div>
+  <div class="foot">Printed ${printedAt}</div>
 </body>
 </html>`
 }
 
 /** Render the report into an off-screen iframe and print it silently. */
-export function printSalesDetails(params: SalesDetailsParams): void {
+export function printSalesDetails(params: SalesDetailsParams, data: SalesDetailsData): void {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
   iframe.style.position = 'fixed'
@@ -207,7 +206,7 @@ export function printSalesDetails(params: SalesDetailsParams): void {
   }
 
   doc.open()
-  doc.write(buildSalesDetailsHtml(params))
+  doc.write(buildSalesDetailsHtml(params, data))
   doc.close()
 
   const run = () => {

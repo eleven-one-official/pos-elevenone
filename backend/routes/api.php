@@ -96,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/daily-sales', [ReportController::class, 'dailySales']);
         Route::get('/reports/top-items', [ReportController::class, 'topItems']);
         Route::get('/reports/orders-analysis', [ReportController::class, 'ordersAnalysis']);
+        Route::get('/reports/sales-details', [ReportController::class, 'salesDetails']);
     });
 
     /*

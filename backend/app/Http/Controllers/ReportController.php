@@ -65,6 +65,77 @@ class ReportController extends Controller
     }
 
     /**
+     * Data behind the printable Sales Details report: product lines, payment
+     * totals and net sales between ?start= and ?end= (datetimes). Only
+     * completed orders count — the report reconciles money actually taken.
+     * The order-level discount is spread over its lines like ordersAnalysis.
+     */
+    public function salesDetails(Request $request): JsonResponse
+    {
+        $request->validate([
+            'start' => ['required', 'date'],
+            'end' => ['required', 'date', 'after_or_equal:start'],
+        ]);
+
+        $start = $request->date('start');
+        $end = $request->date('end');
+
+        $lines = OrderItem::query()
+            ->with(['order:id,status,discount,subtotal,created_at', 'menuItem:id,category_id', 'menuItem.category:id,name'])
+            ->whereHas('order', function ($q) use ($start, $end) {
+                $q->where('status', 'completed')->whereBetween('created_at', [$start, $end]);
+            })
+            ->get();
+
+        /** @var array<string, array<string, mixed>> $products */
+        $products = [];
+        $orderIds = [];
+        $total = 0.0;
+
+        foreach ($lines as $line) {
+            $order = $line->order;
+            $gross = (float) $line->line_total;
+            $subtotal = (float) $order->subtotal;
+            $discountShare = $subtotal > 0 ? (float) $order->discount * $gross / $subtotal : 0.0;
+            $net = $gross - $discountShare;
+
+            $row = $products[$line->name] ?? [
+                'name' => $line->name,
+                'category' => $line->menuItem?->category?->name ?? 'None',
+                'quantity' => 0,
+                'amount' => 0.0,
+            ];
+            $row['quantity'] += $line->quantity;
+            $row['amount'] += $net;
+            $products[$line->name] = $row;
+
+            $orderIds[$order->id] = true;
+            $total += $net;
+        }
+
+        ksort($products);
+
+        $payments = Payment::where('status', 'paid')
+            ->whereBetween('created_at', [$start, $end])
+            ->select('method', DB::raw('SUM(amount) as amount'), DB::raw('COUNT(*) as count'))
+            ->groupBy('method')
+            ->orderBy('method')
+            ->get();
+
+        return response()->json([
+            'start' => $start->toDateTimeString(),
+            'end' => $end->toDateTimeString(),
+            'orders_count' => count($orderIds),
+            'total' => round($total, 2),
+            'products' => array_values(array_map(fn (array $p) => [
+                ...$p,
+                'amount' => round($p['amount'], 2),
+            ], $products)),
+            'payments' => $payments,
+        ]);
+    }
+
+    /**
      * Aggregates for the admin's Orders Analysis screen. Groups every order
      * line (cancelled orders excluded) into ?group_by= buckets — category
      * (default), product, order_date (month), order_type or employee — and

@@ -65,6 +65,38 @@ export function fetchTopItems(limit = 10): Promise<TopItem[]> {
   return api<TopItem[]>(`/reports/top-items?limit=${limit}`)
 }
 
+// --- Sales Details ---------------------------------------------------------
+
+export type SalesDetailsProduct = {
+  name: string
+  category: string
+  quantity: number
+  amount: number
+}
+
+export type SalesDetailsPayment = {
+  method: string
+  amount: string | number // SUM() can serialize as a string
+  count: number
+}
+
+/** Data behind the printable Sales Details report — completed orders only,
+ *  net of order-level discounts. */
+export type SalesDetailsData = {
+  start: string
+  end: string
+  orders_count: number
+  total: number
+  products: SalesDetailsProduct[]
+  payments: SalesDetailsPayment[]
+}
+
+/** start/end are datetimes (e.g. "2026-07-18T00:00"). */
+export function fetchSalesDetails(start: string, end: string): Promise<SalesDetailsData> {
+  const params = new URLSearchParams({ start, end })
+  return api<SalesDetailsData>(`/reports/sales-details?${params}`)
+}
+
 // --- Orders Analysis -------------------------------------------------------
 
 /** One bucket of the Orders Analysis aggregation (cancelled orders excluded).

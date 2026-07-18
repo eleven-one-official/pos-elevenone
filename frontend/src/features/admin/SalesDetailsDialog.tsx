@@ -1,14 +1,16 @@
-import { useState } from 'react'
-import { LuChevronDown, LuX } from 'react-icons/lu'
+import { useEffect, useState } from 'react'
+import { LuX } from 'react-icons/lu'
+import { Loader } from '../../components/ui/Loader'
+import { fetchSalesDetails, type SalesDetailsData } from '../../services/api/reports'
 import { buildSalesDetailsHtml, printSalesDetails } from './printSalesDetails'
 import type { SalesDetailsParams, SalesReportType } from './printSalesDetails'
 
 // ---------------------------------------------------------------------------
 // Reporting › Sales Details — Odoo opens this as a dialog over the Orders
 // Analysis screen: a date range, a report type (Product / Category / Both)
-// and the POS configs to include. Print renders the Sales Details report
-// (placeholder data) through the same hidden-iframe pipeline the kitchen
-// tickets use.
+// and the POS configs to include. Print fetches the real summary from
+// /reports/sales-details and renders it through the same hidden-iframe
+// pipeline the kitchen tickets use.
 // ---------------------------------------------------------------------------
 
 const ALL_CONFIGS = [
@@ -20,10 +22,17 @@ const REPORT_TYPES: SalesReportType[] = ['Product', 'Category', 'Both']
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** Odoo-style datetime label, e.g. "17-Jul-2026 07:22:24". */
-function fmtDateTime(d: Date): string {
+/** datetime-local value, e.g. "2026-07-18T07:22". */
+function toLocalInput(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Odoo-style datetime label for the printed header, e.g. "18-Jul-2026 07:22". */
+function fmtDateTime(value: string): string {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
   const month = d.toLocaleString('en-GB', { month: 'short' })
-  return `${pad(d.getDate())}-${month}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return `${pad(d.getDate())}-${month}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /** The wizard defaults to "today so far": midnight through now. */
@@ -31,8 +40,11 @@ function defaultDates() {
   const now = new Date()
   const start = new Date(now)
   start.setHours(0, 0, 0, 0)
-  return { start: fmtDateTime(start), end: fmtDateTime(now) }
+  return { start: toLocalInput(start), end: toLocalInput(now) }
 }
+
+const DATE_INPUT =
+  'w-full rounded-[2px] border border-neutral-300 bg-[#eef4fb] px-3 py-1.5 text-sm text-neutral-800 outline-none transition focus:border-sky-600'
 
 export default function SalesDetailsDialog({ onClose }: { onClose: () => void }) {
   const [initial] = useState(defaultDates)
@@ -41,22 +53,74 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
   const [reportType, setReportType] = useState<SalesReportType>('Product')
   const [configs, setConfigs] = useState(ALL_CONFIGS)
   const [addOpen, setAddOpen] = useState(false)
+  const [printing, setPrinting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const available = ALL_CONFIGS.filter((c) => !configs.some((x) => x.pos === c.pos))
-  const params: SalesDetailsParams = { startDate, endDate, reportType, configs }
+  // Dev builds can inspect the printed report with `?sales-report-preview` —
+  // it fetches the summary (today by default; give the param a datetime value
+  // like `2026-07-01T00:00` to widen the range) and renders it full-screen.
+  const preview = import.meta.env.DEV
+    ? new URLSearchParams(window.location.search).get('sales-report-preview')
+    : null
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
 
-  // Dev builds can inspect the printed report with `?sales-report-preview`.
-  if (
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).has('sales-report-preview')
-  ) {
-    return (
+  useEffect(() => {
+    if (preview === null) return
+    const start = preview || initial.start
+    fetchSalesDetails(start, initial.end)
+      .then((data) =>
+        setPreviewHtml(
+          buildSalesDetailsHtml(
+            {
+              startDate: fmtDateTime(start),
+              endDate: fmtDateTime(initial.end),
+              reportType: 'Both',
+              configs: ALL_CONFIGS,
+            },
+            data,
+          ),
+        ),
+      )
+      .catch(() => setPreviewHtml('<p>Failed to load the sales details.</p>'))
+  }, [preview, initial])
+
+  if (preview !== null) {
+    return previewHtml === null ? null : (
       <iframe
         title="Sales Details report preview"
-        srcDoc={buildSalesDetailsHtml(params)}
+        srcDoc={previewHtml}
         className="fixed inset-0 z-50 h-full w-full bg-white"
       />
     )
+  }
+
+  const params: SalesDetailsParams = {
+    startDate: fmtDateTime(startDate),
+    endDate: fmtDateTime(endDate),
+    reportType,
+    configs,
+  }
+
+  const available = ALL_CONFIGS.filter((c) => !configs.some((x) => x.pos === c.pos))
+
+  const print = async () => {
+    if (printing) return
+    if (!startDate || !endDate) {
+      setError('Pick a start and end date.')
+      return
+    }
+    setPrinting(true)
+    setError(null)
+    let data: SalesDetailsData
+    try {
+      data = await fetchSalesDetails(startDate, endDate)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load the sales details.')
+      setPrinting(false)
+      return
+    }
+    printSalesDetails(params, data)
+    onClose()
   }
 
   return (
@@ -84,26 +148,42 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
 
         {/* Body */}
         <div className="px-6 py-5">
-          <div className="grid grid-cols-[160px_1fr] items-center gap-y-3">
-            <label className="text-[13px] font-semibold text-neutral-800">Start Date</label>
-            <span className="relative">
-              <input
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-[2px] border border-neutral-300 bg-[#eef4fb] px-3 py-1.5 pr-8 text-sm text-neutral-800 outline-none transition focus:border-sky-600"
-              />
-              <LuChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
-            </span>
+          {error && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-[2px] border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+              {error}
+              <button
+                type="button"
+                aria-label="Dismiss error"
+                onClick={() => setError(null)}
+                className="shrink-0 transition hover:opacity-70"
+              >
+                <LuX className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
-            <label className="text-[13px] font-semibold text-neutral-800">End Date</label>
-            <span className="relative">
-              <input
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-[2px] border border-neutral-300 bg-[#eef4fb] px-3 py-1.5 pr-8 text-sm text-neutral-800 outline-none transition focus:border-sky-600"
-              />
-              <LuChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
-            </span>
+          <div className="grid grid-cols-[160px_1fr] items-center gap-y-3">
+            <label className="text-[13px] font-semibold text-neutral-800" htmlFor="sd-start">
+              Start Date
+            </label>
+            <input
+              id="sd-start"
+              type="datetime-local"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={DATE_INPUT}
+            />
+
+            <label className="text-[13px] font-semibold text-neutral-800" htmlFor="sd-end">
+              End Date
+            </label>
+            <input
+              id="sd-end"
+              type="datetime-local"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className={DATE_INPUT}
+            />
 
             <label className="text-[13px] font-semibold text-neutral-800">Report Type</label>
             <select
@@ -184,18 +264,18 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
         <div className="flex items-center gap-2 border-t border-neutral-200 px-6 py-4">
           <button
             type="button"
-            onClick={() => {
-              printSalesDetails(params)
-              onClose()
-            }}
-            className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
+            onClick={() => void print()}
+            disabled={printing}
+            className="flex items-center gap-2 rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d] disabled:opacity-60"
           >
+            {printing && <Loader size="sm" />}
             Print
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-[3px] border border-neutral-300 bg-white px-4 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50"
+            disabled={printing}
+            className="rounded-[3px] border border-neutral-300 bg-white px-4 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"
           >
             Cancel
           </button>
