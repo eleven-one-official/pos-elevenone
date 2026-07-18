@@ -12,7 +12,10 @@ import {
   LuSettings,
   LuStar,
   LuUser,
+  LuX,
 } from 'react-icons/lu'
+import { LoadingOverlay } from '../../components/ui/Loader'
+import type { ProductType } from '../../services/api/adminMenu'
 import ChooseLabelsLayoutDialog from './ChooseLabelsLayoutDialog'
 import { FieldGroup, LABEL } from './formKit'
 import type { Product } from './PosProducts'
@@ -20,11 +23,17 @@ import StockRulesReport from './StockRulesReport'
 
 // ---------------------------------------------------------------------------
 // Product detail — the read-only Odoo form shown when a product is clicked in
-// the list. Everything except the product name/price is placeholder data
-// until the backend exposes real product records.
+// the list. Shows the real record; the Action menu archives, duplicates or
+// deletes it through the API (delete asks for confirmation first).
 // ---------------------------------------------------------------------------
 
 const TABS = ['General Information', 'Sales', 'Purchase', 'Inventory', 'Accounting']
+
+const TYPE_LABEL: Record<ProductType, string> = {
+  consu: 'Consumable',
+  product: 'Storable Product',
+  service: 'Service',
+}
 
 const VALUE = 'pt-1 text-[13px] text-neutral-800'
 const LINK = 'pt-1 text-[13px] text-[#3d6e93]'
@@ -33,20 +42,30 @@ export default function PosProductDetail({
   product,
   index,
   total,
+  starred,
+  onToggleStar,
   onBack,
   onCreate,
   onEdit,
   onPrev,
   onNext,
+  onToggleArchive,
+  onDuplicate,
+  onDelete,
 }: {
   product: Product
   index: number
   total: number
+  starred: boolean
+  onToggleStar: () => void
   onBack: () => void
   onCreate: () => void
   onEdit: () => void
   onPrev: () => void
   onNext: () => void
+  onToggleArchive: () => Promise<void>
+  onDuplicate: () => Promise<void>
+  onDelete: () => Promise<void>
 }) {
   const [tab, setTab] = useState(TABS[0])
   // Dev builds can pre-open the Action menu with `?action-open`.
@@ -54,9 +73,26 @@ export default function PosProductDetail({
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('action-open'),
   )
   const [printLabelsOpen, setPrintLabelsOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // View Diagram on the Inventory tab swaps the screen for the Stock Rules
   // Report, Odoo style.
   const [diagramOpen, setDiagramOpen] = useState(false)
+
+  const raw = product.raw
+
+  const runAction = async (action: () => Promise<void>) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await action()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'The action failed. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (diagramOpen) {
     return (
@@ -118,16 +154,43 @@ export default function PosProductDetail({
                   className="fixed inset-0 z-10 cursor-default"
                 />
                 <div className="absolute top-full z-20 mt-1 w-56 border border-neutral-200/70 bg-white py-1 text-neutral-600 shadow-md">
-                  {['Archive', 'Duplicate', 'Delete', 'Generate Pricelist Report'].map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      onClick={() => setActionOpen(false)}
-                      className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
-                    >
-                      {a}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionOpen(false)
+                      void runAction(onToggleArchive)
+                    }}
+                    className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                  >
+                    {product.archived ? 'Unarchive' : 'Archive'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionOpen(false)
+                      void runAction(onDuplicate)
+                    }}
+                    className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionOpen(false)
+                      setConfirmDelete(true)
+                    }}
+                    className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActionOpen(false)}
+                    className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                  >
+                    Generate Pricelist Report
+                  </button>
                 </div>
               </>
             )}
@@ -163,7 +226,23 @@ export default function PosProductDetail({
 
       <div className="flex min-h-0 flex-1">
         {/* Read-only sheet */}
-        <div className="min-w-0 flex-1 overflow-y-auto bg-neutral-100/60 pb-6">
+        <div className="relative min-w-0 flex-1 overflow-y-auto bg-neutral-100/60 pb-6">
+          {busy && <LoadingOverlay />}
+
+          {error && (
+            <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-[2px] border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+              {error}
+              <button
+                type="button"
+                aria-label="Dismiss error"
+                onClick={() => setError(null)}
+                className="shrink-0 transition hover:opacity-70"
+              >
+                <LuX className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
           <div className="px-4 pt-3">
             <button
               type="button"
@@ -174,7 +253,14 @@ export default function PosProductDetail({
             </button>
           </div>
 
-          <div className="mx-4 mt-3 rounded-[2px] border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="relative mx-4 mt-3 overflow-hidden rounded-[2px] border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            {/* Archived ribbon, Odoo style */}
+            {product.archived && (
+              <span className="absolute -right-9 top-5 z-10 rotate-45 bg-red-600/90 px-10 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                Archived
+              </span>
+            )}
+
             {/* Stat buttons */}
             <div className="flex justify-end">
               <div className="inline-flex divide-x divide-neutral-200 border-b border-l border-neutral-200">
@@ -194,8 +280,8 @@ export default function PosProductDetail({
                 >
                   <LuArrowRightLeft className="h-4.5 w-4.5 text-neutral-500" />
                   <span className="text-[12px] leading-tight text-neutral-700">
-                    <span className="block">In: 0</span>
-                    Out: 235
+                    <span className="block">On hand:</span>
+                    {product.onHand ?? '—'}
                   </span>
                 </button>
                 <button
@@ -219,9 +305,12 @@ export default function PosProductDetail({
                   <button
                     type="button"
                     aria-label="Favorite"
-                    className="text-neutral-400 transition hover:text-amber-500"
+                    onClick={onToggleStar}
+                    className={`transition ${
+                      starred ? 'text-amber-500' : 'text-neutral-400 hover:text-amber-500'
+                    }`}
                   >
-                    <LuStar className="h-6 w-6" />
+                    <LuStar className={`h-6 w-6 ${starred ? 'fill-amber-500' : ''}`} />
                   </button>
                   <h1 className="truncate text-[26px] font-semibold text-neutral-800">
                     {product.name}
@@ -230,18 +319,32 @@ export default function PosProductDetail({
 
                 <div className="mt-3 flex items-center gap-6 pl-9 text-[13px] font-bold text-neutral-800">
                   <label className="flex items-center gap-1.5">
-                    <input type="checkbox" defaultChecked className="h-3.5 w-3.5 accent-teal-700" />
+                    <input
+                      type="checkbox"
+                      checked={product.canBeSold}
+                      readOnly
+                      className="h-3.5 w-3.5 accent-teal-700"
+                    />
                     Can be Sold
                   </label>
                   <label className="flex items-center gap-1.5">
-                    <input type="checkbox" defaultChecked className="h-3.5 w-3.5 accent-teal-700" />
+                    <input
+                      type="checkbox"
+                      checked={product.canBePurchased}
+                      readOnly
+                      className="h-3.5 w-3.5 accent-teal-700"
+                    />
                     Can be Purchased
                   </label>
                 </div>
               </div>
 
-              <span className="flex h-24 w-24 shrink-0 items-center justify-center rounded-[2px] border border-neutral-300 text-neutral-300">
-                <LuCamera className="h-9 w-9" />
+              <span className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[2px] border border-neutral-300 text-neutral-300">
+                {product.image ? (
+                  <img src={product.image} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <LuCamera className="h-9 w-9" />
+                )}
               </span>
             </div>
 
@@ -268,49 +371,13 @@ export default function PosProductDetail({
                 <div className="grid grid-cols-1 gap-x-16 gap-y-3 px-8 py-5 xl:grid-cols-2">
                   <FieldGroup>
                     <label className={LABEL}>Product Type</label>
-                    <span className={VALUE}>Consumable</span>
+                    <span className={VALUE}>{TYPE_LABEL[raw.product_type]}</span>
 
                     <label className={LABEL}>Invoicing Policy</label>
                     <span className={VALUE}>Ordered quantities</span>
 
-                    <label className="pt-0.5 text-[13px] font-bold text-neutral-800">
-                      Re-Invoice Expenses
-                    </label>
-                    <div className="text-[13px] text-neutral-700">
-                      <label className="flex items-center gap-1.5">
-                        <input
-                          type="radio"
-                          name="detail-reinvoice"
-                          defaultChecked
-                          className="h-3.5 w-3.5 accent-teal-700"
-                        />
-                        No
-                      </label>
-                      <label className="mt-1 flex items-center gap-1.5">
-                        <input
-                          type="radio"
-                          name="detail-reinvoice"
-                          className="h-3.5 w-3.5 accent-teal-700"
-                        />
-                        At cost
-                      </label>
-                      <label className="mt-1 flex items-center gap-1.5">
-                        <input
-                          type="radio"
-                          name="detail-reinvoice"
-                          className="h-3.5 w-3.5 accent-teal-700"
-                        />
-                        Sales price
-                      </label>
-
-                      <p className="mt-4 italic text-neutral-500">
-                        Consumables are physical products for which you don't manage the inventory
-                        level: they are always available.
-                      </p>
-                      <p className="mt-2 italic text-neutral-500">
-                        You can invoice them before they are delivered.
-                      </p>
-                    </div>
+                    <label className={LABEL}>Available in POS</label>
+                    <span className={VALUE}>{product.availableInPos ? 'Yes' : 'No'}</span>
 
                     <label className={LABEL}>Unit of Measure</label>
                     <span className={LINK}>Pcs</span>
@@ -327,16 +394,16 @@ export default function PosProductDetail({
                     <span className={VALUE} />
 
                     <label className={LABEL}>Cost</label>
-                    <span className={VALUE}>$ 0.00&ensp;per Pcs</span>
+                    <span className={VALUE}>$ {Number(raw.cost).toFixed(2)}&ensp;per Pcs</span>
 
                     <label className={LABEL}>Product Category</label>
-                    <span className={VALUE}>Addition_</span>
+                    <span className={VALUE}>{product.category}</span>
 
                     <label className={LABEL}>Internal Reference</label>
-                    <span className={VALUE} />
+                    <span className={VALUE}>{raw.internal_reference}</span>
 
                     <label className={LABEL}>Barcode</label>
-                    <span className={VALUE} />
+                    <span className={VALUE}>{raw.barcode}</span>
 
                     <label className={LABEL}>Company</label>
                     <span className={LINK}>ElevenOne TTP</span>
@@ -347,6 +414,11 @@ export default function PosProductDetail({
                   <div className="border-b border-neutral-300 pb-1 text-[12.5px] font-semibold text-[#54717e]">
                     Internal Notes
                   </div>
+                  {raw.internal_notes && (
+                    <p className="whitespace-pre-wrap pt-2 text-[13px] text-neutral-700">
+                      {raw.internal_notes}
+                    </p>
+                  )}
                 </div>
               </>
             ) : tab === 'Inventory' ? (
@@ -383,14 +455,14 @@ export default function PosProductDetail({
                       <span className="truncate text-[13px] text-[#3d6e93]">Srun Soklim</span>
                     </span>
 
+                    <label className={LABEL}>On Hand</label>
+                    <span className={VALUE}>{product.onHand ?? 'Not tracked'}</span>
+
                     <label className={LABEL}>Weight</label>
                     <span className={VALUE}>0.00</span>
 
                     <label className={LABEL}>Volume</label>
                     <span className={VALUE}>0.00</span>
-
-                    <label className={LABEL}>Customer Lead Time</label>
-                    <span className={VALUE}>0.00 days</span>
                   </FieldGroup>
                 </div>
 
@@ -447,6 +519,40 @@ export default function PosProductDetail({
           </p>
         </aside>
       </div>
+
+      {/* Delete confirmation, Odoo style */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-[3px] border border-neutral-200 bg-white shadow-xl">
+            <div className="border-b border-neutral-200 px-5 py-3 text-[15px] font-semibold text-neutral-800">
+              Confirmation
+            </div>
+            <p className="px-5 py-4 text-sm text-neutral-700">
+              Are you sure you want to delete "{product.name}"? Past orders keep their history, but
+              the product disappears from the catalog for good.
+            </p>
+            <div className="flex gap-1.5 border-t border-neutral-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDelete(false)
+                  void runAction(onDelete)
+                }}
+                className="rounded-[3px] bg-red-600 px-4 py-1.5 text-sm text-white transition hover:bg-red-700"
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {printLabelsOpen && <ChooseLabelsLayoutDialog onClose={() => setPrintLabelsOpen(false)} />}
     </div>

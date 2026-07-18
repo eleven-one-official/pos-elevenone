@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   LuArrowRight,
   LuArrowRightLeft,
@@ -12,7 +12,18 @@ import {
   LuPaperclip,
   LuStar,
   LuUser,
+  LuX,
 } from 'react-icons/lu'
+import { Loader } from '../../components/ui/Loader'
+import {
+  createMenuItem,
+  updateMenuItem,
+  type AdminCategory,
+  type AdminMenuItem,
+  type MenuItemInput,
+  type ProductType,
+} from '../../services/api/adminMenu'
+import { ApiError, assetUrl } from '../../services/api/client'
 import ChooseLabelsLayoutDialog from './ChooseLabelsLayoutDialog'
 import {
   BLUE_SELECT,
@@ -28,104 +39,18 @@ import StockRulesReport from './StockRulesReport'
 
 // ---------------------------------------------------------------------------
 // Product form — Odoo-style, used both for Products / New and for editing an
-// existing product (breadcrumb shows its name, fields prefill). Pure UI: Save
-// and Discard both just go back until the backend endpoints are wired in.
+// existing product (breadcrumb shows its name, fields prefill). Save writes
+// the record through the menu-items API; fields the backend doesn't model yet
+// (UoM, taxes, accounts, ...) stay as display-only placeholders.
 // ---------------------------------------------------------------------------
 
 const FORM_TABS = ['General Information', 'Sales', 'Purchase', 'Inventory', 'Accounting']
 
-// Product category tree, sorted by full path — the first seven fill the
-// dropdown and the full list backs the "Search More..." dialog, Odoo style.
-const PRODUCT_CATEGORIES = [
-  'Addition_',
-  'Addition_ / ECO BOXES',
-  'Alcoholic Drink_',
-  'Alcoholic Drink_ / Beer_',
-  'Alcoholic Drink_ / Cocktails_',
-  'Alcoholic Drink_ / Cocktails_ / Monthly Special_',
-  'All',
-  'All / Expenses',
-  'All / Saleable',
-  'All / Saleable / PoS',
-  'All / mousse',
-  'Bakery',
-  'Bakery_',
-  'Bakery_ / Cake_',
-  'Bakery_ / Cake_ / Brownie_',
-  'Bakery_ / Cake_ / Cake of the month_',
-  'Bakery_ / Cake_ / Cake of the month_ / Cheese cake_',
-  'Bakery_ / Cake_ / Cake of the month_ / Cheese cake_ / Bar_',
-  'Bakery_ / Cake_ / Cookies_',
-  'Bakery_ / Cake_ / Eclairs_',
-  'Bakery_ / Cake_ / Macaron_',
-  'Bakery_ / Cake_ / Muffin_',
-  'Bakery_ / Cake_ / Tart_',
-  'Bakery_ / Croissant_',
-  'Bakery_ / Danish_',
-  'Bakery_ / Donut_',
-  'Bakery_ / Loaf_',
-  'Breakfast_',
-  'Breakfast_ / Set_',
-  'Brunch_',
-  'Brunch_ / Bread_',
-  'Brunch_ / Egg Benedict_',
-  'Brunch_ / Pancake_',
-  'Brunch_ / Sandwich_',
-  'Coffee_',
-  'Coffee_ / Cold Brew_',
-  'Coffee_ / Espresso_',
-  'Coffee_ / Hot_',
-  'Coffee_ / Iced_',
-  'Coffee_ / Signature_',
-  'Dessert_',
-  'Dessert_ / Ice Cream_',
-  'Dessert_ / Pudding_',
-  'Dessert_ / Waffle_',
-  'Food_',
-  'Food_ / Burger_',
-  'Food_ / Khmer Food_',
-  'Food_ / Main Course_',
-  'Food_ / Noodle_',
-  'Food_ / Pasta_',
-  'Food_ / Pizza_',
-  'Food_ / Rice_',
-  'Food_ / Salad_',
-  'Food_ / Soup_',
-  'Food_ / Steak_',
-  'Food_ / Western_',
-  'Fruit_',
-  'Fruit_ / Fresh Cut_',
-  'Fruit_ / Platter_',
-  'Juice_',
-  'Juice_ / Fresh Juice_',
-  'Juice_ / Shake_',
-  'Juice_ / Smoothie_',
-  'Kids Menu_',
-  'Milk_',
-  'Milk_ / Fresh Milk_',
-  'Mocktail_',
-  'Non-Coffee_',
-  'Non-Coffee_ / Chocolate_',
-  'Non-Coffee_ / Matcha_',
-  'Retail_',
-  'Retail_ / Merchandise_',
-  'Seafood_',
-  'Seafood_ / Grilled_',
-  'Seafood_ / Hot Pot_',
-  'Side Dish_',
-  'Snack_',
-  'Snack_ / French Fries_',
-  'Soft Drink_',
-  'Soft Drink_ / Bottle_',
-  'Soft Drink_ / Can_',
-  'Tea_',
-  'Tea_ / Herbal_',
-  'Tea_ / Iced Tea_',
-  'Tea_ / Milk Tea_',
-  'Water_',
-  'Water_ / Mineral_',
-  'Water_ / Sparkling_',
-]
+const PRODUCT_TYPE_LABEL: Record<ProductType, string> = {
+  consu: 'Consumable',
+  product: 'Storable Product',
+  service: 'Service',
+}
 
 // Units of measure in Odoo's dropdown order — the first seven fill the
 // dropdown and the full list backs the "Search More..." dialog.
@@ -188,16 +113,28 @@ const EXPENSE_ACCOUNT_OPTIONS = ACCOUNT_OPTIONS.filter(
   (a) => !EXPENSE_ACCOUNT_EXCLUDED.includes(a.split(' ')[0]),
 )
 
+/** First human-readable message out of an API failure. */
+function saveErrorText(e: unknown): string {
+  if (e instanceof ApiError && e.errors) {
+    const first = Object.values(e.errors)[0]?.[0]
+    if (first) return first
+  }
+  return e instanceof Error ? e.message : 'Save failed. Try again.'
+}
+
 export default function PosProductForm({
   onBack,
-  onSave,
+  onSaved,
   product,
+  categories,
 }: {
   /** Breadcrumb + Discard — leaves the form back to the product list. */
   onBack: () => void
-  /** Save — back to the record detail when editing; defaults to onBack. */
-  onSave?: () => void
-  product?: { name: string; price: string }
+  /** Called with the saved record after a successful create/update. */
+  onSaved: (item: AdminMenuItem) => void | Promise<void>
+  /** Existing record when editing; omit to create a new product. */
+  product?: AdminMenuItem
+  categories: AdminCategory[]
 }) {
   // Dev builds can open a specific tab with `?product-tab=<name>`.
   const [formTab, setFormTab] = useState(() => {
@@ -214,6 +151,72 @@ export default function PosProductForm({
   // View Diagram on the Inventory tab swaps the screen for the Stock Rules
   // Report, Odoo style.
   const [diagramOpen, setDiagramOpen] = useState(false)
+
+  // --- Editable fields (everything the menu-items API persists) ------------
+  const [name, setName] = useState(product?.name ?? '')
+  const [canBeSold, setCanBeSold] = useState(product?.can_be_sold ?? true)
+  const [canBePurchased, setCanBePurchased] = useState(product?.can_be_purchased ?? false)
+  const [productType, setProductType] = useState<ProductType>(product?.product_type ?? 'consu')
+  const [priceText, setPriceText] = useState(() =>
+    product ? Number(product.price).toFixed(2) : '1.00',
+  )
+  const [costText, setCostText] = useState(() =>
+    product ? Number(product.cost).toFixed(2) : '0.00',
+  )
+  const [categoryId, setCategoryId] = useState<number | null>(product?.category_id ?? null)
+  const [internalReference, setInternalReference] = useState(product?.internal_reference ?? '')
+  const [barcode, setBarcode] = useState(product?.barcode ?? '')
+  const [availableInPos, setAvailableInPos] = useState(product?.is_available ?? true)
+  const [internalNotes, setInternalNotes] = useState(product?.internal_notes ?? '')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const imagePreview = useMemo(
+    () => (imageFile ? URL.createObjectURL(imageFile) : assetUrl(product?.image ?? null)),
+    [imageFile, product],
+  )
+
+  const save = async () => {
+    if (saving) return
+    const price = Number.parseFloat(priceText.replace(/[^0-9.]/g, ''))
+    if (!name.trim()) {
+      setError('The product name is required.')
+      return
+    }
+    if (Number.isNaN(price) || price < 0) {
+      setError('Enter a valid sales price.')
+      return
+    }
+    if (categoryId === null) {
+      setError('Pick a product category.')
+      return
+    }
+    const input: MenuItemInput = {
+      category_id: categoryId,
+      product_type: productType,
+      name: name.trim(),
+      price,
+      cost: Number.parseFloat(costText.replace(/[^0-9.]/g, '')) || 0,
+      barcode: barcode.trim() || null,
+      internal_reference: internalReference.trim() || null,
+      internal_notes: internalNotes.trim() || null,
+      is_available: availableInPos,
+      can_be_sold: canBeSold,
+      can_be_purchased: canBePurchased,
+    }
+    if (imageFile) input.image = imageFile
+    setSaving(true)
+    setError(null)
+    try {
+      const saved = product ? await updateMenuItem(product.id, input) : await createMenuItem(input)
+      await onSaved(saved)
+    } catch (e: unknown) {
+      setError(saveErrorText(e))
+      setSaving(false)
+    }
+  }
 
   if (diagramOpen) {
     return (
@@ -239,15 +242,18 @@ export default function PosProductForm({
         <div className="mt-2 flex items-center gap-1.5">
           <button
             type="button"
-            onClick={onSave ?? onBack}
-            className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
+            onClick={() => void save()}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d] disabled:opacity-60"
           >
+            {saving && <Loader size="sm" />}
             Save
           </button>
           <button
             type="button"
             onClick={onBack}
-            className="rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50"
+            disabled={saving}
+            className="rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"
           >
             Discard
           </button>
@@ -257,6 +263,20 @@ export default function PosProductForm({
       <div className="flex min-h-0 flex-1">
         {/* Form area */}
         <div className="min-w-0 flex-1 overflow-y-auto bg-neutral-100/60 pb-6">
+          {error && (
+            <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-[2px] border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+              {error}
+              <button
+                type="button"
+                aria-label="Dismiss error"
+                onClick={() => setError(null)}
+                className="shrink-0 transition hover:opacity-70"
+              >
+                <LuX className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
           <div className="px-4 pt-3">
             <button
               type="button"
@@ -320,7 +340,8 @@ export default function PosProductForm({
                   <span className="inline-flex w-[56%] min-w-72 items-stretch">
                     <input
                       placeholder="e.g. Cheese Burger"
-                      defaultValue={product?.name}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
                       className={`min-w-0 flex-1 rounded-l-[2px] border border-neutral-300 ${FIELD_BG} px-3 py-1.5 text-[22px] text-neutral-800 outline-none transition placeholder:text-neutral-400 focus:border-sky-600`}
                     />
                     <span className="flex items-center rounded-r-[2px] border border-l-0 border-neutral-300 bg-white px-2 text-[12px] font-semibold text-neutral-600">
@@ -331,22 +352,49 @@ export default function PosProductForm({
 
                 <div className="mt-3 flex items-center gap-6 pl-9 text-[13px] font-bold text-neutral-800">
                   <label className="flex items-center gap-1.5">
-                    <input type="checkbox" defaultChecked className="h-3.5 w-3.5 accent-teal-700" />
+                    <input
+                      type="checkbox"
+                      checked={canBeSold}
+                      onChange={(e) => setCanBeSold(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-teal-700"
+                    />
                     Can be Sold
                   </label>
                   <label className="flex items-center gap-1.5">
-                    <input type="checkbox" defaultChecked className="h-3.5 w-3.5 accent-teal-700" />
+                    <input
+                      type="checkbox"
+                      checked={canBePurchased}
+                      onChange={(e) => setCanBePurchased(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-teal-700"
+                    />
                     Can be Purchased
                   </label>
                 </div>
               </div>
 
+              {/* Product image — click to pick a photo */}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setImageFile(file)
+                  e.target.value = ''
+                }}
+              />
               <button
                 type="button"
                 aria-label="Add product image"
-                className="flex h-24 w-24 shrink-0 items-center justify-center rounded-[2px] border border-neutral-300 text-neutral-300 transition hover:text-neutral-400"
+                onClick={() => imageInputRef.current?.click()}
+                className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[2px] border border-neutral-300 text-neutral-300 transition hover:text-neutral-400"
               >
-                <LuCamera className="h-9 w-9" />
+                {imagePreview ? (
+                  <img src={imagePreview} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <LuCamera className="h-9 w-9" />
+                )}
               </button>
             </div>
 
@@ -374,10 +422,16 @@ export default function PosProductForm({
                 <div className="grid grid-cols-1 gap-x-16 gap-y-3 px-8 py-5 xl:grid-cols-2">
                   <FieldGroup>
                     <label className={LABEL}>Product Type</label>
-                    <select className={BLUE_SELECT}>
-                      <option>Consumable</option>
-                      <option>Storable Product</option>
-                      <option>Service</option>
+                    <select
+                      value={productType}
+                      onChange={(e) => setProductType(e.target.value as ProductType)}
+                      className={BLUE_SELECT}
+                    >
+                      {(Object.keys(PRODUCT_TYPE_LABEL) as ProductType[]).map((t) => (
+                        <option key={t} value={t}>
+                          {PRODUCT_TYPE_LABEL[t]}
+                        </option>
+                      ))}
                     </select>
 
                     <label className={LABEL}>Invoicing Policy</label>
@@ -441,7 +495,8 @@ export default function PosProductForm({
                   <FieldGroup>
                     <label className={LABEL}>Sales Price</label>
                     <input
-                      defaultValue={product?.price ?? '$1.00'}
+                      value={priceText}
+                      onChange={(e) => setPriceText(e.target.value)}
                       className={`${TEXT_INPUT} max-w-28`}
                     />
 
@@ -449,24 +504,43 @@ export default function PosProductForm({
                     <DropdownStub />
 
                     <label className={LABEL}>Cost</label>
-                    <input defaultValue="0.00" className={TEXT_INPUT} />
+                    <input
+                      value={costText}
+                      onChange={(e) => setCostText(e.target.value)}
+                      className={TEXT_INPUT}
+                    />
 
                     <label className={LABEL}>Product Category</label>
                     <span className="flex items-center gap-2">
                       <Many2OneField
                         blue
                         title="Product Category"
-                        options={PRODUCT_CATEGORIES}
-                        value="All"
+                        options={categories.map((c) => c.name)}
+                        value={
+                          categories.find((c) => c.id === categoryId)?.name ??
+                          product?.category?.name ??
+                          ''
+                        }
+                        onSelect={(v) =>
+                          setCategoryId(categories.find((c) => c.name === v)?.id ?? null)
+                        }
                       />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
 
                     <label className={LABEL}>Internal Reference</label>
-                    <input className={TEXT_INPUT} />
+                    <input
+                      value={internalReference}
+                      onChange={(e) => setInternalReference(e.target.value)}
+                      className={TEXT_INPUT}
+                    />
 
                     <label className={LABEL}>Barcode</label>
-                    <input className={TEXT_INPUT} />
+                    <input
+                      value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                      className={TEXT_INPUT}
+                    />
 
                     <label className={LABEL}>Company</label>
                     <DropdownStub />
@@ -477,6 +551,8 @@ export default function PosProductForm({
                   title="Internal Notes"
                   placeholder="This note is only for internal purposes."
                   className="px-8 pb-8"
+                  value={internalNotes}
+                  onChange={setInternalNotes}
                 />
               </>
             )}
@@ -489,7 +565,8 @@ export default function PosProductForm({
                     <label className={LABEL}>Available in POS</label>
                     <input
                       type="checkbox"
-                      defaultChecked
+                      checked={availableInPos}
+                      onChange={(e) => setAvailableInPos(e.target.checked)}
                       className="mt-1.5 h-3.5 w-3.5 justify-self-start accent-teal-700"
                     />
 
@@ -500,7 +577,7 @@ export default function PosProductForm({
                     />
 
                     <label className={LABEL}>Category</label>
-                    <DropdownStub />
+                    <DropdownStub value={categories.find((c) => c.id === categoryId)?.name} />
                   </FieldGroup>
                 </div>
 

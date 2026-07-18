@@ -174,15 +174,20 @@ export function DropdownStub({ value }: { value?: string }) {
   )
 }
 
-/** Underlined note title + translatable textarea with the EN marker. */
+/** Underlined note title + translatable textarea with the EN marker. Pass
+ *  value/onChange to make it a controlled field; omit both for a stub. */
 export function NoteSection({
   title,
   placeholder,
   className = '',
+  value,
+  onChange,
 }: {
   title: string
   placeholder: string
   className?: string
+  value?: string
+  onChange?: (value: string) => void
 }) {
   return (
     <div className={className}>
@@ -192,6 +197,8 @@ export function NoteSection({
       <div className="relative mt-2">
         <textarea
           placeholder={placeholder}
+          value={onChange ? (value ?? '') : undefined}
+          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           className="min-h-14 w-full resize-y rounded-[2px] border border-neutral-200 px-3 py-2 pr-10 text-sm outline-none transition placeholder:text-neutral-500 focus:border-sky-600"
         />
         <span className="absolute right-3 top-2 text-[12px] font-semibold text-neutral-500">EN</span>

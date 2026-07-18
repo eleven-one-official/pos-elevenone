@@ -1,16 +1,6 @@
 import { useState } from 'react'
-import {
-  LuArrowRight,
-  LuChefHat,
-  LuEye,
-  LuEyeOff,
-  LuLock,
-  LuUser,
-  LuUsers,
-  LuUtensils,
-} from 'react-icons/lu'
-import CashierLoginDialog, { type Cashier } from './CashierLoginDialog'
-import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
+import { LuArrowRight, LuChefHat, LuEye, LuEyeOff, LuLock, LuUser } from 'react-icons/lu'
+import { type Cashier } from './CashierLoginDialog'
 import { passwordLogin } from '../../services/api/auth'
 import { ApiError } from '../../services/api/client'
 import { Loader } from '../../components/ui/Loader'
@@ -51,16 +41,8 @@ function BrandPanel() {
   )
 }
 
-export default function LoginPage({
-  onLogin,
-  onWaiterLogin,
-}: {
-  onLogin?: (cashier: Cashier) => void
-  onWaiterLogin?: (waiter: Waiter) => void
-}) {
+export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) => void }) {
   const [showPassword, setShowPassword] = useState(false)
-  const [cashierDialogOpen, setCashierDialogOpen] = useState(false)
-  const [waiterDialogOpen, setWaiterDialogOpen] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -167,31 +149,6 @@ export default function LoginPage({
                   </>
                 )}
               </button>
-
-              <div className="flex items-center gap-4 pt-1 text-sm text-neutral-500">
-                <div className="h-px flex-1 bg-neutral-200" />
-                or continue with
-                <div className="h-px flex-1 bg-neutral-200" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  type="button"
-                  onClick={() => setCashierDialogOpen(true)}
-                  className="flex h-14 items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white font-semibold text-neutral-800 transition hover:bg-neutral-50"
-                >
-                  <LuUsers className="h-5 w-5" />
-                  Cashier Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWaiterDialogOpen(true)}
-                  className="flex h-14 items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white font-semibold text-neutral-800 transition hover:bg-neutral-50"
-                >
-                  <LuUtensils className="h-5 w-5" />
-                  Waiter Login
-                </button>
-              </div>
             </form>
           </div>
 
@@ -200,14 +157,6 @@ export default function LoginPage({
           </p>
         </div>
       </div>
-
-      {cashierDialogOpen && (
-        <CashierLoginDialog onClose={() => setCashierDialogOpen(false)} onLoggedIn={onLogin} />
-      )}
-
-      {waiterDialogOpen && (
-        <WaiterLoginDialog onClose={() => setWaiterDialogOpen(false)} onLoggedIn={onWaiterLogin} />
-      )}
     </div>
   )
 }

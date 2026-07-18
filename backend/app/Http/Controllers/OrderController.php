@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\DB;
 class OrderController extends Controller
 {
     /**
-     * List orders. Filter by ?status=, ?order_type=, ?table_id=, ?date=YYYY-MM-DD.
+     * List orders. Filter by ?status=, ?order_type=, ?table_id=, ?date=YYYY-MM-DD
+     * and ?search= (order number). Plain array by default (the POS floor
+     * expects that); pass ?per_page= for the back office's paginated list.
      */
     public function index(Request $request): JsonResponse
     {
@@ -34,6 +36,14 @@ class OrderController extends Controller
 
         if ($request->filled('date')) {
             $query->whereDate('created_at', $request->date('date'));
+        }
+
+        if ($request->filled('search')) {
+            $query->where('order_number', 'like', '%'.$request->string('search').'%');
+        }
+
+        if ($request->filled('per_page')) {
+            return response()->json($query->paginate($request->integer('per_page')));
         }
 
         return response()->json($query->get());

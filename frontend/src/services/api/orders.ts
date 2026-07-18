@@ -32,6 +32,15 @@ export type ApiOrderItem = {
   line_total: string
 }
 
+/** A payment recorded against an order (loaded with the order). */
+export type ApiOrderPayment = {
+  id: number
+  method: string
+  amount: string
+  status: string
+  paid_at: string | null
+}
+
 /** The slice of the order response the frontend uses. */
 export type ApiOrder = {
   id: number
@@ -45,7 +54,13 @@ export type ApiOrder = {
   discount: string
   tax: string
   total: string
+  note: string | null
+  created_at: string
   items: ApiOrderItem[]
+  /** Loaded relations — present on every order the API returns. */
+  table?: { id: number; name: string } | null
+  user?: { id: number; name: string; username: string } | null
+  payments?: ApiOrderPayment[]
 }
 
 /** Create the order (first "Send to Kitchen"). Totals are computed server-side. */
@@ -64,6 +79,38 @@ export function updateOrder(
 // ---------------------------------------------------------------------------
 // GET /orders
 // ---------------------------------------------------------------------------
+
+/** One page of the back office's Orders list (Laravel paginator shape). */
+export type OrdersPage = {
+  data: ApiOrder[]
+  current_page: number
+  last_page: number
+  total: number
+  from: number | null
+  to: number | null
+}
+
+export type OrderListFilters = {
+  page?: number
+  status?: string
+  order_type?: string
+  search?: string
+}
+
+/** Paginated order history for the admin's Orders list. */
+export function fetchOrdersPage(filters: OrderListFilters = {}): Promise<OrdersPage> {
+  const params = new URLSearchParams({ per_page: '40' })
+  if (filters.page) params.set('page', String(filters.page))
+  if (filters.status) params.set('status', filters.status)
+  if (filters.order_type) params.set('order_type', filters.order_type)
+  if (filters.search) params.set('search', filters.search)
+  return api<OrdersPage>(`/orders?${params}`)
+}
+
+/** Delete an order — a back-office op (admin/manager); frees its table. */
+export function deleteOrder(id: number): Promise<{ message: string }> {
+  return api<{ message: string }>(`/orders/${id}`, { method: 'DELETE' })
+}
 
 /** Statuses of a bill that is still running — anything else is off the floor. */
 const OPEN_STATUSES: ApiOrder['status'][] = ['new', 'preparing', 'ready', 'served']

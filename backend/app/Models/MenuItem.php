@@ -13,12 +13,20 @@ class MenuItem extends Model
 
     protected $fillable = [
         'category_id',
+        'product_type',
         'name',
         'slug',
         'description',
         'price',
+        'cost',
         'image',
+        'barcode',
+        'internal_reference',
+        'internal_notes',
         'is_available',
+        'can_be_sold',
+        'can_be_purchased',
+        'is_archived',
         'stock_quantity',
         'sort_order',
     ];
@@ -27,7 +35,11 @@ class MenuItem extends Model
     {
         return [
             'price' => 'decimal:2',
+            'cost' => 'decimal:2',
             'is_available' => 'boolean',
+            'can_be_sold' => 'boolean',
+            'can_be_purchased' => 'boolean',
+            'is_archived' => 'boolean',
             'stock_quantity' => 'integer',
             'sort_order' => 'integer',
         ];

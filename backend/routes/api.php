@@ -8,6 +8,7 @@ use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymentMethodController;
+use App\Http\Controllers\PricelistController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TableController;
@@ -43,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('categories', CategoryController::class)->only(['index', 'show']);
     Route::apiResource('menu-items', MenuItemController::class)->only(['index', 'show']);
     Route::apiResource('tables', TableController::class)->only(['index', 'show']);
+    Route::apiResource('pricelists', PricelistController::class)->only(['index', 'show']);
 
     // Orders: waiters and cashiers create/update; deleting is a back-office op.
     Route::apiResource('orders', OrderController::class)->except(['destroy']);
@@ -80,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin,manager')->group(function () {
         Route::apiResource('categories', CategoryController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('menu-items', MenuItemController::class)->only(['store', 'update', 'destroy']);
+        Route::apiResource('pricelists', PricelistController::class)->only(['store', 'update', 'destroy']);
         Route::post('/menu-items/{menu_item}/adjust-stock', [MenuItemController::class, 'adjustStock']);
 
         // Refunds keep the money trail (row flips to refunded, audit row written);

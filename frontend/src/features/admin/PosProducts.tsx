@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   LuChevronDown,
   LuChevronLeft,
@@ -11,6 +11,18 @@ import {
   LuStar,
   LuX,
 } from 'react-icons/lu'
+import { Loader, LoadingState } from '../../components/ui/Loader'
+import {
+  createCategory,
+  createMenuItem,
+  deleteMenuItem,
+  fetchAdminCategories,
+  fetchAdminMenuItems,
+  updateMenuItem,
+  type AdminCategory,
+  type AdminMenuItem,
+} from '../../services/api/adminMenu'
+import { assetUrl } from '../../services/api/client'
 import FacetChip, { type Facet } from './FacetChip'
 import { parseCsv } from './parseCsv'
 import PosProductDetail from './PosProductDetail'
@@ -18,104 +30,46 @@ import PosProductForm from './PosProductForm'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
-// Products — Odoo-style product kanban. The catalog is placeholder data
-// lifted from the real venue's Odoo, but the whole search panel works
-// client-side: filters (Odoo semantics — OR inside a section, AND across
-// sections), custom filter conditions, group-by with collapsible sections,
-// pagination, starred products and saved favorites (persisted to
-// localStorage) all apply to the records below.
+// Products — Odoo-style product kanban over the real catalog (menu_items).
+// Records load from the backend; Create/Edit/Archive/Duplicate/Delete all
+// write through the API. The search panel stays client-side: filters (Odoo
+// semantics — OR inside a section, AND across sections), custom filter
+// conditions, group-by with collapsible sections, pagination, starred
+// products and saved favorites (persisted to localStorage).
 // ---------------------------------------------------------------------------
 
+/** View-model the search panel filters/groups over; `raw` is the API row. */
 export type Product = {
+  id: number
   name: string
-  price: string
-  onHand?: string
+  price: string // display string, e.g. "$ 6.50"
+  onHand: string | null
   type: 'Goods' | 'Service'
   category: string
-  posCategory: string
   availableInPos: boolean
   canBeSold: boolean
   canBePurchased: boolean
   archived: boolean
+  image: string | null
+  raw: AdminMenuItem
 }
 
-const DRINK = { category: 'Beverages', posCategory: 'Drinks' } as const
-const BAKERY = { category: 'Bakery', posCategory: 'Pastry' } as const
-const SIDE = { category: 'Sides', posCategory: 'Sides' } as const
-
-function product(name: string, price: string, extra: Partial<Product> = {}): Product {
+function toProduct(item: AdminMenuItem): Product {
   return {
-    name,
-    price,
-    type: 'Goods',
-    category: 'Food',
-    posCategory: 'Meals',
-    availableInPos: true,
-    canBeSold: true,
-    canBePurchased: false,
-    archived: false,
-    ...extra,
+    id: item.id,
+    name: item.name,
+    price: `$ ${Number(item.price).toFixed(2)}`,
+    onHand: item.stock_quantity === null ? null : `${item.stock_quantity.toFixed(2)} Units`,
+    type: item.product_type === 'service' ? 'Service' : 'Goods',
+    category: item.category?.name ?? 'None',
+    availableInPos: item.is_available,
+    canBeSold: item.can_be_sold,
+    canBePurchased: item.can_be_purchased,
+    archived: item.is_archived,
+    image: assetUrl(item.image),
+    raw: item,
   }
 }
-
-const PLACEHOLDER_PRODUCTS: Product[] = [
-  product('Brown rice', '$ 1.00', SIDE),
-  product('Brown rice (copy)', '$ 1.00', { ...SIDE, archived: true }),
-  product('Cheese', '$ 1.00', { ...SIDE, canBePurchased: true }),
-  product('Egg', '$ 0.50', { ...SIDE, canBePurchased: true }),
-  product('French fries-b', '$ 3.00', SIDE),
-  product('French fries-s', '$ 1.00', SIDE),
-  product('Garlic bread', '$ 2.50', BAKERY),
-  product('Steamed Rice', '$ 0.50', SIDE),
-  product('Sweet potato fries-b', '$ 3.00', SIDE),
-  product('Sweet potato fries-s', '$ 1.00', SIDE),
-  product('Vegetable', '$ 0.50', { ...SIDE, canBePurchased: true }),
-  product('4 cheese pizza', '$ 11.00'),
-  product('Add cashew nut milk', '$ 0.50', {
-    type: 'Service',
-    category: 'Add-ons',
-    posCategory: 'Extras',
-  }),
-  product('Ahi Tuna Nicoise Salad with Orange Mashed Sauce', '$ 8.75'),
-  product('Ahi Tuna Nicoise Salad with Orange Mashed Sauce (copy)', '$ 8.75', { archived: true }),
-  product('Ahi Tuna Nicoise Salad with Orange Mustard Sauce', '$ 8.75'),
-  product('Ahi Tuna, beetroot salad with Orange mustart sauce', '$ 8.75'),
-  product('Almond cream tart with blueberry', '$ 4.00', BAKERY),
-  product('Almond cream tart with dry cranberry', '$ 4.00', BAKERY),
-  product('Almond pain au chocolate', '$ 1.50', BAKERY),
-  product('Almond raisin cream tart', '$ 4.00', BAKERY),
-  product('Aloe Vera (Original, Classic, Sweet & Sour, Roselle, and Longan life)', '$ 2.75', {
-    ...DRINK,
-    canBePurchased: true,
-  }),
-  product('American breakfast', '$ 6.75'),
-  product('American breakfast', '$ 5.50', { availableInPos: false, canBeSold: false }),
-  product('Americano', '$ 2.75', { ...DRINK, onHand: '-996.00 kg' }),
-  product('Americano hot', '$ 2.50', DRINK),
-  product('Angkor Beer (bottle)', '$ 1.75', {
-    ...DRINK,
-    canBePurchased: true,
-    onHand: '-1,225.00 Bottles',
-  }),
-  product('Apple juice', '$ 3.25', { ...DRINK, canBePurchased: true }),
-  product('Apple juice (copy)', '$ 3.25', { ...DRINK, canBePurchased: true, archived: true }),
-  product('Apple turnover', '$ 1.50', BAKERY),
-  product('Apricot croissant', '$ 1.50', BAKERY),
-  product('Avocado on toast', '$ 4.50'),
-  product('Avocado shake', '$ 3.50', DRINK),
-  product('Banana Muffin', '$ 1.50', BAKERY),
-  product('Banana cashew nut shake', '$ 3.50', DRINK),
-  product('Banana chocolate pan cake with vanilla ice cream', '$ 5.75'),
-  product('Banana danish with blueburry jam', '$ 1.50', BAKERY),
-  product('Banana date molasse', '$ 3.50', DRINK),
-  product('Banana flower and beef salad', '$ 6.25'),
-  product('Banana peanut', '$ 1.60', BAKERY),
-  product('Banchev with chicken', '$ 6.25'),
-  product('Banchev with shrimp and pork belly', '$ 6.75'),
-  product('Bansung with sauce', '$ 5.75'),
-  product('Bbq chicken panini', '$ 6.25'),
-  product('Beef BBQ Rice', '$ 5.75'),
-]
 
 // Search-panel menu contents, Odoo style. Filters render in divided sections.
 const FILTER_SECTIONS = [
@@ -140,7 +94,7 @@ const PAGE_SIZE = 40
 const GROUP_VALUE: Record<string, (p: Product) => string> = {
   'Product Type': (p) => p.type,
   'Product Category': (p) => p.category,
-  'POS Product Category': (p) => (p.availableInPos ? p.posCategory : 'None'),
+  'POS Product Category': (p) => (p.availableInPos ? p.category : 'None'),
   'Available in POS': (p) => (p.availableInPos ? 'Available in POS' : 'Not in POS'),
   'Can be Sold': (p) => (p.canBeSold ? 'Can be Sold' : 'Not for Sale'),
   'Can be Purchased': (p) => (p.canBePurchased ? 'Can be Purchased' : 'Not Purchasable'),
@@ -186,17 +140,8 @@ type SavedSearch = {
 }
 
 const FAVORITES_KEY = 'pos-admin.products.search-favorites'
-const STARRED_KEY = 'pos-admin.products.starred'
-const IMPORTED_KEY = 'pos-admin.products.imported'
-
-// Category → POS category used when importing (mirrors the placeholder data).
-const IMPORT_POS_CATEGORY: Record<string, string> = {
-  Food: 'Meals',
-  Beverages: 'Drinks',
-  Bakery: 'Pastry',
-  Sides: 'Sides',
-  'Add-ons': 'Extras',
-}
+// Ids now that records live in the database (the old key stored list indexes).
+const STARRED_KEY = 'pos-admin.products.starred-ids'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -207,13 +152,14 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : 'Something went wrong. Try again.'
+}
+
 export default function PosProducts() {
-  // Catalog = placeholder data + rows imported through Favorites > Import
-  // records (persisted separately so the placeholder list stays pristine).
-  const [catalog, setCatalog] = useState<Product[]>(() => [
-    ...PLACEHOLDER_PRODUCTS,
-    ...loadJson<Product[]>(IMPORTED_KEY, []),
-  ])
+  const [items, setItems] = useState<AdminMenuItem[] | null>(null)
+  const [categories, setCategories] = useState<AdminCategory[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(() =>
     loadJson<SavedSearch[]>(FAVORITES_KEY, []),
   )
@@ -237,6 +183,7 @@ export default function PosProducts() {
   const [page, setPage] = useState(0)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [importStatus, setImportStatus] = useState<{ ok: boolean; text: string } | null>(null)
+  const [importing, setImporting] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   // Create swaps the whole screen for the product form, Odoo style; clicking
   // a product opens its read-only detail, and Edit from there opens the form
@@ -245,16 +192,33 @@ export default function PosProducts() {
   const [creating, setCreating] = useState(
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('product-new'),
   )
-  const [selected, setSelected] = useState<number | null>(() => {
-    if (!import.meta.env.DEV) return null
-    const v = new URLSearchParams(window.location.search).get('product-view')
-    return v === null ? null : Number(v) || 0
-  })
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
+  const devInitRef = useRef(true)
 
-  const toggleStar = (idx: number) =>
+  const load = useCallback(async () => {
+    const [rows, cats] = await Promise.all([fetchAdminMenuItems(), fetchAdminCategories()])
+    setItems(rows)
+    setCategories(cats)
+    if (devInitRef.current) {
+      devInitRef.current = false
+      if (import.meta.env.DEV) {
+        const v = new URLSearchParams(window.location.search).get('product-view')
+        if (v !== null) setSelectedId(rows[Number(v) || 0]?.id ?? null)
+      }
+    }
+    return rows
+  }, [])
+
+  useEffect(() => {
+    load().catch((e: unknown) => setLoadError(errorText(e)))
+  }, [load])
+
+  const catalog: Product[] = (items ?? []).map(toProduct)
+
+  const toggleStar = (id: number) =>
     setStarred((s) => {
-      const next = toggleIn(s, idx)
+      const next = toggleIn(s, id)
       localStorage.setItem(STARRED_KEY, JSON.stringify([...next]))
       return next
     })
@@ -265,13 +229,16 @@ export default function PosProducts() {
   }
 
   // Favorites > Import records — CSV with columns: name, price[, category].
-  // A "name" header row is skipped; imported rows persist across reloads.
-  const importFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const rows = parseCsv(String(reader.result ?? ''))
+  // A "name" header row is skipped; rows are created through the API, adding
+  // missing categories on the fly.
+  const importFile = async (file: File) => {
+    setImporting(true)
+    setImportStatus(null)
+    try {
+      const rows = parseCsv(await file.text())
       const dataRows = rows[0]?.[0]?.toLowerCase() === 'name' ? rows.slice(1) : rows
-      const added: Product[] = []
+      const categoryIdByName = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]))
+      let added = 0
       let skipped = 0
       for (const cells of dataRows) {
         const name = cells[0] ?? ''
@@ -280,39 +247,72 @@ export default function PosProducts() {
           skipped++
           continue
         }
-        const category = cells[2] || 'Food'
-        added.push(
-          product(name, `$ ${price.toFixed(2)}`, {
-            category,
-            posCategory: IMPORT_POS_CATEGORY[category] ?? category,
-          }),
-        )
+        const categoryName = cells[2] || 'Food'
+        let categoryId = categoryIdByName.get(categoryName.toLowerCase())
+        if (categoryId === undefined) {
+          const created = await createCategory({ name: categoryName })
+          categoryIdByName.set(categoryName.toLowerCase(), created.id)
+          categoryId = created.id
+        }
+        await createMenuItem({ category_id: categoryId, name, price })
+        added++
       }
-      if (added.length === 0) {
+      if (added === 0) {
         setImportStatus({
           ok: false,
           text: `No products imported from "${file.name}" — expected CSV columns: name, price[, category].`,
         })
         return
       }
-      setCatalog((prev) => {
-        const next = [...prev, ...added]
-        localStorage.setItem(
-          IMPORTED_KEY,
-          JSON.stringify(next.slice(PLACEHOLDER_PRODUCTS.length)),
-        )
-        return next
-      })
+      await load()
       setImportStatus({
         ok: true,
         text:
-          `Imported ${added.length} product${added.length === 1 ? '' : 's'} from "${file.name}"` +
+          `Imported ${added} product${added === 1 ? '' : 's'} from "${file.name}"` +
           (skipped > 0 ? ` (${skipped} row${skipped === 1 ? '' : 's'} skipped)` : '') +
           '.',
       })
+    } catch (e: unknown) {
+      setImportStatus({ ok: false, text: `Import failed: ${errorText(e)}` })
+    } finally {
+      setImporting(false)
     }
-    reader.readAsText(file)
   }
+
+  // --- Record actions (detail screen) --------------------------------------
+
+  const toggleArchive = async (p: Product) => {
+    await updateMenuItem(p.id, { is_archived: !p.archived })
+    await load()
+  }
+
+  const duplicateProduct = async (p: Product) => {
+    const r = p.raw
+    const copy = await createMenuItem({
+      category_id: r.category_id ?? categories[0]?.id ?? 0,
+      product_type: r.product_type,
+      name: `${r.name} (copy)`,
+      price: Number(r.price),
+      cost: Number(r.cost),
+      description: r.description,
+      // The barcode is not copied — it identifies one product.
+      internal_reference: r.internal_reference,
+      internal_notes: r.internal_notes,
+      is_available: r.is_available,
+      can_be_sold: r.can_be_sold,
+      can_be_purchased: r.can_be_purchased,
+    })
+    await load()
+    setSelectedId(copy.id)
+  }
+
+  const removeProduct = async (p: Product) => {
+    await deleteMenuItem(p.id)
+    setSelectedId(null)
+    await load()
+  }
+
+  // --- Search panel state --------------------------------------------------
 
   const toggleFilter = (f: string) => {
     setCheckedFilters((s) => toggleIn(s, f))
@@ -392,7 +392,7 @@ export default function PosProducts() {
       case 'Can be Purchased':
         return p.canBePurchased
       case 'Favorites':
-        return starred.has(catalog.indexOf(p))
+        return starred.has(p.id)
       case 'Warnings':
         return (p.onHand ?? '').startsWith('-')
       default:
@@ -468,53 +468,51 @@ export default function PosProducts() {
   if (activeFavorite)
     facets.push({ key: 'fav', label: activeFavorite, kind: 'favorite', onRemove: clearFavorite })
 
-  const productCard = (p: Product) => {
-    const idx = catalog.indexOf(p)
-    return (
-      <article
-        key={`${p.name}-${idx}`}
-        onClick={() => setSelected(idx)}
-        className="relative flex cursor-pointer gap-3 rounded-[3px] border border-neutral-200 bg-white p-2.5 transition hover:shadow-[0_1px_4px_rgba(0,0,0,0.1)]"
-      >
-        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[2px] bg-neutral-100">
+  const productCard = (p: Product) => (
+    <article
+      key={p.id}
+      onClick={() => setSelectedId(p.id)}
+      className="relative flex cursor-pointer gap-3 rounded-[3px] border border-neutral-200 bg-white p-2.5 transition hover:shadow-[0_1px_4px_rgba(0,0,0,0.1)]"
+    >
+      <span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[2px] bg-neutral-100">
+        {p.image ? (
+          <img src={p.image} alt="" className="h-full w-full object-cover" />
+        ) : (
           <LuImage className="h-6 w-6 text-neutral-300" />
-        </span>
-        <div className="min-w-0 flex-1 pr-6 text-[13px]">
-          <h3 className="leading-snug text-[#374a63]">{p.name}</h3>
-          <p className="mt-1 text-neutral-600">Price: {p.price}</p>
-          {p.onHand && <p className="text-neutral-600">On hand: {p.onHand}</p>}
-        </div>
-        <button
-          type="button"
-          aria-label={`Favorite ${p.name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            toggleStar(idx)
-          }}
-          className={`absolute right-2.5 top-2.5 transition ${
-            starred.has(idx) ? 'text-amber-500' : 'text-neutral-400 hover:text-amber-500'
-          }`}
-        >
-          <LuStar className={`h-4 w-4 ${starred.has(idx) ? 'fill-amber-500' : ''}`} />
-        </button>
-      </article>
-    )
-  }
-
-  const productRow = (p: Product) => {
-    const idx = catalog.indexOf(p)
-    return (
-      <tr
-        key={`${p.name}-${idx}`}
-        onClick={() => setSelected(idx)}
-        className="cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
+        )}
+      </span>
+      <div className="min-w-0 flex-1 pr-6 text-[13px]">
+        <h3 className="leading-snug text-[#374a63]">{p.name}</h3>
+        <p className="mt-1 text-neutral-600">Price: {p.price}</p>
+        {p.onHand && <p className="text-neutral-600">On hand: {p.onHand}</p>}
+      </div>
+      <button
+        type="button"
+        aria-label={`Favorite ${p.name}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleStar(p.id)
+        }}
+        className={`absolute right-2.5 top-2.5 transition ${
+          starred.has(p.id) ? 'text-amber-500' : 'text-neutral-400 hover:text-amber-500'
+        }`}
       >
-        <td className="px-4 py-2.5 text-neutral-800">{p.name}</td>
-        <td className="px-4 py-2.5 text-neutral-700">{p.price}</td>
-        <td className="px-4 py-2.5 text-neutral-700">{p.onHand ?? '—'}</td>
-      </tr>
-    )
-  }
+        <LuStar className={`h-4 w-4 ${starred.has(p.id) ? 'fill-amber-500' : ''}`} />
+      </button>
+    </article>
+  )
+
+  const productRow = (p: Product) => (
+    <tr
+      key={p.id}
+      onClick={() => setSelectedId(p.id)}
+      className="cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
+    >
+      <td className="px-4 py-2.5 text-neutral-800">{p.name}</td>
+      <td className="px-4 py-2.5 text-neutral-700">{p.price}</td>
+      <td className="px-4 py-2.5 text-neutral-700">{p.onHand ?? '—'}</td>
+    </tr>
+  )
 
   const groupHeader = (label: string, count: number) => (
     <button
@@ -532,36 +530,81 @@ export default function PosProducts() {
     </button>
   )
 
-  if (creating) {
-    return <PosProductForm onBack={() => setCreating(false)} />
+  // --- Loading / error gates -----------------------------------------------
+
+  if (loadError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+        <p className="text-sm text-red-600">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoadError(null)
+            load().catch((e: unknown) => setLoadError(errorText(e)))
+          }}
+          className="rounded-[3px] bg-[#57779a] px-4 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
+        >
+          Retry
+        </button>
+      </div>
+    )
   }
 
-  if (selected !== null) {
-    const current = catalog[selected]
+  if (items === null) {
+    return <LoadingState label="Loading products..." className="h-full" />
+  }
+
+  if (creating) {
+    return (
+      <PosProductForm
+        categories={categories}
+        onBack={() => setCreating(false)}
+        onSaved={async (item) => {
+          await load()
+          setCreating(false)
+          setSelectedId(item.id)
+        }}
+      />
+    )
+  }
+
+  const selectedIdx = selectedId === null ? -1 : catalog.findIndex((p) => p.id === selectedId)
+  if (selectedIdx !== -1) {
+    const current = catalog[selectedIdx]
     if (editing) {
       return (
         <PosProductForm
-          product={{ name: current.name, price: current.price }}
+          product={current.raw}
+          categories={categories}
           // Discard (and the Products breadcrumb) leave straight back to the
           // full product list; Save returns to this record's detail view.
           onBack={() => {
             setEditing(false)
-            setSelected(null)
+            setSelectedId(null)
           }}
-          onSave={() => setEditing(false)}
+          onSaved={async (item) => {
+            await load()
+            setEditing(false)
+            setSelectedId(item.id)
+          }}
         />
       )
     }
     return (
       <PosProductDetail
         product={current}
-        index={selected}
+        index={selectedIdx}
         total={catalog.length}
-        onBack={() => setSelected(null)}
+        starred={starred.has(current.id)}
+        onToggleStar={() => toggleStar(current.id)}
+        onBack={() => setSelectedId(null)}
         onCreate={() => setCreating(true)}
         onEdit={() => setEditing(true)}
-        onPrev={() => setSelected((s) => Math.max(0, (s ?? 0) - 1))}
-        onNext={() => setSelected((s) => Math.min(catalog.length - 1, (s ?? 0) + 1))}
+        onPrev={() => setSelectedId(catalog[Math.max(0, selectedIdx - 1)].id)}
+        onNext={() => setSelectedId(catalog[Math.min(catalog.length - 1, selectedIdx + 1)].id)}
+        onToggleArchive={() => toggleArchive(current)}
+        onDuplicate={() => duplicateProduct(current)}
+        onDelete={() => removeProduct(current)}
       />
     )
   }
@@ -576,7 +619,7 @@ export default function PosProducts() {
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) importFile(file)
+          if (file) void importFile(file)
           e.target.value = ''
         }}
       />
@@ -698,7 +741,13 @@ export default function PosProducts() {
         </div>
       </div>
 
-      {/* Import result banner */}
+      {/* Import progress / result banner */}
+      {importing && (
+        <div className="flex items-center gap-3 border-b border-sky-200 bg-sky-50 px-4 py-2 text-[13px] text-sky-800">
+          <Loader size="sm" />
+          Importing records...
+        </div>
+      )}
       {importStatus && (
         <div
           className={`flex items-center justify-between gap-3 border-b px-4 py-2 text-[13px] ${
@@ -722,19 +771,21 @@ export default function PosProducts() {
       {/* Records */}
       {visible.length === 0 ? (
         <div className="p-10 text-center text-sm text-neutral-500">
-          {query.trim()
-            ? `No product matches "${query}".`
-            : 'No product matches the current filters.'}
+          {catalog.length === 0
+            ? 'No products yet — hit Create to add the first one.'
+            : query.trim()
+              ? `No product matches "${query}".`
+              : 'No product matches the current filters.'}
         </div>
       ) : view === 'kanban' ? (
         grouped ? (
           <div className="flex flex-col overflow-y-auto p-4">
-            {grouped.map(([label, items]) => (
+            {grouped.map(([label, items2]) => (
               <section key={label}>
-                <div className="px-1 py-2">{groupHeader(label, items.length)}</div>
+                <div className="px-1 py-2">{groupHeader(label, items2.length)}</div>
                 {!collapsed.has(label) && (
                   <div className="grid content-start gap-3.5 pb-3 [grid-template-columns:repeat(auto-fill,minmax(330px,1fr))]">
-                    {items.map(productCard)}
+                    {items2.map(productCard)}
                   </div>
                 )}
               </section>
@@ -757,14 +808,14 @@ export default function PosProducts() {
                 </tr>
               </thead>
               {grouped ? (
-                grouped.map(([label, items]) => (
+                grouped.map(([label, items2]) => (
                   <tbody key={label}>
                     <tr className="border-b border-neutral-100 bg-neutral-50/80">
                       <td colSpan={3} className="px-4 py-2">
-                        {groupHeader(label, items.length)}
+                        {groupHeader(label, items2.length)}
                       </td>
                     </tr>
-                    {!collapsed.has(label) && items.map(productRow)}
+                    {!collapsed.has(label) && items2.map(productRow)}
                   </tbody>
                 ))
               ) : (

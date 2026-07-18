@@ -17,15 +17,27 @@ export type AdminCategory = {
   is_active: boolean
 }
 
+/** Odoo's detailed_type values: consumable, storable product, service. */
+export type ProductType = 'consu' | 'product' | 'service'
+
 export type AdminMenuItem = {
   id: number
   category_id: number | null
+  product_type: ProductType
   name: string
   slug: string
   description: string | null
   price: string // decimal cast serializes as a string, e.g. "6.50"
+  cost: string
   image: string | null
+  barcode: string | null
+  internal_reference: string | null
+  internal_notes: string | null
   is_available: boolean
+  can_be_sold: boolean
+  can_be_purchased: boolean
+  is_archived: boolean
+  stock_quantity: number | null
   sort_order: number
   category: { id: number; name: string; slug: string } | null
 }
@@ -57,16 +69,26 @@ export function deleteCategory(id: number): Promise<{ message: string }> {
 
 // --- Menu items ------------------------------------------------------------
 
+/** Full catalog for the back office, archived rows included. */
 export function fetchAdminMenuItems(): Promise<AdminMenuItem[]> {
-  return api<AdminMenuItem[]>('/menu-items')
+  return api<AdminMenuItem[]>('/menu-items?with_archived=1')
 }
 
 export type MenuItemInput = {
   category_id: number
+  product_type?: ProductType
   name: string
   price: number
+  cost?: number
   description?: string | null
+  barcode?: string | null
+  internal_reference?: string | null
+  internal_notes?: string | null
   is_available?: boolean
+  can_be_sold?: boolean
+  can_be_purchased?: boolean
+  is_archived?: boolean
+  stock_quantity?: number | null
   sort_order?: number | null
   /** New photo to upload; pass null to remove the current one, omit to keep it. */
   image?: File | null

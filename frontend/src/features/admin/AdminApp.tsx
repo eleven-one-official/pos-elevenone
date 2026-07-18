@@ -19,6 +19,7 @@ import type { Waiter } from '../waiter/WaiterLoginDialog'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
 import PosDashboard from './PosDashboard'
+import PosOrders from './PosOrders'
 import PosOrdersAnalysis from './PosOrdersAnalysis'
 import PosPricelists from './PosPricelists'
 import PosProducts from './PosProducts'
@@ -170,6 +171,8 @@ export default function AdminApp({
       <ModulePlaceholder icon={active.icon} title={active.label} />
     ) : tab.menu === 'Dashboard' ? (
       <PosDashboard onContinueSelling={setSessionLogin} />
+    ) : tab.menu === 'Orders' ? (
+      <PosOrders />
     ) : tab.menu === 'Products' && tab.item === 'Products' ? (
       <PosProducts />
     ) : tab.menu === 'Products' && tab.item === 'Pricelists' ? (
@@ -188,7 +191,7 @@ export default function AdminApp({
       <ModulePlaceholder
         icon={active.icon}
         title={tab.item ?? tab.menu}
-        note={`Point of Sale › ${tab.menu}${tab.item ? ` › ${tab.item}` : ''} — UI coming soon.`}
+        note={`Point of Sale › ${tab.menu}${tab.item ? ` › ${tab.item}` : ''}`}
       />
     )
 
@@ -371,7 +374,7 @@ export default function AdminApp({
 
       <div className="flex min-h-0 flex-1">
         {/* App switcher — black module list, Odoo style */}
-        <aside className="w-36 shrink-0 overflow-y-auto bg-[#0a0c0e] py-1.5 text-[13px]">
+        <aside className="w-44 shrink-0 overflow-y-auto bg-[#0a0c0e] py-1.5 text-[13px]">
           {MODULES.map((m) => {
             const isActive = m.key === active.key
             return (
@@ -394,7 +397,16 @@ export default function AdminApp({
                 >
                   <m.icon className="h-3.5 w-3.5 text-white" />
                 </span>
-                <span className="truncate">{m.label}</span>
+                <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                {m.key !== 'pos' && (
+                  <span
+                    className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide ${
+                      isActive ? 'bg-white/25 text-white' : 'bg-white/10 text-neutral-400'
+                    }`}
+                  >
+                    Soon
+                  </span>
+                )}
               </button>
             )
           })}

@@ -48,7 +48,6 @@ export default function App() {
               : { role: 'cashier', staff: user },
           )
         }
-        onWaiterLogin={(waiter) => setSession({ role: 'waiter', staff: waiter })}
       />
     )
   }

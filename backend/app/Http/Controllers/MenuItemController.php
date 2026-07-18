@@ -12,11 +12,17 @@ use Illuminate\Support\Str;
 class MenuItemController extends Controller
 {
     /**
-     * List menu items. Filter by ?category_id= and ?is_available=.
+     * List menu items. Filter by ?category_id= and ?is_available=. Archived
+     * items are hidden (so the POS never sees them) unless the back office
+     * asks for the full catalog with ?with_archived=1.
      */
     public function index(Request $request): JsonResponse
     {
         $query = MenuItem::query()->with('category')->orderBy('sort_order')->orderBy('name');
+
+        if (! $request->boolean('with_archived')) {
+            $query->where('is_archived', false);
+        }
 
         if ($request->filled('category_id')) {
             $query->where('category_id', $request->integer('category_id'));
@@ -37,12 +43,21 @@ class MenuItemController extends Controller
     {
         $data = $request->validate([
             'category_id' => ['required', 'exists:categories,id'],
+            'product_type' => ['nullable', 'in:consu,product,service'],
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
+            'cost' => ['nullable', 'numeric', 'min:0'],
             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+            'barcode' => ['nullable', 'string', 'max:255'],
+            'internal_reference' => ['nullable', 'string', 'max:255'],
+            'internal_notes' => ['nullable', 'string'],
             'is_available' => ['boolean'],
+            'can_be_sold' => ['boolean'],
+            'can_be_purchased' => ['boolean'],
+            'is_archived' => ['boolean'],
+            'stock_quantity' => ['nullable', 'integer'],
             'sort_order' => ['nullable', 'integer'],
         ]);
 
@@ -68,12 +83,20 @@ class MenuItemController extends Controller
     {
         $data = $request->validate([
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
+            'product_type' => ['nullable', 'in:consu,product,service'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'price' => ['sometimes', 'required', 'numeric', 'min:0'],
+            'cost' => ['nullable', 'numeric', 'min:0'],
             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+            'barcode' => ['nullable', 'string', 'max:255'],
+            'internal_reference' => ['nullable', 'string', 'max:255'],
+            'internal_notes' => ['nullable', 'string'],
             'is_available' => ['boolean'],
+            'can_be_sold' => ['boolean'],
+            'can_be_purchased' => ['boolean'],
+            'is_archived' => ['boolean'],
             'sort_order' => ['nullable', 'integer'],
         ]);
 
