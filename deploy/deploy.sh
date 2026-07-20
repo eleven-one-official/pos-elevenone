@@ -93,6 +93,15 @@ php artisan route:cache
 php artisan event:cache || true
 
 echo "==> Fixing permissions..."
+# .env must be READABLE by the web user. `config:cache` deletes and rewrites
+# bootstrap/cache/config.php, and in that window Laravel falls back to reading
+# .env directly — if www-data cannot read it, every config value silently
+# defaults and the DB connection drops to sqlite, 500ing the whole API until
+# the cache is rebuilt. Group-reading .env costs nothing in exposure: the
+# config cache www-data already reads contains the same DB password.
+sudo chown "$DEPLOY_USER:$WEB_GROUP" .env
+sudo chmod 640 .env
+
 # Application code stays read-only to the web user; only storage/ and
 # bootstrap/cache/ are writable, so a web-tier compromise cannot rewrite source.
 # setgid on dirs makes new files inherit the www-data group.
