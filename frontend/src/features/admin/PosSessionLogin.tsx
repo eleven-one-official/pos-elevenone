@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { LuChevronLeft } from 'react-icons/lu'
 import CashierLoginDialog, { type Cashier } from '../auth/CashierLoginDialog'
 import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
+import KitchenLoginDialog, { type Kitchen } from '../kitchen/KitchenLoginDialog'
 
 // ---------------------------------------------------------------------------
 // POS session login — the Odoo-style full-screen gate shown after pressing
@@ -29,16 +30,18 @@ export default function PosSessionLogin({
   onBack,
   onLoggedIn,
   onWaiterLoggedIn,
+  onKitchenLoggedIn,
 }: {
   name: string
-  /** Which roster the gate offers — waiter configs log waiters in, not cashiers. */
-  kind?: 'cashier' | 'waiter'
+  /** Which roster the gate offers — waiter/kitchen configs log in that station, not a cashier. */
+  kind?: 'cashier' | 'waiter' | 'kitchen'
   onBack: () => void
   onLoggedIn?: (cashier: Cashier) => void
   onWaiterLoggedIn?: (waiter: Waiter) => void
+  onKitchenLoggedIn?: (kitchen: Kitchen) => void
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
-  const staffLabel = kind === 'waiter' ? 'Waiter' : 'Cashier'
+  const staffLabel = kind === 'waiter' ? 'Waiter' : kind === 'kitchen' ? 'Kitchen' : 'Cashier'
 
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-[#7d6e73]">
@@ -111,6 +114,14 @@ export default function PosSessionLogin({
             onLoggedIn={(waiter) => {
               setDialogOpen(false)
               onWaiterLoggedIn?.(waiter)
+            }}
+          />
+        ) : kind === 'kitchen' ? (
+          <KitchenLoginDialog
+            onClose={() => setDialogOpen(false)}
+            onLoggedIn={(kitchen) => {
+              setDialogOpen(false)
+              onKitchenLoggedIn?.(kitchen)
             }}
           />
         ) : (

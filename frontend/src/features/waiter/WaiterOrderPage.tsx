@@ -29,7 +29,6 @@ import {
   type OrderLine,
   type Product,
 } from '../pos/catalog'
-import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
 import {
   createOrder,
   fetchOpenOrderForTable,
@@ -108,10 +107,6 @@ export default function WaiterOrderPage({
   // Backend order — the table's open order when there is one, otherwise
   // created on the first "Send to Kitchen" and updated after that.
   const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
-  // Local placeholder until the backend issues the real order number.
-  const [orderNo, setOrderNo] = useState(() =>
-    String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
-  )
   // Take-away slots are synthetic (no backend id), so they never carry an order.
   const [loadingOrder, setLoadingOrder] = useState(table.backendId != null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -141,7 +136,6 @@ export default function WaiterOrderPage({
         if (!alive) return
         if (order) {
           setBackendOrderId(order.id)
-          setOrderNo(order.order_number)
           setLines(orderToLines(order))
           // These items were already fired — the button re-arms on any change.
           setSent(true)
@@ -293,19 +287,17 @@ export default function WaiterOrderPage({
     }
   }
 
-  // Fire the order: save it on the backend (create on the first send, replace
-  // items after that), then print the dockets — drinks route to the bar
-  // printer, food and desserts to the kitchen printer, each as its own ticket
-  // (items + notes, no prices). If the server is unreachable the dockets still
-  // print so the kitchen keeps working; the order just isn't recorded yet.
+  // Fire the order to the kitchen: save it on the backend (create on the first
+  // send, replace items after that). The Kitchen Display screen polls for open
+  // orders, so a saved order shows up there within seconds — there is no
+  // printing. If the save fails the kitchen never sees it, so the waiter is
+  // told to retry rather than being left thinking the food is on its way.
   async function sendToKitchen() {
     if (sending) return
     const cook = lines.filter((l) => l.qty > 0)
     if (cook.length === 0) return notify('The order is empty')
 
     setSending(true)
-    let ticketOrderNo = orderNo
-    let synced = true
     try {
       const payload: OrderPayload = {
         order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
@@ -322,42 +314,13 @@ export default function WaiterOrderPage({
           ? await createOrder(payload)
           : await updateOrder(backendOrderId, payload)
       setBackendOrderId(order.id)
-      setOrderNo(order.order_number)
-      ticketOrderNo = order.order_number
+      setSent(true)
+      notify(`Order #${order.order_number} sent to the kitchen`)
     } catch {
-      synced = false
+      notify('Could not send to the kitchen — check the connection and try again')
+    } finally {
+      setSending(false)
     }
-
-    const orderTypeLabel =
-      activeTable.section === 'takeaway'
-        ? 'Take Away'
-        : activeTable.section === 'vip'
-          ? 'Dine In (VIP)'
-          : 'Dine In'
-    const ticketLines = cook.map((l) => {
-      const cat = products?.find((p) => p.id === l.id)?.category ?? 'Food'
-      return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(cat) }
-    })
-    // The ticket's "server" line carries the waiter who fired the order.
-    const printed = printOrderTickets(
-      {
-        orderNo: ticketOrderNo,
-        tableLabel: activeTable.label,
-        orderType: orderTypeLabel,
-        guests: guestCount,
-        server: waiter.name,
-      },
-      ticketLines,
-    )
-    setSending(false)
-    if (printed.length === 0) return notify('The order is empty')
-    const names = printed.map(stationLabel).join(' + ')
-    setSent(true)
-    notify(
-      synced
-        ? `Order #${ticketOrderNo} sent to ${names}`
-        : `Printed to ${names}, but saving to the server failed`,
-    )
   }
 
   const CONTROLS: Control[] = [

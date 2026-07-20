@@ -32,15 +32,26 @@ class OrderGuardsTest extends TestCase
     // Role gates
     // ------------------------------------------------------------------
 
-    public function test_kitchen_reads_orders_but_cannot_write_them(): void
+    public function test_kitchen_reads_orders_and_advances_status_only(): void
     {
         $item = MenuItem::factory()->create();
         $id = $this->makeOrder($item);
 
         Sanctum::actingAs($this->staff('kitchen'));
+        // The kitchen display reads the queue and bumps tickets through the
+        // cooking flow — but never creates an order or edits its contents.
         $this->getJson('/api/orders')->assertOk();
         $this->postJson('/api/orders', $this->payload($item))->assertForbidden();
-        $this->putJson("/api/orders/{$id}", ['status' => 'preparing'])->assertForbidden();
+
+        // Advancing status within the kitchen flow is allowed…
+        $this->putJson("/api/orders/{$id}", ['status' => 'preparing'])->assertOk();
+        $this->putJson("/api/orders/{$id}", ['status' => 'ready'])->assertOk();
+
+        // …but nothing else: no item edits, no discounts, no closing the bill.
+        $this->putJson("/api/orders/{$id}", $this->payload($item))->assertForbidden();
+        $this->putJson("/api/orders/{$id}", ['discount' => 1])->assertForbidden();
+        $this->putJson("/api/orders/{$id}", ['status' => 'completed'])->assertForbidden();
+        $this->putJson("/api/orders/{$id}", ['status' => 'cancelled'])->assertForbidden();
     }
 
     public function test_waiter_cannot_apply_or_change_discounts(): void

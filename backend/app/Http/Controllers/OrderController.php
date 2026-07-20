@@ -56,8 +56,10 @@ class OrderController extends Controller
     }
     /**
      * List orders. Filter by ?status=, ?order_type=, ?table_id=, ?date=YYYY-MM-DD
-     * and ?search= (order number). Plain array by default (the POS floor
-     * expects that); pass ?per_page= for the back office's paginated list.
+     * and ?search= (order number). ?status= accepts a comma-separated list
+     * (e.g. new,preparing) so the kitchen screen can pull its whole queue in one
+     * call. Plain array by default (the POS floor expects that); pass ?per_page=
+     * for the back office's paginated list.
      */
     public function index(Request $request): JsonResponse
     {
@@ -66,7 +68,10 @@ class OrderController extends Controller
             ->latest();
 
         if ($request->filled('status')) {
-            $query->where('status', $request->string('status'));
+            $statuses = array_values(array_filter(
+                array_map('trim', explode(',', (string) $request->string('status')))
+            ));
+            $query->whereIn('status', $statuses);
         }
 
         if ($request->filled('order_type')) {
@@ -218,6 +223,18 @@ class OrderController extends Controller
                 return response()->json([
                     'message' => "This order is {$order->status} — its items and totals can no longer be changed.",
                 ], 422);
+            }
+        }
+
+        // The kitchen display only advances an order through the cooking flow —
+        // it never edits items, prices, guests or the table, and can't close a
+        // bill. So it may send `status` (within the kitchen flow) and nothing else.
+        if ($user?->hasRole('kitchen')) {
+            if (array_diff(array_keys($data), ['status'])) {
+                return response()->json(['message' => 'The kitchen can only update an order’s status.'], 403);
+            }
+            if (isset($data['status']) && ! in_array($data['status'], ['new', 'preparing', 'ready', 'served'], true)) {
+                return response()->json(['message' => 'The kitchen cannot close or cancel an order.'], 403);
             }
         }
 

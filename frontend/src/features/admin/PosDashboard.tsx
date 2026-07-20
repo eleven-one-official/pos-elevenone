@@ -21,7 +21,7 @@ type PosConfig = {
   id: string
   name: string
   /** Which staff role this register serves — drives the session login gate. */
-  kind: 'cashier' | 'waiter'
+  kind: 'cashier' | 'waiter' | 'kitchen'
   stats: PosConfigStats
 }
 
@@ -38,7 +38,7 @@ function fmtDate(iso: string | null): string {
 export default function PosDashboard({
   onContinueSelling,
 }: {
-  onContinueSelling: (config: { name: string; kind: 'cashier' | 'waiter' }) => void
+  onContinueSelling: (config: { name: string; kind: 'cashier' | 'waiter' | 'kitchen' }) => void
 }) {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
@@ -81,6 +81,14 @@ export default function PosDashboard({
   const configs: PosConfig[] = [
     { id: 'ttp', name: 'TTP', kind: 'cashier', stats: stats.cashier },
     { id: 'ttp-waiter', name: 'TTP Waiter', kind: 'waiter', stats: stats.waiter },
+    // The kitchen display isn't a register (no cash, no closing) — it's a live
+    // screen. It reuses the same card + session-login gate as an entry point.
+    {
+      id: 'ttp-kitchen',
+      name: 'TTP Kitchen',
+      kind: 'kitchen',
+      stats: { open_orders: 0, last_closing_date: null, last_closing_cash: null },
+    },
   ]
 
   const toClose = (c: PosConfig) => c.stats.open_orders > 0
@@ -213,31 +221,38 @@ export default function PosDashboard({
                   onClick={() => onContinueSelling({ name: c.name, kind: c.kind })}
                   className="shrink-0 rounded-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
                 >
-                  Continue selling
+                  {c.kind === 'kitchen' ? 'Open display' : 'Continue selling'}
                 </button>
 
-                {/* Label / value columns, values left-aligned — Odoo kanban style */}
-                <div className="ml-auto mr-4 grid min-w-0 grid-cols-[minmax(0,10rem)_auto] gap-x-8 gap-y-0.5 text-[13px]">
-                  <span className="text-neutral-700">Last Closing Date</span>
-                  <span className="whitespace-nowrap text-neutral-800">
-                    {fmtDate(c.stats.last_closing_date)}
-                  </span>
-                  {c.stats.last_closing_cash !== null && (
-                    <>
-                      <span className="text-neutral-700">Last Closing Cash Balance</span>
-                      <span className="whitespace-nowrap text-neutral-800">
-                        $ {c.stats.last_closing_cash.toFixed(2)}
-                      </span>
-                    </>
-                  )}
-                  {c.stats.open_orders > 0 && (
-                    <span className="col-span-2 mt-1 text-[13px] text-neutral-600">
-                      {c.stats.open_orders === 1
-                        ? 'There is 1 open order'
-                        : `There are ${c.stats.open_orders} open orders`}
+                {c.kind === 'kitchen' ? (
+                  <p className="ml-auto mr-4 max-w-64 text-[13px] leading-relaxed text-neutral-600">
+                    Live order screen — tickets appear as they're fired; the kitchen marks each
+                    ready when it's cooked.
+                  </p>
+                ) : (
+                  /* Label / value columns, values left-aligned — Odoo kanban style */
+                  <div className="ml-auto mr-4 grid min-w-0 grid-cols-[minmax(0,10rem)_auto] gap-x-8 gap-y-0.5 text-[13px]">
+                    <span className="text-neutral-700">Last Closing Date</span>
+                    <span className="whitespace-nowrap text-neutral-800">
+                      {fmtDate(c.stats.last_closing_date)}
                     </span>
-                  )}
-                </div>
+                    {c.stats.last_closing_cash !== null && (
+                      <>
+                        <span className="text-neutral-700">Last Closing Cash Balance</span>
+                        <span className="whitespace-nowrap text-neutral-800">
+                          $ {c.stats.last_closing_cash.toFixed(2)}
+                        </span>
+                      </>
+                    )}
+                    {c.stats.open_orders > 0 && (
+                      <span className="col-span-2 mt-1 text-[13px] text-neutral-600">
+                        {c.stats.open_orders === 1
+                          ? 'There is 1 open order'
+                          : `There are ${c.stats.open_orders} open orders`}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end">

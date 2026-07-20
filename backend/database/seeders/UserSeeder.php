@@ -39,9 +39,11 @@ class UserSeeder extends Seeder
         );
 
         // Staff tap-login accounts — tap a name on the POS/tablet. Cashiers then
-        // enter their PIN; the waiter account has no PIN and signs in on tap.
+        // enter their PIN; the waiter and kitchen accounts have no PIN and sign
+        // in on tap (one shared account per station — a fixed tablet/monitor).
         $staff = [
             ['name' => 'Waiter', 'role' => 'waiter', 'pin' => null],
+            ['name' => 'Kitchen', 'role' => 'kitchen', 'pin' => null],
             ['name' => 'Sok Dara', 'role' => 'cashier', 'pin' => '1234'],
             ['name' => 'Chan Sreymom', 'role' => 'cashier', 'pin' => '2345'],
             ['name' => 'Kim Panha', 'role' => 'cashier', 'pin' => '3456'],

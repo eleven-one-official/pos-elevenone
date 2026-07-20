@@ -32,7 +32,6 @@ import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
-import { printOrderTickets, stationForCategory, stationLabel } from '../kitchen/printKitchenTicket'
 import {
   createOrder,
   fetchOpenOrderForTable,
@@ -387,19 +386,17 @@ export default function OrderPage({
     }
   }
 
-  // Fire the order: save it on the backend (create on the first send, replace
-  // items after that), then print the dockets — drinks route to the bar
-  // printer, food and desserts to the kitchen printer, each as its own docket
-  // (items + notes, no prices). If the server is unreachable the dockets still
-  // print so the kitchen keeps working; the order just isn't recorded yet.
+  // Fire the order to the kitchen: save it on the backend (create on the first
+  // send, replace items after that). The Kitchen Display screen polls open
+  // orders, so a saved order appears there within seconds — there is no
+  // printing. A failed save means the kitchen won't see it, so the cashier is
+  // told to retry rather than assuming the food is being made.
   async function sendToKitchen() {
     if (sending) return
     const cook = lines.filter((l) => l.qty > 0)
     if (cook.length === 0) return notify('The order is empty')
 
     setSending(true)
-    let ticketOrderNo = orderNo
-    let synced = true
     try {
       const payload = buildOrderPayload()
       const order =
@@ -408,40 +405,12 @@ export default function OrderPage({
           : await updateOrder(backendOrderId, payload)
       setBackendOrderId(order.id)
       setOrderNo(order.order_number)
-      ticketOrderNo = order.order_number
+      notify(`Order #${order.order_number} sent to the kitchen`)
     } catch {
-      synced = false
+      notify('Could not send to the kitchen — check the connection and try again')
+    } finally {
+      setSending(false)
     }
-
-    const orderTypeLabel =
-      activeTable.section === 'takeaway'
-        ? 'Take Away'
-        : activeTable.section === 'vip'
-          ? 'Dine In (VIP)'
-          : 'Dine In'
-    const ticketLines = cook.map((l) => {
-      // The product's category picks the printer; unknown items default to the kitchen.
-      const cat = products?.find((p) => p.id === l.id)?.category ?? 'Food'
-      return { name: l.name, qty: l.qty, note: l.note, station: stationForCategory(cat) }
-    })
-    const printed = printOrderTickets(
-      {
-        orderNo: ticketOrderNo,
-        tableLabel: activeTable.label,
-        orderType: orderTypeLabel,
-        guests: guestCount,
-        server: cashier.name,
-      },
-      ticketLines,
-    )
-    setSending(false)
-    if (printed.length === 0) return notify('The order is empty')
-    const names = printed.map(stationLabel).join(' + ')
-    notify(
-      synced
-        ? `Order #${ticketOrderNo} sent to ${names}`
-        : `Printed to ${names}, but saving to the server failed`,
-    )
   }
 
   // ---- Split ----------------------------------------------------------------

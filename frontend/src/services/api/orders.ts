@@ -150,6 +150,31 @@ export async function fetchOpenOrderForTable(tableId: number): Promise<ApiOrder 
   return orders.find((o) => OPEN_STATUSES.includes(o.status)) ?? null
 }
 
+// ---------------------------------------------------------------------------
+// Kitchen display
+// ---------------------------------------------------------------------------
+
+/** Statuses an order passes through before the kitchen is done with it. */
+const KITCHEN_QUEUE_STATUSES: ApiOrder['status'][] = ['new', 'preparing']
+
+/**
+ * The live kitchen queue — every order still to cook (just fired, or being
+ * prepared), oldest first so the display reads as a first-in-first-out ticket
+ * rail. One call pulls the whole board (comma-separated ?status=).
+ */
+export async function fetchKitchenTickets(): Promise<ApiOrder[]> {
+  const orders = await api<ApiOrder[]>(`/orders?status=${KITCHEN_QUEUE_STATUSES.join(',')}`)
+  // The index returns newest-first; the kitchen cooks oldest-first.
+  return orders
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+}
+
+/** Bump a ticket off the kitchen board — the food is cooked and plated. */
+export function markOrderReady(id: number): Promise<ApiOrder> {
+  return updateOrder(id, { status: 'ready' })
+}
+
 /**
  * Rebuild editable order lines from a saved order. The backend keeps one
  * order-level discount rather than per-line ones, and the POS only ever applies

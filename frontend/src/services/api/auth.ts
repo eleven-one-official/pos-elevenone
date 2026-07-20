@@ -32,7 +32,7 @@ type LoginResponse = { token: string; user: ApiUser }
 // ---------------------------------------------------------------------------
 
 /** Public roster for the tap-a-name login screen. */
-export function fetchStaffRoster(role?: 'waiter' | 'cashier'): Promise<StaffMember[]> {
+export function fetchStaffRoster(role?: 'waiter' | 'cashier' | 'kitchen'): Promise<StaffMember[]> {
   return api<StaffMember[]>(`/staff${role ? `?role=${role}` : ''}`)
 }
 

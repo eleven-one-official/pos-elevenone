@@ -12,6 +12,12 @@ use Illuminate\Validation\ValidationException;
 class AuthController extends Controller
 {
     /**
+     * Roles whose staff sign in with a single tap (no PIN): shared, fixed-device
+     * stations — the waiter tablet and the kitchen display.
+     */
+    private const PIN_LESS_ROLES = ['waiter', 'kitchen'];
+
+    /**
      * Authenticate a user by username + password and issue an API token.
      */
     public function login(Request $request): JsonResponse
@@ -57,10 +63,10 @@ class AuthController extends Controller
     }
 
     /**
-     * Public login roster for the tap-a-name POS/tablet screen. Waiters sign in
-     * with a single tap (no PIN); other staff appear only when a PIN is set.
-     * Never returns passwords, emails, or the PIN hash. Filter by role slug
-     * with ?role=waiter|cashier|...
+     * Public login roster for the tap-a-name POS/tablet screen. Waiter and
+     * kitchen stations sign in with a single tap (no PIN); other staff appear
+     * only when a PIN is set. Never returns passwords, emails, or the PIN hash.
+     * Filter by role slug with ?role=waiter|cashier|kitchen|...
      */
     public function staffRoster(Request $request): JsonResponse
     {
@@ -68,7 +74,7 @@ class AuthController extends Controller
             ->where('is_active', true)
             ->where(function ($q) {
                 $q->whereNotNull('pin')
-                    ->orWhereHas('role', fn ($r) => $r->where('slug', 'waiter'));
+                    ->orWhereHas('role', fn ($r) => $r->whereIn('slug', self::PIN_LESS_ROLES));
             })
             ->with('role:id,name,slug')
             ->orderBy('name');
@@ -120,9 +126,10 @@ class AuthController extends Controller
                     'pin' => ['The PIN is incorrect.'],
                 ]);
             }
-        } elseif ($user->role?->slug !== 'waiter') {
-            // PIN-less tap login is reserved for waiters; password accounts
-            // (admin, back-office cashier) must go through /login instead.
+        } elseif (! in_array($user->role?->slug, self::PIN_LESS_ROLES, true)) {
+            // PIN-less tap login is reserved for the shared station accounts
+            // (waiter, kitchen); password accounts (admin, back-office cashier)
+            // must go through /login instead.
             AuditLog::record('login_failed', $user, [], ['method' => 'pin'], $user->username);
 
             throw ValidationException::withMessages([
