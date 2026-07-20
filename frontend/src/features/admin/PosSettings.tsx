@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { LuX } from 'react-icons/lu'
 import { Loader, LoadingState } from '../../components/ui/Loader'
+import { useSettings } from '../../hooks/useSettings'
 import {
   fetchSettings,
   updateSettings,
   type StoreSettings,
 } from '../../services/api/settings'
-import { FieldGroup, LABEL, TEXT_INPUT } from './formKit'
+import { fetchPricelists, type Pricelist } from '../../services/api/pricelists'
+import { BLUE_SELECT, FieldGroup, LABEL, TEXT_INPUT } from './formKit'
 
 // ---------------------------------------------------------------------------
 // Configuration › Settings — the store settings form (GET/PUT /settings).
@@ -15,6 +17,10 @@ import { FieldGroup, LABEL, TEXT_INPUT } from './formKit'
 // ---------------------------------------------------------------------------
 
 export default function PosSettings() {
+  // Pushes freshly saved values into the app-wide settings context, so an
+  // open POS register picks up e.g. a new KHR rate without a re-login.
+  const { applySettings } = useSettings()
+
   const [loaded, setLoaded] = useState<StoreSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -22,6 +28,9 @@ export default function PosSettings() {
   const [storeAddress, setStoreAddress] = useState('')
   const [storePhone, setStorePhone] = useState('')
   const [khrRate, setKhrRate] = useState('')
+  const [openingFloat, setOpeningFloat] = useState('')
+  const [pricelistId, setPricelistId] = useState('')
+  const [pricelists, setPricelists] = useState<Pricelist[]>([])
 
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
@@ -35,10 +44,15 @@ export default function PosSettings() {
         setStoreAddress(s.storeAddress)
         setStorePhone(s.storePhone)
         setKhrRate(String(s.khrRate))
+        setOpeningFloat(String(s.openingFloat))
+        setPricelistId(s.defaultPricelistId ? String(s.defaultPricelistId) : '')
       })
       .catch((e: unknown) =>
         setLoadError(e instanceof Error ? e.message : 'Failed to load the settings.'),
       )
+    fetchPricelists()
+      .then(setPricelists)
+      .catch(() => {}) // the picker just stays empty; saving still works
   }
 
   useEffect(load, [])
@@ -46,12 +60,17 @@ export default function PosSettings() {
   const save = async () => {
     if (saving) return
     const rate = Number.parseFloat(khrRate.replace(/[^0-9.]/g, ''))
+    const float = Number.parseFloat(openingFloat.replace(/[^0-9.]/g, ''))
     if (!storeName.trim()) {
       setNotice({ ok: false, text: 'The store name is required.' })
       return
     }
     if (Number.isNaN(rate) || rate <= 0) {
       setNotice({ ok: false, text: 'Enter a valid KHR exchange rate (riel per dollar).' })
+      return
+    }
+    if (Number.isNaN(float) || float < 0) {
+      setNotice({ ok: false, text: 'Enter a valid opening float (0 or more).' })
       return
     }
     setSaving(true)
@@ -62,8 +81,12 @@ export default function PosSettings() {
         store_address: storeAddress.trim(),
         store_phone: storePhone.trim(),
         currency_khr_rate: rate,
+        default_pricelist_id: pricelistId ? Number(pricelistId) : null,
+        opening_float: float,
       })
       setLoaded(next)
+      // Live registers in this app session follow the new values immediately.
+      applySettings(next)
       setNotice({ ok: true, text: 'Settings saved.' })
     } catch (e: unknown) {
       setNotice({ ok: false, text: e instanceof Error ? e.message : 'Save failed. Try again.' })
@@ -113,6 +136,8 @@ export default function PosSettings() {
               setStoreAddress(loaded.storeAddress)
               setStorePhone(loaded.storePhone)
               setKhrRate(String(loaded.khrRate))
+              setOpeningFloat(String(loaded.openingFloat))
+              setPricelistId(loaded.defaultPricelistId ? String(loaded.defaultPricelistId) : '')
               setNotice(null)
             }}
             disabled={saving}
@@ -180,6 +205,42 @@ export default function PosSettings() {
                 <p className="mt-1.5 text-[12.5px] italic text-neutral-500">
                   Riel charged per US dollar — drives the KHR cash amounts on the payment screen
                   and the receipt.
+                </p>
+              </div>
+
+              <label className={LABEL}>Opening Float (USD)</label>
+              <div>
+                <input
+                  value={openingFloat}
+                  onChange={(e) => setOpeningFloat(e.target.value)}
+                  className={`${TEXT_INPUT} max-w-40`}
+                />
+                <p className="mt-1.5 text-[12.5px] italic text-neutral-500">
+                  Cash the drawer starts the day with — the base of the Cash In/Out balance on
+                  the register.
+                </p>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title="Pricing">
+              <label className={LABEL}>Default Pricelist</label>
+              <div>
+                <select
+                  value={pricelistId}
+                  onChange={(e) => setPricelistId(e.target.value)}
+                  className={`${BLUE_SELECT} max-w-64`}
+                >
+                  <option value="">None — plain menu prices</option>
+                  {pricelists.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.currency})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[12.5px] italic text-neutral-500">
+                  Applied to every new order the POS opens — its rules override menu prices
+                  (KHR rules convert at the rate above). Products without a rule keep their
+                  menu price.
                 </p>
               </div>
             </FieldGroup>

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  LuArrowRight,
   LuCamera,
   LuChevronLeft,
   LuChevronRight,
@@ -18,7 +17,6 @@ import type { ProductType } from '../../services/api/adminMenu'
 import ChooseLabelsLayoutDialog from './ChooseLabelsLayoutDialog'
 import { FieldGroup, LABEL } from './formKit'
 import type { Product } from './PosProducts'
-import StockRulesReport from './StockRulesReport'
 
 // ---------------------------------------------------------------------------
 // Product detail — the read-only Odoo form shown when a product is clicked in
@@ -75,10 +73,6 @@ export default function PosProductDetail({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // View Diagram on the Inventory tab swaps the screen for the Stock Rules
-  // Report, Odoo style.
-  const [diagramOpen, setDiagramOpen] = useState(false)
-
   const raw = product.raw
 
   const runAction = async (action: () => Promise<void>) => {
@@ -91,16 +85,6 @@ export default function PosProductDetail({
     } finally {
       setBusy(false)
     }
-  }
-
-  if (diagramOpen) {
-    return (
-      <StockRulesReport
-        productName={product.name}
-        onProducts={onBack}
-        onBack={() => setDiagramOpen(false)}
-      />
-    )
   }
 
   return (
@@ -413,18 +397,12 @@ export default function PosProductDetail({
                         <input
                           type="checkbox"
                           defaultChecked
+                          disabled
+                          title="Display only — the venue keeps no inventory"
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         Buy
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setDiagramOpen(true)}
-                        className="mt-2.5 flex items-center gap-1.5 transition hover:underline"
-                      >
-                        <LuArrowRight className="h-3.5 w-3.5 text-teal-600" />
-                        View Diagram
-                      </button>
                     </div>
                   </FieldGroup>
 

@@ -1,10 +1,10 @@
 // Base HTTP client for the Laravel API.
 //
-// The base URL defaults to the local artisan server; override it with
-// VITE_API_URL in frontend/.env when the tablets reach the POS machine over
-// the LAN (e.g. VITE_API_URL=http://192.168.1.10:8000/api).
+// The base URL defaults to the local artisan server (port 8001 — BYD owns
+// 8000); override it with VITE_API_URL in frontend/.env when the tablets
+// reach the POS machine over the LAN (e.g. VITE_API_URL=https://192.168.1.10:8443/api).
 
-export const API_BASE: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api'
+export const API_BASE: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8001/api'
 
 // Backend origin without the /api suffix — uploaded files live there under
 // /storage (e.g. http://127.0.0.1:8001/storage/menu-items/x.jpg).
@@ -29,6 +29,15 @@ export function setToken(next: string | null): void {
   token = next
   if (next) localStorage.setItem(TOKEN_KEY, next)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+// Fired when the API rejects the stored token (expired or revoked). The token
+// is already cleared by then; the app drops its session and shows the login
+// screen instead of leaving every screen stuck on failing retries.
+let unauthorizedHandler: (() => void) | null = null
+
+export function setOnUnauthorized(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
 }
 
 /** Error thrown for any non-2xx response, carrying Laravel's message + errors bag. */
@@ -79,6 +88,13 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   }
 
   if (!res.ok) {
+    // 401 with a token attached means that token is dead — a session expiry,
+    // not a bad credential (login endpoints answer 422 for those).
+    if (res.status === 401 && token) {
+      setToken(null)
+      unauthorizedHandler?.()
+    }
+
     let message = `Request failed (${res.status})`
     let errors: Record<string, string[]> | undefined
     try {

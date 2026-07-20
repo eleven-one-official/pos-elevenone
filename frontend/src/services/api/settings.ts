@@ -13,6 +13,10 @@ export type StoreSettings = {
   storePhone: string
   /** Riel per US dollar. */
   khrRate: number
+  /** Pricelist the backend applies to new orders; null = plain menu prices. */
+  defaultPricelistId: number | null
+  /** USD the cash drawer starts the day with. */
+  openingFloat: number
 }
 
 /** Fallbacks used before the API responds or if it can't be reached. */
@@ -21,6 +25,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   storeAddress: 'Street 123, Phnom Penh, Cambodia',
   storePhone: '012 345 678',
   khrRate: 4100,
+  defaultPricelistId: null,
+  openingFloat: 100,
 }
 
 type RawSettings = Record<string, string | null>
@@ -32,11 +38,14 @@ function num(value: string | null | undefined, fallback: number): number {
 }
 
 function parse(raw: RawSettings): StoreSettings {
+  const pricelist = num(raw.default_pricelist_id, 0)
   return {
     storeName: raw.store_name || DEFAULT_SETTINGS.storeName,
     storeAddress: raw.store_address || DEFAULT_SETTINGS.storeAddress,
     storePhone: raw.store_phone || DEFAULT_SETTINGS.storePhone,
     khrRate: num(raw.currency_khr_rate, DEFAULT_SETTINGS.khrRate),
+    defaultPricelistId: pricelist > 0 ? pricelist : null,
+    openingFloat: num(raw.opening_float, DEFAULT_SETTINGS.openingFloat),
   }
 }
 
@@ -50,6 +59,8 @@ export type SettingsUpdate = {
   store_address?: string
   store_phone?: string
   currency_khr_rate?: number
+  default_pricelist_id?: number | null
+  opening_float?: number
 }
 
 export function updateSettings(patch: SettingsUpdate): Promise<StoreSettings> {

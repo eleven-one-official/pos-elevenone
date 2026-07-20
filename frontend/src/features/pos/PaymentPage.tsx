@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  LuArrowLeftRight,
   LuChevronLeft,
   LuChevronsLeft,
   LuChevronsRight,
   LuCircleX,
-  LuClipboardList,
   LuDelete,
-  LuFileText,
   LuLock,
   LuPower,
   LuRefreshCw,
@@ -16,12 +13,14 @@ import {
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import { LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
+import CustomerDialog from './CustomerDialog'
 import {
   DEFAULT_PAYMENT_METHODS,
   fetchActivePaymentMethods,
   type PaymentMethodRow,
 } from '../../services/api/paymentMethods'
 import type { Cashier } from '../auth/CashierLoginDialog'
+import type { Customer } from '../../services/api/customers'
 import type { PosTable } from './TableFloorPage'
 import type { PayMethodBackend } from '../../services/api/payments'
 
@@ -29,8 +28,18 @@ import type { PayMethodBackend } from '../../services/api/payments'
 // Payment methods
 // ---------------------------------------------------------------------------
 
-/** One tender to record on the backend, grouped by backend channel. */
-export type Tender = { method: PayMethodBackend; amount: number }
+/** One tender to record on the backend — one row per journal, so the money
+ *  trail keeps which journal (Cash USD, Cash KHR, Grab, …) took it and in
+ *  what currency. `amount` is always USD. */
+export type Tender = {
+  method: PayMethodBackend
+  amount: number
+  /** Backend payment_methods id; absent when the offline fallback list was used. */
+  paymentMethodId?: number
+  currency: 'USD' | 'KHR'
+  /** Riel per USD at payment time — sent for KHR tenders. */
+  exchangeRate?: number
+}
 
 /** One method's tender as shown on the receipt. `amount` is always in USD;
  *  `inKhr` marks riel cash so the receipt prints it in the currency the
@@ -80,12 +89,16 @@ export default function PaymentPage({
   cashier,
   table,
   total,
+  customer,
+  onChangeCustomer,
   onBack,
   onValidate,
 }: {
   cashier: Cashier
   table: PosTable
   total: number
+  customer: Customer | null
+  onChangeCustomer: (c: Customer | null) => void
   onBack: () => void
   onValidate: (result: PaymentResult) => void
 }) {
@@ -93,6 +106,7 @@ export default function PaymentPage({
   const [lines, setLines] = useState<TenderLine[]>([])
   const [selectedUid, setSelectedUid] = useState<number | null>(null)
   const [entry, setEntry] = useState<string | null>(null)
+  const [customerOpen, setCustomerOpen] = useState(false)
   const uidRef = useRef(1)
   const { khrRate } = useSettings()
 
@@ -126,7 +140,6 @@ export default function PaymentPage({
   const change = Math.max(0, tendered - total)
   const settled = remaining <= 0.001
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
-  const orders = table.orders
   const methodLabel = (id: number) => methodList.find((m) => m.id === id)?.label ?? '—'
 
   // Tapping a method opens a tender line prefilled with what's still owed;
@@ -192,15 +205,25 @@ export default function PaymentPage({
     let used = methodList.filter((m) => (byMethod.get(m.id) ?? 0) !== 0)
     // A zero-total bill tenders nothing; still name a method for the record.
     if (used.length === 0) used = methodList.slice(0, 1)
-    // Group the entered tenders by backend channel, then cap them to the bill so
-    // recorded revenue equals the total due (any cash overpay is change, not sales).
-    const grouped = new Map<PayMethodBackend, number>()
-    for (const m of used) grouped.set(m.channel, (grouped.get(m.channel) ?? 0) + (byMethod.get(m.id) ?? 0))
+    // One tender per journal (not per channel) so the record keeps WHICH
+    // journal took the money and in what currency; each is capped to what's
+    // still owed so recorded revenue equals the total due (any cash overpay
+    // is change, not sales).
     const tenders: Tender[] = []
     let left = total
-    for (const [method, amount] of grouped) {
+    for (const m of used) {
+      const amount = byMethod.get(m.id) ?? 0
       const applied = Math.min(amount, left)
-      if (applied > 0.001) tenders.push({ method, amount: Math.round(applied * 100) / 100 })
+      if (applied > 0.001) {
+        const inKhr = m.channel === 'cash' && /khr|riel/i.test(m.label)
+        tenders.push({
+          method: m.channel,
+          amount: Math.round(applied * 100) / 100,
+          paymentMethodId: m.id > 0 ? m.id : undefined,
+          currency: inKhr ? 'KHR' : 'USD',
+          exchangeRate: inKhr ? khrRate : undefined,
+        })
+      }
       left = Math.max(0, left - amount)
     }
     onValidate({
@@ -225,26 +248,6 @@ export default function PaymentPage({
       <header className="flex h-16 shrink-0 items-center gap-1 bg-[#2b2138] px-4 text-white shadow-md">
         <ElevenOneLogo />
         <div className="mx-3 h-8 w-px bg-white/15" />
-
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-white/90 transition hover:bg-white/10"
-        >
-          <LuArrowLeftRight className="h-5 w-5" />
-          <span className="text-sm font-medium">Cash In/Out</span>
-        </button>
-        <button
-          type="button"
-          className="relative flex items-center gap-2 rounded-lg px-3 py-2 text-white/90 transition hover:bg-white/10"
-        >
-          <LuClipboardList className="h-5 w-5" />
-          <span className="text-sm font-medium">Orders</span>
-          {orders > 0 && (
-            <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-white">
-              {orders}
-            </span>
-          )}
-        </button>
 
         <button
           type="button"
@@ -419,26 +422,42 @@ export default function PaymentPage({
             <div className="flex w-56 shrink-0 flex-col gap-3">
               <button
                 type="button"
-                className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-sm transition hover:bg-neutral-50"
+                onClick={() => setCustomerOpen(true)}
+                className={`flex items-center gap-3 rounded-xl border px-4 py-4 shadow-sm transition ${
+                  customer
+                    ? 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
+                    : 'border-neutral-200 bg-white hover:bg-neutral-50'
+                }`}
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-600">
+                <span
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                    customer ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-600'
+                  }`}
+                >
                   <LuUser className="h-5 w-5" />
                 </span>
-                <span className="font-semibold text-neutral-700">Customer</span>
-              </button>
-              <button
-                type="button"
-                className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-sm transition hover:bg-neutral-50"
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-600">
-                  <LuFileText className="h-5 w-5" />
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate font-semibold text-neutral-700">
+                    {customer ? customer.name : 'Customer'}
+                  </span>
+                  {customer && <span className="block text-xs text-emerald-700">On this bill</span>}
                 </span>
-                <span className="font-semibold text-neutral-700">Invoice</span>
               </button>
             </div>
           </div>
         </div>
       </div>
+
+      {customerOpen && (
+        <CustomerDialog
+          current={customer}
+          onChoose={(c) => {
+            onChangeCustomer(c)
+            setCustomerOpen(false)
+          }}
+          onClose={() => setCustomerOpen(false)}
+        />
+      )}
     </div>
   )
 }

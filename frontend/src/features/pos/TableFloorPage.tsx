@@ -16,6 +16,7 @@ import type { Cashier } from '../auth/CashierLoginDialog'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
 import { LoadingState } from '../../components/ui/Loader'
+import { useSettings } from '../../hooks/useSettings'
 import { useTables } from '../../hooks/useTables'
 
 // ---------------------------------------------------------------------------
@@ -207,6 +208,32 @@ function LegendItem({ color, label }: { color: string; label: string }) {
 // Page
 // ---------------------------------------------------------------------------
 
+// The drawer log only matters for the current day, so it's stored with its
+// date and dropped the first time the floor opens on a new day.
+const MOVEMENTS_KEY = 'pos_cash_movements'
+
+function loadTodaysMovements(): CashMovement[] {
+  try {
+    const raw = localStorage.getItem(MOVEMENTS_KEY)
+    if (!raw) return []
+    const stored = JSON.parse(raw) as { date?: string; movements?: CashMovement[] }
+    return stored.date === new Date().toDateString() ? (stored.movements ?? []) : []
+  } catch {
+    return []
+  }
+}
+
+function saveTodaysMovements(movements: CashMovement[]): void {
+  try {
+    localStorage.setItem(
+      MOVEMENTS_KEY,
+      JSON.stringify({ date: new Date().toDateString(), movements }),
+    )
+  } catch {
+    // Storage full/blocked — the in-memory log still works for this session.
+  }
+}
+
 export default function TableFloorPage({
   cashier,
   onSelectTable,
@@ -225,20 +252,26 @@ export default function TableFloorPage({
   const takeaway = floor.filter((t) => t.section === 'takeaway')
   const activeOrders = floor.reduce((sum, t) => sum + t.orders, 0)
 
-  // Cash drawer state — session-only for now; persist to the register API once wired.
+  // Cash drawer — the day's movements survive a reload via localStorage
+  // (yesterday's log is discarded); the opening float is an admin setting.
+  const { openingFloat } = useSettings()
   const [cashOpen, setCashOpen] = useState(false)
-  const [movements, setMovements] = useState<CashMovement[]>([])
+  const [movements, setMovements] = useState<CashMovement[]>(loadTodaysMovements)
 
   function recordMovement(m: Omit<CashMovement, 'id' | 'time' | 'cashier'>) {
-    setMovements((prev) => [
-      ...prev,
-      {
-        ...m,
-        id: String(Date.now()),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        cashier: cashier.name,
-      },
-    ])
+    setMovements((prev) => {
+      const next = [
+        ...prev,
+        {
+          ...m,
+          id: String(Date.now()),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          cashier: cashier.name,
+        },
+      ]
+      saveTodaysMovements(next)
+      return next
+    })
   }
 
   return (
@@ -322,6 +355,7 @@ export default function TableFloorPage({
       {cashOpen && (
         <CashInOutDialog
           movements={movements}
+          openingFloat={openingFloat}
           onSubmit={recordMovement}
           onClose={() => setCashOpen(false)}
         />

@@ -206,7 +206,7 @@ class ReportController extends Controller
         $lines = OrderItem::query()
             ->with(['order.user:id,name', 'menuItem:id,category_id,cost', 'menuItem.category:id,name'])
             ->whereHas('order', function ($q) use ($start) {
-                $q->where('status', '!=', 'cancelled');
+                $q->whereNotIn('status', ['cancelled', 'refunded']);
                 if ($start) {
                     $q->where('created_at', '>=', $start);
                 }
@@ -280,7 +280,7 @@ class ReportController extends Controller
      */
     public function topItems(Request $request): JsonResponse
     {
-        $limit = $request->integer('limit') ?: 10;
+        $limit = min($request->integer('limit') ?: 10, 100);
 
         $items = OrderItem::select(
             'menu_item_id',
@@ -289,6 +289,8 @@ class ReportController extends Controller
             DB::raw('SUM(line_total) as total_sales')
         )
             ->whereNotNull('menu_item_id')
+            // Dead orders don't make best-sellers.
+            ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled', 'refunded']))
             ->groupBy('menu_item_id', 'name')
             ->orderByDesc('total_quantity')
             ->limit($limit)

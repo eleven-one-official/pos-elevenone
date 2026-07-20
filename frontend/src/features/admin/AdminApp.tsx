@@ -19,6 +19,7 @@ import type { Waiter } from '../waiter/WaiterLoginDialog'
 import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
+import PosCategories from './PosCategories'
 import PosCustomers from './PosCustomers'
 import PosDashboard from './PosDashboard'
 import PosOrders from './PosOrders'
@@ -26,6 +27,7 @@ import PosOrdersAnalysis from './PosOrdersAnalysis'
 import PosPaymentMethods from './PosPaymentMethods'
 import PosPricelists from './PosPricelists'
 import PosProducts from './PosProducts'
+import PosSalesDashboard from './PosSalesDashboard'
 import PosSessionLogin from './PosSessionLogin'
 import PosSettings from './PosSettings'
 import PosTables from './PosTables'
@@ -76,12 +78,14 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
     label: 'Products',
     items: [
       { id: 'products', label: 'Products' },
+      { id: 'categories', label: 'Categories' },
       { id: 'pricelists', label: 'Pricelists' },
     ],
   },
   {
     label: 'Reporting',
     items: [
+      { id: 'sales-dashboard', label: 'Sales Dashboard' },
       { id: 'reporting-orders', label: 'Orders' },
       { id: 'sales-details', label: 'Sales Details' },
       { id: 'audit-log', label: 'Audit Log' },
@@ -208,6 +212,8 @@ export default function AdminApp({
       <PosOrders />
     ) : tab.menu === 'Products' && tab.item === 'Products' ? (
       <PosProducts />
+    ) : tab.menu === 'Products' && tab.item === 'Categories' ? (
+      <PosCategories />
     ) : tab.menu === 'Products' && tab.item === 'Pricelists' ? (
       <PosPricelists />
     ) : tab.menu === 'Configuration' && tab.item === 'Settings' ? (
@@ -218,6 +224,8 @@ export default function AdminApp({
       <PosTables />
     ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
       <PosAuditLog />
+    ) : tab.menu === 'Reporting' && tab.item === 'Sales Dashboard' ? (
+      <PosSalesDashboard />
     ) : tab.menu === 'Reporting' ? (
       // Odoo shows Sales Details as a dialog OVER the Orders Analysis screen.
       <>

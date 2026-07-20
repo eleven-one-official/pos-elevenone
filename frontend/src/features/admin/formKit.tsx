@@ -45,6 +45,7 @@ export function Many2OneField({
   blue = false,
   limit = 7,
   onSelect,
+  disabled = false,
 }: {
   /** Field label — names the "Search: <title>" dialog and its column. */
   title: string
@@ -56,11 +57,26 @@ export function Many2OneField({
   /** Rows shown in the dropdown before "Search More...". */
   limit?: number
   onSelect?: (value: string) => void
+  /** Display-only chrome: the dropdown never opens, so nothing looks savable. */
+  disabled?: boolean
 }) {
   const [selected, setSelected] = useState(value)
   const [open, setOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [active, setActive] = useState(0)
+
+  if (disabled) {
+    return (
+      <span className="relative block w-full" title="Display only — not saved yet">
+        <input
+          readOnly
+          value={selected}
+          className={`${blue ? BLUE_SELECT : TEXT_INPUT} cursor-default select-none caret-transparent pr-7 text-neutral-500`}
+        />
+        <LuChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-300" />
+      </span>
+    )
+  }
 
   const visible = options.slice(0, limit)
   const activeIdx = Math.min(active, visible.length - 1)
@@ -195,10 +211,14 @@ export function NoteSection({
         {title}
       </div>
       <div className="relative mt-2">
+        {/* Without onChange this is display-only chrome — keep it read-only
+            so typed text can't look savable and then silently vanish. */}
         <textarea
           placeholder={placeholder}
           value={onChange ? (value ?? '') : undefined}
           onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+          readOnly={!onChange}
+          title={onChange ? undefined : 'Display only — not saved yet'}
           className="min-h-14 w-full resize-y rounded-[2px] border border-neutral-200 px-3 py-2 pr-10 text-sm outline-none transition placeholder:text-neutral-500 focus:border-sky-600"
         />
         <span className="absolute right-3 top-2 text-[12px] font-semibold text-neutral-500">EN</span>

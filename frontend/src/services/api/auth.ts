@@ -55,6 +55,11 @@ export async function passwordLogin(username: string, password: string): Promise
   return user
 }
 
+/** The user behind the stored token — used to restore a session on app boot. */
+export function fetchMe(): Promise<ApiUser> {
+  return api<ApiUser>('/me')
+}
+
 /** Revoke the current token server-side and forget it locally. */
 export async function logout(): Promise<void> {
   try {

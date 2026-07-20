@@ -1,12 +1,9 @@
 import { useState } from 'react'
 import {
-  LuArrowLeftRight,
   LuCheck,
   LuChevronsLeft,
-  LuClipboardList,
   LuFileText,
   LuLock,
-  LuMail,
   LuPower,
   LuPrinter,
   LuRefreshCw,
@@ -93,6 +90,7 @@ export default function ReceiptPage({
   guests: guestsProp,
   customerName,
   payment,
+  warning,
   onBackToTables,
   onSeeOrder,
 }: {
@@ -105,6 +103,8 @@ export default function ReceiptPage({
   guests?: number
   customerName?: string
   payment: PaymentResult
+  /** Persistent banner when the sale failed to record on the backend. */
+  warning?: string | null
   onBackToTables: () => void
   onSeeOrder: () => void
 }) {
@@ -122,7 +122,6 @@ export default function ReceiptPage({
 
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   const guests = guestsProp ?? (table.guests > 0 ? table.guests : 2)
-  const orders = table.orders
 
   const printReceipt = () => window.print()
 
@@ -132,26 +131,6 @@ export default function ReceiptPage({
       <header className="flex h-16 shrink-0 items-center gap-1 bg-[#2b2138] px-4 text-white shadow-md">
         <ElevenOneLogo />
         <div className="mx-3 h-8 w-px bg-white/15" />
-
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-white/90 transition hover:bg-white/10"
-        >
-          <LuArrowLeftRight className="h-5 w-5" />
-          <span className="text-sm font-medium">Cash In/Out</span>
-        </button>
-        <button
-          type="button"
-          className="relative flex items-center gap-2 rounded-lg px-3 py-2 text-white/90 transition hover:bg-white/10"
-        >
-          <LuClipboardList className="h-5 w-5" />
-          <span className="text-sm font-medium">Orders</span>
-          {orders > 0 && (
-            <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-white">
-              {orders}
-            </span>
-          )}
-        </button>
 
         <button
           type="button"
@@ -220,6 +199,16 @@ export default function ReceiptPage({
           Print Receipt
         </button>
       </div>
+
+      {/* Stays on screen (never printed) until the receipt is dismissed. */}
+      {warning && (
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-rose-200 bg-rose-50 px-6 py-3 text-sm font-semibold text-rose-700 print:hidden">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white">
+            !
+          </span>
+          {warning}
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex flex-1 gap-6 overflow-auto p-6">
@@ -349,8 +338,6 @@ export default function ReceiptPage({
 
           <div className="mt-8 flex w-full max-w-xs flex-col gap-3">
             <ActionButton icon={LuPrinter} label="Print Again" onClick={printReceipt} />
-            {/* Email delivery is a placeholder until the backend exposes it. */}
-            <ActionButton icon={LuMail} label="Email Receipt" />
             <ActionButton icon={LuFileText} label="See Order" onClick={onSeeOrder} />
             <button
               type="button"

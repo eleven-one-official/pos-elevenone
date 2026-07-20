@@ -27,8 +27,8 @@ php artisan key:generate
 php artisan migrate:fresh --seed
 
 # 5. Start the API server
-php artisan serve
-# API base URL: http://127.0.0.1:8000/api
+php artisan serve --port=8001
+# API base URL: http://127.0.0.1:8001/api  (BYD owns :8000)
 ```
 
 ## Database connection (`.env`)

@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
 import {
-  LuArrowRight,
   LuArrowRightLeft,
   LuCamera,
   LuChevronDown,
@@ -35,7 +34,6 @@ import {
   NoteSection,
   TEXT_INPUT,
 } from './formKit'
-import StockRulesReport from './StockRulesReport'
 
 // ---------------------------------------------------------------------------
 // Product form — Odoo-style, used both for Products / New and for editing an
@@ -148,10 +146,6 @@ export default function PosProductForm({
   const [printLabelsOpen, setPrintLabelsOpen] = useState(
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('print-labels'),
   )
-  // View Diagram on the Inventory tab swaps the screen for the Stock Rules
-  // Report, Odoo style.
-  const [diagramOpen, setDiagramOpen] = useState(false)
-
   // --- Editable fields (everything the menu-items API persists) ------------
   const [name, setName] = useState(product?.name ?? '')
   const [canBeSold, setCanBeSold] = useState(product?.can_be_sold ?? true)
@@ -218,16 +212,6 @@ export default function PosProductForm({
       setError(saveErrorText(e))
       setSaving(false)
     }
-  }
-
-  if (diagramOpen) {
-    return (
-      <StockRulesReport
-        productName={product ? product.name : 'New'}
-        onProducts={onBack}
-        onBack={() => setDiagramOpen(false)}
-      />
-    )
   }
 
   return (
@@ -437,7 +421,7 @@ export default function PosProductForm({
                     </select>
 
                     <label className={LABEL}>Invoicing Policy</label>
-                    <select className={BLUE_SELECT}>
+                    <select disabled title="Display only — not saved yet" className={BLUE_SELECT}>
                       <option>Ordered quantities</option>
                       <option>Delivered quantities</option>
                     </select>
@@ -445,12 +429,13 @@ export default function PosProductForm({
                     <label className="pt-0.5 text-[13px] font-bold text-neutral-800">
                       Re-Invoice Expenses
                     </label>
-                    <div className="text-[13px] text-neutral-700">
+                    <div className="text-[13px] text-neutral-700" title="Display only — not saved yet">
                       <label className="flex items-center gap-1.5">
                         <input
                           type="radio"
                           name="reinvoice"
                           defaultChecked
+                          disabled
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         No
@@ -459,6 +444,7 @@ export default function PosProductForm({
                         <input
                           type="radio"
                           name="reinvoice"
+                          disabled
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         At cost
@@ -467,6 +453,7 @@ export default function PosProductForm({
                         <input
                           type="radio"
                           name="reinvoice"
+                          disabled
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         Sales price
@@ -483,13 +470,13 @@ export default function PosProductForm({
 
                     <label className={LABEL}>Unit of Measure</label>
                     <span className="flex items-center gap-2">
-                      <Many2OneField blue title="Unit of Measure" options={UOM_OPTIONS} value="kg" />
+                      <Many2OneField blue disabled title="Unit of Measure" options={UOM_OPTIONS} value="kg" />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
 
                     <label className={LABEL}>Purchase UoM</label>
                     <span className="flex items-center gap-2">
-                      <Many2OneField blue title="Unit of Measure" options={UOM_OPTIONS} value="kg" />
+                      <Many2OneField blue disabled title="Unit of Measure" options={UOM_OPTIONS} value="kg" />
                       <LuExternalLink className="h-4 w-4 shrink-0 text-neutral-500" />
                     </span>
                   </FieldGroup>
@@ -575,6 +562,8 @@ export default function PosProductForm({
                     <label className={LABEL}>To Weigh With Scale</label>
                     <input
                       type="checkbox"
+                      disabled
+                      title="Display only — not saved yet"
                       className="mt-1.5 h-3.5 w-3.5 justify-self-start accent-teal-700"
                     />
 
@@ -609,7 +598,9 @@ export default function PosProductForm({
                   </div>
                   <button
                     type="button"
-                    className="w-full border-b border-neutral-100 py-2 text-left text-sky-700 transition hover:underline"
+                    disabled
+                    title="Display only — purchasing isn't modelled yet"
+                    className="w-full cursor-default border-b border-neutral-100 py-2 text-left text-sky-700/50"
                   >
                     Add a line
                   </button>
@@ -623,11 +614,12 @@ export default function PosProductForm({
                     <DropdownStub />
 
                     <label className={LABEL}>Control Policy</label>
-                    <div className="text-[13px] text-neutral-700">
+                    <div className="text-[13px] text-neutral-700" title="Display only — not saved yet">
                       <label className="flex items-center gap-1.5">
                         <input
                           type="radio"
                           name="control-policy"
+                          disabled
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         On ordered quantities
@@ -637,6 +629,7 @@ export default function PosProductForm({
                           type="radio"
                           name="control-policy"
                           defaultChecked
+                          disabled
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         On received quantities
@@ -664,18 +657,12 @@ export default function PosProductForm({
                         <input
                           type="checkbox"
                           defaultChecked
+                          disabled
+                          title="Display only — the venue keeps no inventory"
                           className="h-3.5 w-3.5 accent-teal-700"
                         />
                         Buy
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setDiagramOpen(true)}
-                        className="mt-2.5 flex items-center gap-1.5 transition hover:underline"
-                      >
-                        <LuArrowRight className="h-3.5 w-3.5 text-teal-600" />
-                        View Diagram
-                      </button>
                     </div>
                   </FieldGroup>
 
@@ -695,14 +682,14 @@ export default function PosProductForm({
                     </span>
 
                     <label className={LABEL}>Weight</label>
-                    <input defaultValue="0.00" className={TEXT_INPUT} />
+                    <input readOnly defaultValue="0.00" title="Display only — not saved yet" className={`${TEXT_INPUT} text-neutral-500`} />
 
                     <label className={LABEL}>Volume</label>
-                    <input defaultValue="0.00" className={TEXT_INPUT} />
+                    <input readOnly defaultValue="0.00" title="Display only — not saved yet" className={`${TEXT_INPUT} text-neutral-500`} />
 
                     <label className={LABEL}>Customer Lead Time</label>
                     <span className="flex items-center gap-2 text-[13px] text-neutral-700">
-                      <input defaultValue="0.00" className={`${TEXT_INPUT} max-w-44`} />
+                      <input readOnly defaultValue="0.00" title="Display only — not saved yet" className={`${TEXT_INPUT} max-w-44 text-neutral-500`} />
                       days
                     </span>
                   </FieldGroup>
@@ -726,18 +713,18 @@ export default function PosProductForm({
               <div className="grid grid-cols-1 gap-x-16 gap-y-8 px-8 py-5 pb-24 xl:grid-cols-2">
                 <FieldGroup title="Receivables">
                   <label className={LABEL}>Income Account</label>
-                  <Many2OneField title="Income Account" options={ACCOUNT_OPTIONS} />
+                  <Many2OneField disabled title="Income Account" options={ACCOUNT_OPTIONS} />
                 </FieldGroup>
 
                 <FieldGroup title="Payables">
                   <label className={LABEL}>Expense Account</label>
-                  <Many2OneField title="Expense Account" options={EXPENSE_ACCOUNT_OPTIONS} />
+                  <Many2OneField disabled title="Expense Account" options={EXPENSE_ACCOUNT_OPTIONS} />
 
                   <label className={LABEL}>Asset Type</label>
-                  <Many2OneField title="Asset Type" options={[]} />
+                  <Many2OneField disabled title="Asset Type" options={[]} />
 
                   <label className={LABEL}>Price Difference Account</label>
-                  <Many2OneField title="Price Difference Account" options={ACCOUNT_OPTIONS} />
+                  <Many2OneField disabled title="Price Difference Account" options={ACCOUNT_OPTIONS} />
                 </FieldGroup>
               </div>
             )}

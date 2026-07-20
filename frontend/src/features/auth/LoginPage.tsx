@@ -41,7 +41,14 @@ function BrandPanel() {
   )
 }
 
-export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) => void }) {
+export default function LoginPage({
+  onLogin,
+  notice,
+}: {
+  onLogin?: (cashier: Cashier) => void
+  /** One-off banner above the form, e.g. "Your session expired". */
+  notice?: string | null
+}) {
   const [showPassword, setShowPassword] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -59,7 +66,7 @@ export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) =>
     setError('')
     try {
       const user = await passwordLogin(username.trim(), password)
-      onLogin?.({ id: String(user.id), name: user.name, role: user.role?.name })
+      onLogin?.({ id: String(user.id), name: user.name, role: user.role?.name, slug: user.role?.slug })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Login failed. Try again.')
       setSubmitting(false)
@@ -80,7 +87,13 @@ export default function LoginPage({ onLogin }: { onLogin?: (cashier: Cashier) =>
               className="mx-auto h-32 w-auto select-none"
             />
 
-            <form className="mt-11 space-y-6" onSubmit={handleSignIn}>
+            {notice && (
+              <p className="mt-8 rounded-xl bg-amber-50 px-4 py-3 text-center text-sm font-medium text-amber-700">
+                {notice}
+              </p>
+            )}
+
+            <form className={`${notice ? 'mt-5' : 'mt-11'} space-y-6`} onSubmit={handleSignIn}>
               <div>
                 <label htmlFor="username" className="mb-2.5 block font-semibold text-neutral-800">
                   Username

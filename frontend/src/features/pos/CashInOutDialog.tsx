@@ -18,10 +18,6 @@ export type CashMovement = {
   cashier: string
 }
 
-// Opening float placeholder — wire to the backend's session opening balance
-// once the register API exists.
-export const OPENING_FLOAT = 100
-
 const money = (n: number) => `$ ${n.toFixed(2)}`
 
 // Reason chips offered per movement type (Odoo's typical cash-move reasons).
@@ -38,10 +34,13 @@ const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del']
 
 export default function CashInOutDialog({
   movements,
+  openingFloat,
   onSubmit,
   onClose,
 }: {
   movements: CashMovement[]
+  /** Drawer balance at open of day — an admin setting. */
+  openingFloat: number
   onSubmit: (movement: Omit<CashMovement, 'id' | 'time' | 'cashier'>) => void
   onClose: () => void
 }) {
@@ -57,9 +56,9 @@ export default function CashInOutDialog({
     () =>
       movements.reduce(
         (sum, m) => sum + (m.type === 'in' ? m.amount : -m.amount),
-        OPENING_FLOAT,
+        openingFloat,
       ),
-    [movements],
+    [movements, openingFloat],
   )
 
   const isIn = type === 'in'

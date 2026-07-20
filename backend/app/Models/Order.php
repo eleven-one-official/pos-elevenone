@@ -3,19 +3,22 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Order extends Model
 {
-    use Auditable;
+    use Auditable, HasFactory;
 
     protected $fillable = [
         'order_number',
         'order_type',
         'table_id',
         'user_id',
+        'customer_id',
+        'pricelist_id',
         'status',
         'guest_count',
         'subtotal',
@@ -44,6 +47,16 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function pricelist(): BelongsTo
+    {
+        return $this->belongsTo(Pricelist::class);
     }
 
     public function items(): HasMany

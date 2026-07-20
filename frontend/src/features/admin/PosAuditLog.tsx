@@ -18,7 +18,6 @@ const EVENT_OPTIONS = [
   'updated',
   'deleted',
   'price_change',
-  'stock_adjustment',
 ] as const
 
 const TYPE_OPTIONS = [
@@ -44,7 +43,6 @@ const EVENT_TINT: Record<string, string> = {
   sale: 'bg-teal-100 text-teal-800',
   refund: 'bg-orange-100 text-orange-800',
   price_change: 'bg-violet-100 text-violet-800',
-  stock_adjustment: 'bg-indigo-100 text-indigo-800',
 }
 
 function formatValue(value: unknown): string {
@@ -104,7 +102,7 @@ export default function PosAuditLog() {
           <div>
             <h1 className="text-xl text-neutral-700">Audit Log</h1>
             <p className="mt-1 text-[13px] text-neutral-500">
-              Records every login, sale, refund, delete, price change and stock adjustment.
+              Records every login, sale, refund, delete and price change.
             </p>
           </div>
 

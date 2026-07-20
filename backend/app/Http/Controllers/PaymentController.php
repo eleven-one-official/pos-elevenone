@@ -38,15 +38,34 @@ class PaymentController extends Controller
         $data = $request->validate([
             'order_id' => ['required', 'exists:orders,id'],
             'method' => ['required', 'in:cash,aba_qr,khqr,card'],
+            // The journal (Cash USD, Cash KHR, Grab, …) behind the channel.
+            'payment_method_id' => ['nullable', 'exists:payment_methods,id'],
+            // `amount` is ALWAYS in USD (the base currency every report sums);
+            // currency + exchange_rate record what the guest actually tendered.
             'amount' => ['required', 'numeric', 'min:0'],
+            'currency' => ['nullable', 'in:USD,KHR'],
+            'exchange_rate' => ['nullable', 'numeric', 'min:1', 'required_if:currency,KHR'],
             'received' => ['nullable', 'numeric', 'min:0'],
             'reference' => ['nullable', 'string', 'max:255'],
             'complete_order' => ['boolean'],
         ]);
 
-        $payment = DB::transaction(function () use ($data) {
-            $order = Order::findOrFail($data['order_id']);
+        $order = Order::findOrFail($data['order_id']);
 
+        // A closed bill takes no more money — this blocks double charges from
+        // a retried request or a second terminal settling the same order.
+        if (in_array($order->status, ['completed', 'cancelled', 'refunded'], true)) {
+            return response()->json([
+                'message' => "This order is already {$order->status} — no further payment can be taken.",
+            ], 422);
+        }
+
+        $alreadyPaid = (float) $order->payments()->where('status', 'paid')->sum('amount');
+        if ((float) $order->total > 0 && $alreadyPaid >= (float) $order->total) {
+            return response()->json(['message' => 'This order is already fully paid.'], 422);
+        }
+
+        $payment = DB::transaction(function () use ($data, $order) {
             $received = isset($data['received']) ? (float) $data['received'] : null;
             $change = 0;
             if ($data['method'] === 'cash' && $received !== null) {
@@ -56,7 +75,10 @@ class PaymentController extends Controller
             $payment = Payment::create([
                 'order_id' => $order->id,
                 'method' => $data['method'],
+                'payment_method_id' => $data['payment_method_id'] ?? null,
                 'amount' => $data['amount'],
+                'currency' => $data['currency'] ?? 'USD',
+                'exchange_rate' => $data['exchange_rate'] ?? null,
                 'received' => $received,
                 'change' => $change,
                 'reference' => $data['reference'] ?? null,
@@ -112,15 +134,26 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Only paid payments can be refunded.'], 422);
         }
 
-        // Quiet update — the dedicated "refund" row below is the audit record.
-        $payment->updateQuietly(['status' => 'refunded']);
+        DB::transaction(function () use ($payment, $data) {
+            // Quiet update — the dedicated "refund" row below is the audit record.
+            $payment->updateQuietly(['status' => 'refunded']);
 
-        AuditLog::record('refund', $payment, ['status' => 'paid'], [
-            'status' => 'refunded',
-            'method' => $payment->method,
-            'amount' => (float) $payment->amount,
-            'reason' => $data['reason'] ?? null,
-        ], $payment->order?->order_number);
+            // Once no live money remains on the bill, take the order out of
+            // the sales figures too — otherwise dashboards and daily sales
+            // keep counting revenue that was handed back to the guest.
+            $order = $payment->order;
+            if ($order && $order->status === 'completed' && ! $order->payments()->where('status', 'paid')->exists()) {
+                $order->update(['status' => 'refunded']);
+            }
+
+            AuditLog::record('refund', $payment, ['status' => 'paid'], [
+                'status' => 'refunded',
+                'method' => $payment->method,
+                'amount' => (float) $payment->amount,
+                'reason' => $data['reason'] ?? null,
+                'order_status' => $order?->status,
+            ], $order?->order_number);
+        });
 
         return response()->json($payment->load('order'));
     }

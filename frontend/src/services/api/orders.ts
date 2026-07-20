@@ -14,6 +14,9 @@ export type OrderItemPayload = {
 export type OrderPayload = {
   order_type: 'dine_in' | 'take_away' | 'delivery'
   table_id?: number | null
+  customer_id?: number | null
+  /** Omit to let the backend apply the venue's default pricelist. */
+  pricelist_id?: number | null
   guest_count?: number
   discount?: number
   tax?: number
@@ -36,9 +39,14 @@ export type ApiOrderItem = {
 export type ApiOrderPayment = {
   id: number
   method: string
+  /** Amount is always USD; currency records what the guest handed over. */
   amount: string
+  currency?: string
+  exchange_rate?: string | null
   status: string
   paid_at: string | null
+  /** The journal that took the money (null on pre-feature payments). */
+  payment_method?: { id: number; label: string } | null
 }
 
 /** The slice of the order response the frontend uses. */
@@ -47,7 +55,7 @@ export type ApiOrder = {
   order_number: string
   order_type: 'dine_in' | 'take_away' | 'delivery'
   table_id: number | null
-  status: 'new' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled'
+  status: 'new' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled' | 'refunded'
   /** Seated guests. 0 = not recorded (take-away or pre-feature orders). */
   guest_count: number
   subtotal: string
@@ -60,6 +68,7 @@ export type ApiOrder = {
   /** Loaded relations — present on every order the API returns. */
   table?: { id: number; name: string } | null
   user?: { id: number; name: string; username: string } | null
+  customer?: { id: number; name: string } | null
   payments?: ApiOrderPayment[]
 }
 
@@ -105,6 +114,11 @@ export function fetchOrdersPage(filters: OrderListFilters = {}): Promise<OrdersP
   if (filters.order_type) params.set('order_type', filters.order_type)
   if (filters.search) params.set('search', filters.search)
   return api<OrdersPage>(`/orders?${params}`)
+}
+
+/** One order with its items + payments — the back office's detail view. */
+export function fetchOrder(id: number): Promise<ApiOrder> {
+  return api<ApiOrder>(`/orders/${id}`)
 }
 
 /** Delete an order — a back-office op (admin/manager); frees its table. */

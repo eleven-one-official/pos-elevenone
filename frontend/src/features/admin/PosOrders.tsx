@@ -3,11 +3,14 @@ import { LuChevronLeft, LuChevronRight, LuSearch, LuSettings, LuX } from 'react-
 import { Loader, LoadingOverlay } from '../../components/ui/Loader'
 import {
   deleteOrder,
+  fetchOrder,
   fetchOrdersPage,
   updateOrder,
   type ApiOrder,
+  type ApiOrderPayment,
   type OrdersPage,
 } from '../../services/api/orders'
+import { refundPayment } from '../../services/api/payments'
 import { BLUE_SELECT, FieldGroup, LABEL } from './formKit'
 
 // ---------------------------------------------------------------------------
@@ -18,6 +21,10 @@ import { BLUE_SELECT, FieldGroup, LABEL } from './formKit'
 
 const STATUS_OPTIONS = ['new', 'preparing', 'ready', 'served', 'completed', 'cancelled'] as const
 
+// `refunded` is filterable but not in the mover — only refunding the money
+// (via the Payments box below) puts an order there.
+const STATUS_FILTERS = [...STATUS_OPTIONS, 'refunded'] as const
+
 const STATUS_TINT: Record<string, string> = {
   new: 'bg-sky-100 text-sky-800',
   preparing: 'bg-amber-100 text-amber-800',
@@ -25,6 +32,7 @@ const STATUS_TINT: Record<string, string> = {
   served: 'bg-violet-100 text-violet-800',
   completed: 'bg-emerald-100 text-emerald-800',
   cancelled: 'bg-red-100 text-red-700',
+  refunded: 'bg-rose-100 text-rose-700',
 }
 
 const TYPE_LABEL: Record<ApiOrder['order_type'], string> = {
@@ -91,6 +99,11 @@ export default function PosOrders() {
           setSelected(null)
           refresh()
         }}
+        onRefundPayment={async (paymentId, reason) => {
+          await refundPayment(paymentId, reason)
+          // Reload so the payment row and (possibly) the order status reflect it.
+          setSelected(await fetchOrder(selected.id))
+        }}
       />
     )
   }
@@ -136,7 +149,7 @@ export default function PosOrders() {
                   className="rounded-[3px] border border-neutral-300 bg-white px-2 py-1.5 text-[13px] text-neutral-700 outline-none focus:border-sky-600"
                 >
                   <option value="">All statuses</option>
-                  {STATUS_OPTIONS.map((s) => (
+                  {STATUS_FILTERS.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
@@ -270,14 +283,18 @@ function OrderDetail({
   onBack,
   onChangeStatus,
   onDelete,
+  onRefundPayment,
 }: {
   order: ApiOrder
   onBack: () => void
   onChangeStatus: (status: ApiOrder['status']) => Promise<void>
   onDelete: () => Promise<void>
+  onRefundPayment: (paymentId: number, reason?: string) => Promise<void>
 }) {
   const [actionOpen, setActionOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [refunding, setRefunding] = useState<ApiOrderPayment | null>(null)
+  const [refundReason, setRefundReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -400,20 +417,34 @@ function OrderDetail({
                 <label className={LABEL}>Cashier</label>
                 <span className="pt-1 text-[13px] text-neutral-800">{order.user?.name ?? '—'}</span>
 
+                <label className={LABEL}>Customer</label>
+                <span className="pt-1 text-[13px] text-neutral-800">
+                  {order.customer?.name ?? '—'}
+                </span>
+
                 <label className={LABEL}>Status</label>
-                <select
-                  value={order.status}
-                  onChange={(e) =>
-                    void runAction(() => onChangeStatus(e.target.value as ApiOrder['status']))
-                  }
-                  className={`${BLUE_SELECT} max-w-52`}
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                {order.status === 'refunded' ? (
+                  // Refunded is set by the money side, not the status mover.
+                  <span className="pt-1">
+                    <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_TINT.refunded}`}>
+                      refunded
+                    </span>
+                  </span>
+                ) : (
+                  <select
+                    value={order.status}
+                    onChange={(e) =>
+                      void runAction(() => onChangeStatus(e.target.value as ApiOrder['status']))
+                    }
+                    className={`${BLUE_SELECT} max-w-52`}
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 <label className={LABEL}>Note</label>
                 <span className="whitespace-pre-wrap pt-1 text-[13px] text-neutral-800">
@@ -488,17 +519,39 @@ function OrderDetail({
                     <th className="py-2 pr-4 font-bold">Method</th>
                     <th className="py-2 pr-4 text-right font-bold">Amount</th>
                     <th className="py-2 pr-4 font-bold">Status</th>
-                    <th className="py-2 font-bold">Paid At</th>
+                    <th className="py-2 pr-4 font-bold">Paid At</th>
+                    <th className="py-2" />
                   </tr>
                 </thead>
                 <tbody>
                   {payments.map((p) => (
                     <tr key={p.id} className="border-b border-neutral-100 text-neutral-700">
-                      <td className="py-2 pr-4 capitalize text-neutral-800">{p.method}</td>
+                      <td className="py-2 pr-4 text-neutral-800">
+                        {p.payment_method?.label ?? <span className="capitalize">{p.method}</span>}
+                        {p.currency === 'KHR' && (
+                          <span className="ml-1.5 text-[11px] text-neutral-500">
+                            (paid in riel @ {Number(p.exchange_rate ?? 0).toLocaleString()})
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 pr-4 text-right">{money(p.amount)}</td>
                       <td className="py-2 pr-4 capitalize">{p.status}</td>
-                      <td className="py-2">
+                      <td className="py-2 pr-4">
                         {p.paid_at ? new Date(p.paid_at).toLocaleString() : '—'}
+                      </td>
+                      <td className="py-2 text-right">
+                        {p.status === 'paid' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRefundReason('')
+                              setRefunding(p)
+                            }}
+                            className="rounded-[3px] border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-600 transition hover:bg-rose-50"
+                          >
+                            Refund
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -508,6 +561,57 @@ function OrderDetail({
           </div>
         </div>
       </div>
+
+      {/* Refund confirmation */}
+      {refunding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-[3px] border border-neutral-200 bg-white shadow-xl">
+            <div className="border-b border-neutral-200 px-5 py-3 text-[15px] font-semibold text-neutral-800">
+              Refund Payment
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-sm text-neutral-700">
+                Refund the <span className="capitalize">{refunding.method}</span> payment of{' '}
+                <span className="font-semibold">{money(refunding.amount)}</span> on{' '}
+                {order.order_number}? The row stays in the money trail as refunded; once no paid
+                payment remains, the order leaves the sales reports.
+              </p>
+              <label className="mt-3 block text-[13px] text-neutral-600" htmlFor="refund-reason">
+                Reason (optional)
+              </label>
+              <input
+                id="refund-reason"
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+                maxLength={255}
+                placeholder="e.g. wrong order, guest complaint"
+                className="mt-1 w-full rounded-[3px] border border-neutral-300 px-3 py-1.5 text-sm outline-none transition focus:border-sky-600"
+              />
+            </div>
+            <div className="flex gap-1.5 border-t border-neutral-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = refunding
+                  const reason = refundReason.trim()
+                  setRefunding(null)
+                  void runAction(() => onRefundPayment(target.id, reason || undefined))
+                }}
+                className="rounded-[3px] bg-rose-600 px-4 py-1.5 text-sm text-white transition hover:bg-rose-700"
+              >
+                Refund
+              </button>
+              <button
+                type="button"
+                onClick={() => setRefunding(null)}
+                className="rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation */}
       {confirmDelete && (

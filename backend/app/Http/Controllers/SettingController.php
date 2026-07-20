@@ -19,6 +19,10 @@ class SettingController extends Controller
         'store_phone' => ['nullable', 'string', 'max:255'],
         'currency_khr_rate' => ['nullable', 'numeric', 'min:0'],
         'tax_rate' => ['nullable', 'numeric', 'min:0', 'max:1'],
+        // Pricelist applied to new orders when the POS names none; empty = menu prices.
+        'default_pricelist_id' => ['nullable', 'integer', 'exists:pricelists,id'],
+        // USD the cash drawer starts the day with (Cash In/Out balance base).
+        'opening_float' => ['nullable', 'numeric', 'min:0'],
     ];
 
     /** Public-to-authed read: the POS and receipt need store info + tax rate. */
