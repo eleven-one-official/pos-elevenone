@@ -46,6 +46,7 @@ import type { Customer } from '../../services/api/customers'
 import { ApiError } from '../../services/api/client'
 import { useMenu } from '../../hooks/useMenu'
 import { useTables } from '../../hooks/useTables'
+import { useSettings } from '../../hooks/useSettings'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { PosTable } from './TableFloorPage'
 import {
@@ -1193,6 +1194,8 @@ function BillDialog({
   onPrint: () => void
   onClose: () => void
 }) {
+  const { khrRate } = useSettings()
+  const riel = (value: number) => `៛ ${Math.round(value * khrRate).toLocaleString('en-US')}`
   return (
     <Modal
       title="Bill Preview"
@@ -1243,6 +1246,10 @@ function BillDialog({
         <div className="flex justify-between pt-1 text-lg font-bold text-neutral-900">
           <span>Total</span>
           <span>{money(total)}</span>
+        </div>
+        <div className="flex justify-between font-bold text-neutral-900">
+          <span>Total (KHR)</span>
+          <span>{riel(total)}</span>
         </div>
       </div>
     </Modal>

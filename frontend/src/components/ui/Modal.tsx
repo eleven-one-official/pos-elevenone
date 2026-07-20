@@ -32,7 +32,7 @@ export default function Modal({
       onClick={onClose}
     >
       <div
-        className={`flex max-h-[90vh] w-full ${width} flex-col overflow-hidden rounded-2xl bg-white shadow-2xl`}
+        className={`flex max-h-[90vh] w-full ${width} flex-col overflow-hidden rounded-2xl bg-white shadow-2xl print:shadow-none`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4">
@@ -44,7 +44,7 @@ export default function Modal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 print:hidden"
           >
             <LuX className="h-5 w-5" />
           </button>
@@ -52,7 +52,7 @@ export default function Modal({
 
         <div className="flex-1 overflow-y-auto p-5">{children}</div>
 
-        {footer && <div className="border-t border-neutral-200 p-4">{footer}</div>}
+        {footer && <div className="border-t border-neutral-200 p-4 print:hidden">{footer}</div>}
       </div>
     </div>
   )

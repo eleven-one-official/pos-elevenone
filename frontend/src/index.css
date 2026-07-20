@@ -10,6 +10,16 @@ body {
   @apply font-sans antialiased;
 }
 
+/* Printing — the browser stamps a header/footer band (date, page title, URL,
+ * page number) into the page margins. Zero the margin and that band disappears,
+ * so window.print() shows only our own content. Kitchen dockets print from their
+ * own iframe with their own @page rule and are unaffected by this. */
+@media print {
+  @page {
+    margin: 0;
+  }
+}
+
 /* Tailwind v4 preflight gives buttons `cursor: default`; restore the pointer on
  * every enabled clickable control. Lives in @layer base so a deliberate
  * cursor-* utility (e.g. the click-away overlays' cursor-default) still wins. */

@@ -155,9 +155,9 @@ export default function ReceiptPage({
   }
 
   return (
-    <div className="flex h-screen flex-col bg-[#f3f4f6]">
+    <div className="flex h-screen flex-col bg-[#f3f4f6] print:h-auto print:bg-white">
       {/* Top toolbar — mirrors the Payment screen so the session stays put */}
-      <header className="flex h-16 shrink-0 items-center gap-1 bg-[#2b2138] px-4 text-white shadow-md">
+      <header className="flex h-16 shrink-0 items-center gap-1 bg-[#2b2138] px-4 text-white shadow-md print:hidden">
         <ElevenOneLogo />
         <div className="mx-3 h-8 w-px bg-white/15" />
 
@@ -209,7 +209,7 @@ export default function ReceiptPage({
       </header>
 
       {/* Sub-toolbar: Back to Tables / title / Print Receipt */}
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-4">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-4 print:hidden">
         <button
           type="button"
           onClick={onBackToTables}
@@ -240,9 +240,9 @@ export default function ReceiptPage({
       )}
 
       {/* Body */}
-      <div className="flex flex-1 gap-6 overflow-auto p-6">
+      <div className="flex flex-1 gap-6 overflow-auto p-6 print:block print:overflow-visible print:p-0">
         {/* Left — printed receipt */}
-        <div className="flex-1 rounded-2xl border border-neutral-200 bg-white p-8 text-neutral-800 shadow-sm">
+        <div className="flex-1 rounded-2xl border border-neutral-200 bg-white p-8 text-neutral-800 shadow-sm print:mx-auto print:max-w-md print:rounded-none print:border-0 print:p-6 print:shadow-none">
           {/* Store header */}
           <div className="flex items-start gap-4">
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#2b2138] text-white">
@@ -338,13 +338,15 @@ export default function ReceiptPage({
                 </span>
               </div>
             ))}
-            <div className="flex items-center justify-between">
-              <span className="text-neutral-500">Change</span>
-              <span className="text-right">
-                <span className="font-semibold text-emerald-600">{money(payment.change)}</span>
-                <span className="ml-2 text-emerald-500/70">{riel(payment.change)}</span>
-              </span>
-            </div>
+            {payment.change > 0.005 && (
+              <div className="flex items-center justify-between">
+                <span className="text-neutral-500">Change</span>
+                <span className="text-right">
+                  <span className="font-semibold text-emerald-600">{money(payment.change)}</span>
+                  <span className="ml-2 text-emerald-500/70">{riel(payment.change)}</span>
+                </span>
+              </div>
+            )}
           </div>
 
           <Dashed />
@@ -356,7 +358,7 @@ export default function ReceiptPage({
         </div>
 
         {/* Right — payment confirmation */}
-        <div className="flex w-[38%] min-w-[360px] max-w-[520px] flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
+        <div className="flex w-[38%] min-w-[360px] max-w-[520px] flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm print:hidden">
           <span className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
             <LuCheck className="h-11 w-11" strokeWidth={3} />
           </span>
