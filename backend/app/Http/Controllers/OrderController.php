@@ -16,7 +16,7 @@ class OrderController extends Controller
 {
     /** Relations every order response carries. */
     private const WITH = [
-        'items', 'table', 'user:id,name,username', 'customer:id,name',
+        'items', 'table', 'user:id,name,username', 'chef:id,name', 'customer:id,name',
         'payments', 'payments.paymentMethod:id,label',
     ];
 
@@ -198,6 +198,7 @@ class OrderController extends Controller
             'status' => ['sometimes', 'in:new,preparing,ready,served,completed,cancelled'],
             'order_type' => ['sometimes', 'in:dine_in,take_away,delivery'],
             'table_id' => ['nullable', 'exists:tables,id'],
+            'chef_id' => ['nullable', 'exists:chefs,id'],
             'customer_id' => ['nullable', 'exists:customers,id'],
             'pricelist_id' => ['nullable', 'exists:pricelists,id'],
             'guest_count' => ['nullable', 'integer', 'min:0', 'max:65535'],
@@ -228,9 +229,10 @@ class OrderController extends Controller
 
         // The kitchen display only advances an order through the cooking flow —
         // it never edits items, prices, guests or the table, and can't close a
-        // bill. So it may send `status` (within the kitchen flow) and nothing else.
+        // bill. So it may send `status` (within the kitchen flow) and the
+        // `chef_id` of the cook who picked the ticket up, and nothing else.
         if ($user?->hasRole('kitchen')) {
-            if (array_diff(array_keys($data), ['status'])) {
+            if (array_diff(array_keys($data), ['status', 'chef_id'])) {
                 return response()->json(['message' => 'The kitchen can only update an order’s status.'], 403);
             }
             if (isset($data['status']) && ! in_array($data['status'], ['new', 'preparing', 'ready', 'served'], true)) {
@@ -270,7 +272,18 @@ class OrderController extends Controller
         $khrRate = $this->khrRate();
 
         DB::transaction(function () use ($data, $order, $pricelist, $khrRate) {
-            $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'customer_id', 'guest_count', 'discount', 'tax', 'note'])->all());
+            $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'chef_id', 'customer_id', 'guest_count', 'discount', 'tax', 'note'])->all());
+
+            // Stamp the kitchen-flow timestamps as the ticket advances, for the
+            // Chef Performance KPI. Set once — a re-tap or a later status change
+            // never overwrites when the cook first started or plated.
+            if (($data['status'] ?? null) === 'preparing' && $order->started_at === null) {
+                $order->started_at = now();
+            }
+            if (($data['status'] ?? null) === 'ready' && $order->ready_at === null) {
+                $order->ready_at = now();
+            }
+
             $order->pricelist_id = $pricelist?->id;
             $order->save();
 

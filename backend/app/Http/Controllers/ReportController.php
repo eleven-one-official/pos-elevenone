@@ -330,6 +330,74 @@ class ReportController extends Controller
     }
 
     /**
+     * Chef Performance KPI — per-cook productivity for the admin report. Every
+     * order a cook picked up at the kitchen display (has a chef_id) counts:
+     * how many orders, how many item units they cooked, and their average cook
+     * time (the gap between tapping Start and Ready, only over tickets that
+     * carry both stamps). Cancelled orders are excluded; a removed cook's
+     * orders fold into "Unknown". Window via ?period= today|week|month|year
+     * (default: all).
+     */
+    public function chefPerformance(Request $request): JsonResponse
+    {
+        $start = match ($request->string('period')->toString()) {
+            'today' => now()->startOfDay(),
+            'week' => now()->startOfWeek(),
+            'month' => now()->startOfMonth(),
+            'year' => now()->startOfYear(),
+            default => null,
+        };
+
+        $orders = Order::query()
+            ->whereNotNull('chef_id')
+            ->whereNotIn('status', ['cancelled'])
+            ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
+            ->with('chef:id,name')
+            ->withSum('items as items_count', 'quantity')
+            ->get();
+
+        /** @var array<int, array<string, mixed>> $buckets */
+        $buckets = [];
+
+        foreach ($orders as $order) {
+            $chefId = $order->chef_id;
+            $bucket = $buckets[$chefId] ?? [
+                'chef_id' => $chefId,
+                'chef' => $order->chef?->name ?? 'Unknown',
+                'orders' => 0,
+                'items' => 0,
+                'prep_seconds_total' => 0,
+                'prep_count' => 0,
+            ];
+
+            $bucket['orders']++;
+            $bucket['items'] += (int) $order->items_count;
+            if ($order->started_at && $order->ready_at) {
+                $bucket['prep_seconds_total'] += abs($order->ready_at->diffInSeconds($order->started_at));
+                $bucket['prep_count']++;
+            }
+
+            $buckets[$chefId] = $bucket;
+        }
+
+        $rows = array_values(array_map(fn (array $b) => [
+            'chef_id' => $b['chef_id'],
+            'chef' => $b['chef'],
+            'orders' => $b['orders'],
+            'items' => $b['items'],
+            // null when no ticket carries both stamps yet — the UI shows a dash.
+            'avg_prep_seconds' => $b['prep_count'] > 0
+                ? (int) round($b['prep_seconds_total'] / $b['prep_count'])
+                : null,
+        ], $buckets));
+
+        // Busiest cook first.
+        usort($rows, fn ($a, $b) => $b['orders'] <=> $a['orders']);
+
+        return response()->json($rows);
+    }
+
+    /**
      * Top selling menu items by quantity. Limit via ?limit= (default 10).
      */
     public function topItems(Request $request): JsonResponse

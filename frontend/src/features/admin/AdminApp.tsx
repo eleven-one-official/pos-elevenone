@@ -21,6 +21,8 @@ import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
 import PosCategories from './PosCategories'
+import PosChefPerformance from './PosChefPerformance'
+import PosChefs from './PosChefs'
 import PosCustomers from './PosCustomers'
 import PosDashboard from './PosDashboard'
 import PosOrders from './PosOrders'
@@ -88,6 +90,7 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
     items: [
       { id: 'sales-dashboard', label: 'Sales Dashboard' },
       { id: 'reporting-orders', label: 'Orders' },
+      { id: 'chef-performance', label: 'Chef Performance' },
       { id: 'sales-details', label: 'Sales Details' },
       { id: 'audit-log', label: 'Audit Log' },
     ],
@@ -98,6 +101,7 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
       { id: 'settings', label: 'Settings' },
       { id: 'payment-methods', label: 'Payment Methods' },
       { id: 'tables', label: 'Tables' },
+      { id: 'chefs', label: 'Chefs' },
     ],
   },
 ]
@@ -229,10 +233,14 @@ export default function AdminApp({
       <PosPaymentMethods />
     ) : tab.menu === 'Configuration' && tab.item === 'Tables' ? (
       <PosTables />
+    ) : tab.menu === 'Configuration' && tab.item === 'Chefs' ? (
+      <PosChefs />
     ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
       <PosAuditLog />
     ) : tab.menu === 'Reporting' && tab.item === 'Sales Dashboard' ? (
       <PosSalesDashboard />
+    ) : tab.menu === 'Reporting' && tab.item === 'Chef Performance' ? (
+      <PosChefPerformance />
     ) : tab.menu === 'Reporting' ? (
       // Odoo shows Sales Details as a dialog OVER the Orders Analysis screen.
       <>

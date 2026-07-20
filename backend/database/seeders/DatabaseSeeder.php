@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             SettingSeeder::class,
             CustomerSeeder::class,
             PaymentMethodSeeder::class,
+            ChefSeeder::class,
         ]);
     }
 }

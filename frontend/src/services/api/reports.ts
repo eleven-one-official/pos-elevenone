@@ -151,3 +151,23 @@ export function fetchOrdersAnalysis(
   if (period) params.set('period', period)
   return api<OrdersAnalysisRow[]>(`/reports/orders-analysis?${params}`)
 }
+
+// --- Chef Performance ------------------------------------------------------
+
+/** One cook's KPI row. avg_prep_seconds is null until a ticket carries both a
+ *  Start and a Ready stamp (older orders / still-cooking tickets don't). */
+export type ChefPerformanceRow = {
+  chef_id: number
+  chef: string
+  orders: number
+  items: number
+  avg_prep_seconds: number | null
+}
+
+/** Per-cook productivity over ?period= (empty = all time). Busiest cook first. */
+export function fetchChefPerformance(period: AnalysisPeriod): Promise<ChefPerformanceRow[]> {
+  const params = new URLSearchParams()
+  if (period) params.set('period', period)
+  const qs = params.toString()
+  return api<ChefPerformanceRow[]>(`/reports/chef-performance${qs ? `?${qs}` : ''}`)
+}

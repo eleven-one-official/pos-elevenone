@@ -54,6 +54,36 @@ class OrderGuardsTest extends TestCase
         $this->putJson("/api/orders/{$id}", ['status' => 'cancelled'])->assertForbidden();
     }
 
+    public function test_kitchen_attributes_a_chef_and_stamps_cook_times(): void
+    {
+        $item = MenuItem::factory()->create();
+        $id = $this->makeOrder($item);
+        $chef = \App\Models\Chef::create(['name' => 'Bopha', 'is_active' => true, 'sort_order' => 1]);
+
+        Sanctum::actingAs($this->staff('kitchen'));
+
+        // Tapping "Start" names the cook and stamps started_at.
+        $this->putJson("/api/orders/{$id}", ['status' => 'preparing', 'chef_id' => $chef->id])
+            ->assertOk()
+            ->assertJsonPath('chef.id', $chef->id)
+            ->assertJsonPath('status', 'preparing');
+        $order = \App\Models\Order::find($id);
+        $this->assertNotNull($order->started_at);
+        $this->assertNull($order->ready_at);
+
+        // Tapping "Ready" stamps ready_at (and never re-stamps started_at).
+        $startedAt = $order->started_at;
+        $this->putJson("/api/orders/{$id}", ['status' => 'ready'])->assertOk();
+        $order->refresh();
+        $this->assertNotNull($order->ready_at);
+        $this->assertEquals($startedAt, $order->started_at);
+
+        // A bogus chef is rejected; the kitchen still can't touch anything else.
+        $this->putJson("/api/orders/{$id}", ['chef_id' => 999999])->assertStatus(422);
+        $this->putJson("/api/orders/{$id}", ['chef_id' => $chef->id, 'guest_count' => 4])
+            ->assertForbidden();
+    }
+
     public function test_waiter_cannot_apply_or_change_discounts(): void
     {
         $item = MenuItem::factory()->create(['price' => 5.00]);

@@ -17,6 +17,7 @@ class Order extends Model
         'order_type',
         'table_id',
         'user_id',
+        'chef_id',
         'customer_id',
         'pricelist_id',
         'status',
@@ -26,6 +27,8 @@ class Order extends Model
         'tax',
         'total',
         'note',
+        'started_at',
+        'ready_at',
     ];
 
     protected function casts(): array
@@ -36,6 +39,8 @@ class Order extends Model
             'discount' => 'decimal:2',
             'tax' => 'decimal:2',
             'total' => 'decimal:2',
+            'started_at' => 'datetime',
+            'ready_at' => 'datetime',
         ];
     }
 
@@ -47,6 +52,14 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The cook who picked this ticket up at the kitchen display (tapped Start).
+     */
+    public function chef(): BelongsTo
+    {
+        return $this->belongsTo(Chef::class);
     }
 
     public function customer(): BelongsTo

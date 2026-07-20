@@ -4,6 +4,7 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CashMovementController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\ChefController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\OrderController;
@@ -46,6 +47,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('menu-items', MenuItemController::class)->only(['index', 'show']);
     Route::apiResource('tables', TableController::class)->only(['index', 'show']);
     Route::apiResource('pricelists', PricelistController::class)->only(['index', 'show']);
+    // Chef roster — the kitchen display (shared kitchen token) reads it for the
+    // "who's cooking?" picker; managing it is back-office work below.
+    Route::apiResource('chefs', ChefController::class)->only(['index', 'show']);
 
     // Orders: every signed-in role may read (floor/kitchen views). Creating and
     // editing an order is till/tablet work; the kitchen may only advance an
@@ -100,6 +104,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('categories', CategoryController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('menu-items', MenuItemController::class)->only(['store', 'update', 'destroy']);
         Route::apiResource('pricelists', PricelistController::class)->only(['store', 'update', 'destroy']);
+        Route::apiResource('chefs', ChefController::class)->only(['store', 'update', 'destroy']);
 
         // Refunds keep the money trail (row flips to refunded, audit row written);
         // they are a supervisor action, not a cashier one.
@@ -114,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/orders-analysis', [ReportController::class, 'ordersAnalysis']);
         Route::get('/reports/sales-details', [ReportController::class, 'salesDetails']);
         Route::get('/reports/pos-configs', [ReportController::class, 'posConfigs']);
+        Route::get('/reports/chef-performance', [ReportController::class, 'chefPerformance']);
     });
 
     /*

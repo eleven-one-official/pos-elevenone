@@ -64,10 +64,15 @@ export type ApiOrder = {
   total: string
   note: string | null
   created_at: string
+  /** When a cook tapped "Start" / "Ready" on the kitchen display (chef KPI). */
+  started_at?: string | null
+  ready_at?: string | null
   items: ApiOrderItem[]
   /** Loaded relations — present on every order the API returns. */
   table?: { id: number; name: string } | null
   user?: { id: number; name: string; username: string } | null
+  /** The cook who picked this ticket up at the kitchen display. */
+  chef?: { id: number; name: string } | null
   customer?: { id: number; name: string } | null
   payments?: ApiOrderPayment[]
 }
@@ -80,7 +85,7 @@ export function createOrder(payload: OrderPayload): Promise<ApiOrder> {
 /** Update an existing order — replaces its items and/or moves it to another table. */
 export function updateOrder(
   id: number,
-  payload: Partial<OrderPayload> & { status?: ApiOrder['status'] },
+  payload: Partial<OrderPayload> & { status?: ApiOrder['status']; chef_id?: number | null },
 ): Promise<ApiOrder> {
   return api<ApiOrder>(`/orders/${id}`, { method: 'PUT', body: payload })
 }
@@ -168,6 +173,14 @@ export async function fetchKitchenTickets(): Promise<ApiOrder[]> {
   return orders
     .slice()
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+}
+
+/**
+ * A cook picks a ticket up: attribute it to them and move it to "preparing".
+ * Stamps started_at server-side — the clock the Chef Performance KPI reads.
+ */
+export function startOrder(id: number, chefId: number): Promise<ApiOrder> {
+  return updateOrder(id, { status: 'preparing', chef_id: chefId })
 }
 
 /** Bump a ticket off the kitchen board — the food is cooked and plated. */

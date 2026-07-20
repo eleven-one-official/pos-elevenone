@@ -3,16 +3,25 @@ import {
   LuBell,
   LuBellOff,
   LuCheck,
+  LuChefHat,
   LuClock,
   LuLogOut,
+  LuPlay,
   LuRefreshCw,
   LuStickyNote,
   LuUsers,
   LuUtensils,
+  LuX,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import { Loader, LoadingState } from '../../components/ui/Loader'
-import { fetchKitchenTickets, markOrderReady, type ApiOrder } from '../../services/api/orders'
+import { fetchActiveChefs, type Chef } from '../../services/api/chefs'
+import {
+  fetchKitchenTickets,
+  markOrderReady,
+  startOrder,
+  type ApiOrder,
+} from '../../services/api/orders'
 import type { Kitchen } from './KitchenLoginDialog'
 
 // ---------------------------------------------------------------------------
@@ -97,6 +106,12 @@ export default function KitchenDisplayPage({
   const [soundOn, setSoundOn] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // The kitchen station signs in on one shared account, so a cook names
+  // themselves when they take a ticket — that attribution feeds the Chef
+  // Performance KPI. The roster is managed on the admin side.
+  const [chefs, setChefs] = useState<Chef[]>([])
+  // The ticket whose chef picker is open (null = closed).
+  const [pickingFor, setPickingFor] = useState<ApiOrder | null>(null)
 
   // Ticket ids already on the board, and when each first appeared — drives the
   // "new" highlight and the chime without re-rendering on every poll.
@@ -149,6 +164,19 @@ export default function KitchenDisplayPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Load the cook roster once — it changes rarely (managed in admin) and only
+  // needs to be fresh enough to fill the "who's cooking?" picker.
+  const loadChefs = useCallback(() => {
+    fetchActiveChefs()
+      .then(setChefs)
+      .catch(() => {
+        /* keep whatever we have; the picker shows a hint if it's empty */
+      })
+  }, [])
+  useEffect(() => {
+    loadChefs()
+  }, [loadChefs])
+
   // Tick the wall clock + ticket timers once a second.
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)
@@ -175,6 +203,26 @@ export default function KitchenDisplayPage({
       }
       return next
     })
+  }
+
+  // A cook took the ticket: attribute it to them and move it to "preparing".
+  // The card stays on the board (still cooking) but flips to the Ready control.
+  async function startCooking(order: ApiOrder, chef: Chef) {
+    setPickingFor(null)
+    // Optimistic — show it cooking under this cook's name at once.
+    setOrders((prev) =>
+      prev?.map((o) =>
+        o.id === order.id ? { ...o, status: 'preparing', chef: { id: chef.id, name: chef.name } } : o,
+      ) ?? prev,
+    )
+    try {
+      await startOrder(order.id, chef.id)
+      setToast(`${chef.name} started #${order.order_number}`)
+    } catch {
+      // Roll back to server truth so the ticket isn't stuck mislabelled.
+      setToast('Could not start it — check the connection')
+      void load()
+    }
   }
 
   async function bump(order: ApiOrder) {
@@ -295,13 +343,84 @@ export default function KitchenDisplayPage({
         ) : (
           <div className="grid content-start gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
             {visible.map((order) => (
-              <TicketCard key={order.id} order={order} now={now} isNew={
-                (now - (arrivedRef.current.get(order.id) ?? 0)) < NEW_FLASH_MS
-              } onReady={() => void bump(order)} />
+              <TicketCard
+                key={order.id}
+                order={order}
+                now={now}
+                isNew={(now - (arrivedRef.current.get(order.id) ?? 0)) < NEW_FLASH_MS}
+                onStart={() => setPickingFor(order)}
+                onReady={() => void bump(order)}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {/* Chef picker — a cook names themselves when they take a ticket. */}
+      {pickingFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-5 py-4">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <LuChefHat className="h-5 w-5" />
+                </span>
+                <div className="leading-tight">
+                  <div className="text-base font-bold text-neutral-900">Who’s cooking?</div>
+                  <div className="text-xs text-neutral-500">
+                    {pickingFor.table?.name ? `${pickingFor.table.name} · ` : ''}#
+                    {pickingFor.order_number}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Cancel"
+                onClick={() => setPickingFor(null)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+              >
+                <LuX className="h-5 w-5" />
+              </button>
+            </div>
+
+            {chefs.length === 0 ? (
+              <div className="px-6 py-10 text-center">
+                <p className="text-sm text-neutral-600">No chefs yet.</p>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Add cooks in Admin › Point of Sale › Configuration › Chefs, then they’ll show up
+                  here.
+                </p>
+                <button
+                  type="button"
+                  onClick={loadChefs}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                >
+                  <LuRefreshCw className="h-4 w-4" />
+                  Refresh
+                </button>
+              </div>
+            ) : (
+              <div className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-5 sm:grid-cols-3">
+                {chefs.map((chef) => (
+                  <button
+                    key={chef.id}
+                    type="button"
+                    onClick={() => void startCooking(pickingFor, chef)}
+                    className="flex flex-col items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-4 text-center transition hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 text-base font-bold text-neutral-700">
+                      {chef.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}
+                    </span>
+                    <span className="text-sm font-semibold leading-tight text-neutral-800">
+                      {chef.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -320,14 +439,19 @@ function TicketCard({
   order,
   now,
   isNew,
+  onStart,
   onReady,
 }: {
   order: ApiOrder
   now: number
   isNew: boolean
+  onStart: () => void
   onReady: () => void
 }) {
   const [bumping, setBumping] = useState(false)
+  // A cook has taken this ticket — it's being prepared, so show who's on it and
+  // the Ready control. A brand-new ticket instead offers Start (pick a cook).
+  const cooking = order.status === 'preparing'
   const elapsedMs = Math.max(0, now - new Date(order.created_at).getTime())
   const minutes = Math.floor(elapsedMs / 60000)
   const tier = tierFor(minutes)
@@ -350,9 +474,14 @@ function TicketCard({
             <span className="truncate text-lg font-extrabold tracking-wide text-neutral-900">
               {tableLabel}
             </span>
-            {isNew && (
+            {!cooking && isNew && (
               <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700">
                 New
+              </span>
+            )}
+            {cooking && (
+              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                Cooking
               </span>
             )}
           </div>
@@ -398,23 +527,42 @@ function TicketCard({
         ))}
       </ul>
 
-      {/* Ready */}
+      {/* Action — pick a cook to Start, then Ready once it's plated */}
       <div className="mt-3 px-4 pb-4">
-        <div className="mb-2 text-center text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-          {totalItems} item{totalItems === 1 ? '' : 's'}
+        <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+          <span>
+            {totalItems} item{totalItems === 1 ? '' : 's'}
+          </span>
+          {cooking && order.chef?.name && (
+            <span className="flex items-center gap-1 font-bold text-emerald-600">
+              <LuChefHat className="h-3.5 w-3.5" />
+              {order.chef.name}
+            </span>
+          )}
         </div>
-        <button
-          type="button"
-          disabled={bumping}
-          onClick={() => {
-            setBumping(true)
-            onReady()
-          }}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-base font-bold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {bumping ? <Loader size="sm" /> : <LuCheck className="h-5 w-5" />}
-          Ready
-        </button>
+        {cooking ? (
+          <button
+            type="button"
+            disabled={bumping}
+            onClick={() => {
+              setBumping(true)
+              onReady()
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-base font-bold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {bumping ? <Loader size="sm" /> : <LuCheck className="h-5 w-5" />}
+            Ready
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onStart}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-base font-bold text-white shadow-sm transition hover:opacity-90 active:scale-[0.99]"
+          >
+            <LuPlay className="h-5 w-5" />
+            Start
+          </button>
+        )}
       </div>
     </article>
   )
