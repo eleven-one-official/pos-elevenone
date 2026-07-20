@@ -47,9 +47,11 @@ class UserManagementTest extends TestCase
         $response->assertJsonFragment([
             'id' => $cashier->id,
             'has_pin' => true,
+            // Admins see the PIN itself — that's how staff get handed theirs.
+            'pin' => '1234',
         ]);
-        // The PIN hash itself never leaves the server.
-        $this->assertStringNotContainsString('"pin"', $response->getContent());
+        // Passwords (hashes included) never leave the server.
+        $this->assertStringNotContainsString('password', $response->getContent());
     }
 
     // ------------------------------------------------------------------
@@ -73,7 +75,7 @@ class UserManagementTest extends TestCase
             ->assertJsonPath('role.slug', 'cashier');
 
         $user = User::where('username', 'new-cashier')->firstOrFail();
-        $this->assertTrue(Hash::check('5678', $user->pin));
+        $this->assertSame('5678', $user->pin);
         $this->assertTrue(Hash::check('secret-123', $user->password));
     }
 
@@ -103,7 +105,7 @@ class UserManagementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('has_pin', true);
 
-        $this->assertTrue(Hash::check('2222', $cashier->fresh()->pin));
+        $this->assertSame('2222', $cashier->fresh()->pin);
     }
 
     public function test_update_clears_the_pin_with_an_empty_string(): void
@@ -127,7 +129,7 @@ class UserManagementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('has_pin', true);
 
-        $this->assertTrue(Hash::check('1111', $cashier->fresh()->pin));
+        $this->assertSame('1111', $cashier->fresh()->pin);
     }
 
     // ------------------------------------------------------------------

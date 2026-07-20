@@ -53,7 +53,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'pin' => 'hashed',
+            // Encrypted (not hashed) so admins can view/hand out PINs from the
+            // Employees screen. Still hidden from every serialized response.
+            'pin' => 'encrypted',
             'is_active' => 'boolean',
         ];
     }

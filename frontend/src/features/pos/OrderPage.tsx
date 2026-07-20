@@ -1269,20 +1269,32 @@ function TransferDialog({
       width="max-w-2xl"
     >
       <div className="grid grid-cols-5 gap-2.5">
-        {targets.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => onTransfer(t)}
-            className="flex flex-col items-center justify-center gap-1 rounded-xl border border-neutral-200 py-4 font-semibold text-neutral-700 transition hover:border-emerald-400 hover:bg-emerald-50"
-          >
-            <span className="text-lg">{t.label}</span>
-            <span className="flex items-center gap-1 text-xs text-neutral-400">
-              <LuUsers className="h-3 w-3" />
-              {t.seats || '-'}
-            </span>
-          </button>
-        ))}
+        {targets.map((t) => {
+          const occupied = t.orders > 0 || t.guests > 0
+          return (
+            <button
+              key={t.id}
+              type="button"
+              disabled={occupied}
+              onClick={() => onTransfer(t)}
+              className={
+                occupied
+                  ? 'flex cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-neutral-200 bg-neutral-100 py-4 font-semibold text-neutral-300'
+                  : 'flex flex-col items-center justify-center gap-1 rounded-xl border border-neutral-200 py-4 font-semibold text-neutral-700 transition hover:border-emerald-400 hover:bg-emerald-50'
+              }
+            >
+              <span className="text-lg">{t.label}</span>
+              {occupied ? (
+                <span className="text-xs font-medium text-rose-400">Occupied</span>
+              ) : (
+                <span className="flex items-center gap-1 text-xs text-neutral-400">
+                  <LuUsers className="h-3 w-3" />
+                  {t.seats || '-'}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
     </Modal>
   )

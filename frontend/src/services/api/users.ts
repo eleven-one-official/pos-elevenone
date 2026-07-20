@@ -15,7 +15,9 @@ export type AdminUser = {
   phone: string | null
   is_active: boolean
   role: AdminRole | null
-  /** Whether PIN login is enabled — the PIN itself is never returned. */
+  /** The staff PIN in clear — this endpoint is admin-only. Null = PIN login off. */
+  pin: string | null
+  /** Whether PIN login is enabled. */
   has_pin: boolean
 }
 

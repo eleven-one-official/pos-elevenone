@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LuChevronsUpDown, LuSearch, LuTrash2, LuX } from 'react-icons/lu'
+import { LuChevronsUpDown, LuEye, LuEyeOff, LuSearch, LuTrash2, LuX } from 'react-icons/lu'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 import {
   createUser,
@@ -40,6 +40,8 @@ export default function HrEmployees() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<AdminUser | null>(null)
+  // Row ids whose PIN is revealed — hidden again on reload for shoulder safety.
+  const [shownPins, setShownPins] = useState<Set<number>>(new Set())
 
   const load = useCallback(async () => {
     const [u, r] = await Promise.all([fetchUsers(), fetchRoles()])
@@ -197,7 +199,7 @@ export default function HrEmployees() {
               <th className="w-[16%] py-2.5 pr-4 font-bold">Username</th>
               <th className="w-[14%] py-2.5 pr-4 font-bold">Role</th>
               <th className="w-[16%] py-2.5 pr-4 font-bold">Phone</th>
-              <th className="w-[12%] py-2.5 pr-4 font-bold">PIN Login</th>
+              <th className="w-[12%] py-2.5 pr-4 font-bold">PIN</th>
               <th className="w-[12%] py-2.5 pr-4 font-bold">Status</th>
             </tr>
           </thead>
@@ -224,10 +226,31 @@ export default function HrEmployees() {
                 <td className="py-2 pr-4">{u.username}</td>
                 <td className="py-2 pr-4">{u.role?.name ?? '—'}</td>
                 <td className="py-2 pr-4">{u.phone ?? '—'}</td>
-                <td className="py-2 pr-4">
+                <td className="py-2 pr-4" onClick={(e) => e.stopPropagation()}>
                   {u.has_pin ? (
-                    <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800">
-                      PIN set
+                    <span className="flex items-center gap-2">
+                      <span className="font-mono tracking-widest">
+                        {shownPins.has(u.id) ? u.pin : '••••'}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={shownPins.has(u.id) ? `Hide ${u.name}'s PIN` : `Show ${u.name}'s PIN`}
+                        onClick={() =>
+                          setShownPins((s) => {
+                            const next = new Set(s)
+                            if (next.has(u.id)) next.delete(u.id)
+                            else next.add(u.id)
+                            return next
+                          })
+                        }
+                        className="text-neutral-400 transition hover:text-neutral-700"
+                      >
+                        {shownPins.has(u.id) ? (
+                          <LuEyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <LuEye className="h-3.5 w-3.5" />
+                        )}
+                      </button>
                     </span>
                   ) : (
                     <span className="text-neutral-400">—</span>
@@ -319,7 +342,9 @@ function EmployeeForm({
   const [isActive, setIsActive] = useState(user?.is_active ?? true)
   const [password, setPassword] = useState('')
   const [pinEnabled, setPinEnabled] = useState(user?.has_pin ?? false)
-  const [pin, setPin] = useState('')
+  // Prefilled with the current PIN (admin-viewable); masked until the eye toggle.
+  const [pin, setPin] = useState(user?.pin ?? '')
+  const [showPin, setShowPin] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -345,7 +370,7 @@ function EmployeeForm({
       setError('The PIN must be 4 to 6 digits.')
       return
     }
-    if (pinEnabled && !pin && !user?.has_pin) {
+    if (pinEnabled && !pin) {
       setError('Enter a PIN (4-6 digits) or turn PIN login off.')
       return
     }
@@ -361,7 +386,7 @@ function EmployeeForm({
     if (password) input.password = password
     // PIN semantics on the API: a value sets it, '' clears it, absent keeps it.
     if (!pinEnabled && user?.has_pin) input.pin = ''
-    else if (pinEnabled && pin) input.pin = pin
+    else if (pinEnabled && pin && pin !== user?.pin) input.pin = pin
 
     setSaving(true)
     setError(null)
@@ -504,16 +529,25 @@ function EmployeeForm({
               {pinEnabled && (
                 <>
                   <label className={LABEL}>PIN</label>
-                  <input
-                    inputMode="numeric"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder={
-                      user?.has_pin ? 'Leave blank to keep current PIN' : '4-6 digits'
-                    }
-                    autoComplete="off"
-                    className={`${TEXT_INPUT} max-w-40 tracking-widest`}
-                  />
+                  <span className="relative block max-w-40">
+                    <input
+                      type={showPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="4-6 digits"
+                      autoComplete="off"
+                      className={`${TEXT_INPUT} pr-8 tracking-widest`}
+                    />
+                    <button
+                      type="button"
+                      aria-label={showPin ? 'Hide PIN' : 'Show PIN'}
+                      onClick={() => setShowPin((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 transition hover:text-neutral-700"
+                    >
+                      {showPin ? <LuEyeOff className="h-4 w-4" /> : <LuEye className="h-4 w-4" />}
+                    </button>
+                  </span>
                 </>
               )}
             </FieldGroup>

@@ -58,7 +58,9 @@ class UserSeeder extends Seeder
                     // A password is required by the schema; PIN staff still get one
                     // so they *could* also sign in the classic way if ever needed.
                     'password' => Hash::make('password'),
-                    'pin' => $member['pin'] === null ? null : Hash::make($member['pin']),
+                    // Plain value — the model's encrypted cast stores it recoverably
+                    // so admins can view PINs on the Employees screen.
+                    'pin' => $member['pin'],
                     'role_id' => $roles[$member['role']] ?? null,
                     'is_active' => true,
                 ]

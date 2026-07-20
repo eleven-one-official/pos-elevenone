@@ -111,8 +111,9 @@ class AuthController extends Controller
 
         if ($user->pin !== null) {
             // One generic message whether the PIN is missing or wrong, so we
-            // don't reveal which staff have PIN login enabled.
-            if (! Hash::check((string) ($credentials['pin'] ?? ''), $user->pin)) {
+            // don't reveal which staff have PIN login enabled. (PINs use the
+            // encrypted cast — compare plain values, timing-safe.)
+            if (! hash_equals((string) $user->pin, (string) ($credentials['pin'] ?? ''))) {
                 AuditLog::record('login_failed', $user, [], ['method' => 'pin'], $user->username);
 
                 throw ValidationException::withMessages([

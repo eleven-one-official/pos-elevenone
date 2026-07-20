@@ -22,8 +22,8 @@ trait CreatesStaff
 
     /**
      * Create an active user with the given role slug. Attributes pass through
-     * to the factory — note the model's `hashed` casts, so pass plain-text
-     * `password`/`pin` values.
+     * to the factory — note the model's casts (`password` hashed, `pin`
+     * encrypted), so pass plain-text values.
      */
     protected function staff(string $roleSlug, array $attributes = []): User
     {

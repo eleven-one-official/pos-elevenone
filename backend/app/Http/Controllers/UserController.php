@@ -18,7 +18,7 @@ class UserController extends Controller
         abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can manage staff.');
     }
 
-    /** Shape one user for the admin table — never exposes the password or PIN hash. */
+    /** Shape one user for the admin table — never exposes the password. */
     private function present(User $user): array
     {
         $user->loadMissing('role:id,name,slug');
@@ -35,7 +35,9 @@ class UserController extends Controller
                 'name' => $user->role->name,
                 'slug' => $user->role->slug,
             ] : null,
-            // Whether PIN login is enabled, without revealing the PIN itself.
+            // The PIN is admin-viewable by design (encrypted cast, admin-only
+            // controller): admins hand PINs to staff and look them up here.
+            'pin' => $user->pin,
             'has_pin' => ! is_null($user->pin),
         ];
     }
@@ -71,7 +73,7 @@ class UserController extends Controller
             'phone' => $data['phone'] ?? null,
             'role_id' => $data['role_id'] ?? null,
             'password' => Hash::make($data['password']),
-            'pin' => isset($data['pin']) ? Hash::make($data['pin']) : null,
+            'pin' => $data['pin'] ?? null,
             'is_active' => $data['is_active'] ?? true,
         ]);
 
@@ -124,7 +126,7 @@ class UserController extends Controller
         }
         if (array_key_exists('pin', $data)) {
             // Empty string clears PIN login; a value sets it; absent leaves it as-is.
-            $user->pin = ! empty($data['pin']) ? Hash::make($data['pin']) : null;
+            $user->pin = ! empty($data['pin']) ? $data['pin'] : null;
         }
 
         $user->save();
