@@ -10,6 +10,7 @@ use App\Models\Table;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
@@ -38,6 +39,20 @@ class OrderController extends Controller
     private function khrRate(): float
     {
         return (float) (Setting::where('key', 'currency_khr_rate')->value('value') ?: 4100);
+    }
+
+    /**
+     * A discount can wipe a bill down to zero, never past it. Called after
+     * totals are recomputed, inside the transaction, so a bad discount rolls
+     * everything back with a 422.
+     */
+    private function assertDiscountWithinSubtotal(Order $order): void
+    {
+        if ((float) $order->discount > (float) $order->subtotal + 0.001) {
+            throw ValidationException::withMessages([
+                'discount' => ['The discount cannot exceed the order subtotal.'],
+            ]);
+        }
     }
     /**
      * List orders. Filter by ?status=, ?order_type=, ?table_id=, ?date=YYYY-MM-DD
@@ -97,6 +112,12 @@ class OrderController extends Controller
             'items.*.note' => ['nullable', 'string', 'max:255'],
         ]);
 
+        // Waiters take orders and fire them to the kitchen; money adjustments
+        // stay on the cashier / back office side.
+        if (($data['discount'] ?? 0) > 0 && $request->user()?->hasRole('waiter')) {
+            return response()->json(['message' => 'Waiters cannot apply discounts.'], 403);
+        }
+
         $pricelist = $this->resolvePricelist($data['pricelist_id'] ?? null);
         $khrRate = $this->khrRate();
 
@@ -131,6 +152,7 @@ class OrderController extends Controller
             }
 
             $order->recalculateTotals();
+            $this->assertDiscountWithinSubtotal($order);
 
             if ($order->order_type === 'dine_in' && $order->table_id) {
                 Table::whereKey($order->table_id)->update(['status' => 'occupied']);
@@ -168,6 +190,46 @@ class OrderController extends Controller
             'items.*.note' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $user = $request->user();
+        $isBackOffice = $user?->hasRole('admin') || $user?->hasRole('manager');
+
+        // Closed orders are money history. Only a back-office status correction
+        // may touch them — plus the POS's idempotent "mark completed" ping that
+        // can arrive right after the final split payment already closed it.
+        if (in_array($order->status, ['completed', 'cancelled', 'refunded'], true)) {
+            $statusOnly = count($data) === 1 && array_key_exists('status', $data);
+            $sameStatus = ($data['status'] ?? null) === $order->status;
+            if (! ($statusOnly && ($isBackOffice || $sameStatus))) {
+                return response()->json([
+                    'message' => "This order is {$order->status} — its items and totals can no longer be changed.",
+                ], 422);
+            }
+        }
+
+        // Waiters run the kitchen flow only; closing or cancelling a bill is
+        // cashier / back-office work, as is any discount change.
+        if ($user?->hasRole('waiter')) {
+            if (isset($data['status']) && ! in_array($data['status'], ['new', 'preparing', 'ready', 'served'], true)) {
+                return response()->json(['message' => 'Waiters cannot close or cancel an order.'], 403);
+            }
+            if (isset($data['discount']) && round((float) $data['discount'], 2) !== round((float) $order->discount, 2)) {
+                return response()->json(['message' => 'Waiters cannot change discounts.'], 403);
+            }
+        }
+
+        // Completing an order is normally PaymentController's job once the
+        // money covers the bill. A direct completion is allowed for the back
+        // office, or when recorded payments already cover the total (small
+        // tolerance for a split's rounding cent).
+        if (($data['status'] ?? null) === 'completed' && $order->status !== 'completed' && ! $isBackOffice) {
+            $paid = (float) $order->payments()->where('status', 'paid')->sum('amount');
+            if ($paid + 0.05 < (float) $order->total) {
+                return response()->json([
+                    'message' => 'This order is not fully paid — record the payment instead of completing it directly.',
+                ], 422);
+            }
+        }
+
         // An order keeps the pricelist it was opened with unless the request
         // names another (or explicitly clears it with null); replaced items
         // re-price through the resulting pricelist either way.
@@ -199,6 +261,7 @@ class OrderController extends Controller
             }
 
             $order->recalculateTotals();
+            $this->assertDiscountWithinSubtotal($order);
 
             // Free the table when the order is closed.
             if (in_array($order->status, ['completed', 'cancelled'], true) && $order->table_id) {

@@ -547,19 +547,31 @@ export default function OrderPage({
     setScreen('receipt')
   }
 
-  // When a receipt is dismissed, subtract any settled split from the live order.
+  // A settled bill is closed server-side and can no longer be edited, so the
+  // page must stop pointing at it — the next items fired open a NEW order.
+  function startNewOrder() {
+    setBackendOrderId(null)
+    setOrderNo(String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'))
+  }
+
+  // When a receipt is dismissed, subtract any settled split from the live
+  // order; once nothing is left owing (whole-order pay, or the split that
+  // cleared the last items), reset to a fresh order.
   function leaveReceipt(next: () => void) {
     if (settling) {
       const paid = settling.lines
-      setLines((prev) =>
-        prev
-          .map((l) => {
-            const s = paid.find((p) => p.id === l.id)
-            return s ? { ...l, qty: l.qty - s.qty } : l
-          })
-          .filter((l) => Math.abs(l.qty) > 0.0001),
-      )
+      const remaining = lines
+        .map((l) => {
+          const s = paid.find((p) => p.id === l.id)
+          return s ? { ...l, qty: l.qty - s.qty } : l
+        })
+        .filter((l) => Math.abs(l.qty) > 0.0001)
+      setLines(remaining)
       setSettling(null)
+      if (remaining.every((l) => l.qty <= 0)) startNewOrder()
+    } else {
+      setLines([])
+      startNewOrder()
     }
     setPayment(null)
     setReceiptWarning(null)

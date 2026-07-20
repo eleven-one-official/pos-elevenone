@@ -46,8 +46,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('tables', TableController::class)->only(['index', 'show']);
     Route::apiResource('pricelists', PricelistController::class)->only(['index', 'show']);
 
-    // Orders: waiters and cashiers create/update; deleting is a back-office op.
-    Route::apiResource('orders', OrderController::class)->except(['destroy']);
+    // Orders: every signed-in role may read (floor/kitchen views); writing is
+    // till work — the kitchen role never creates or edits an order. Deleting
+    // stays a back-office op below.
+    Route::apiResource('orders', OrderController::class)->only(['index', 'show']);
+    Route::middleware('role:admin,manager,cashier,waiter')->group(function () {
+        Route::apiResource('orders', OrderController::class)->only(['store', 'update']);
+    });
 
     // Customer directory — cashiers may look up and add customers on the fly.
     Route::apiResource('customers', CustomerController::class)->only(['index', 'show', 'store']);
