@@ -9,6 +9,7 @@ import {
   LuPrinter,
   LuRefreshCw,
   LuStore,
+  LuTriangleAlert,
   LuUtensils,
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
@@ -359,13 +360,30 @@ export default function ReceiptPage({
 
         {/* Right — payment confirmation */}
         <div className="flex w-[38%] min-w-[360px] max-w-[520px] flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm print:hidden">
-          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
-            <LuCheck className="h-11 w-11" strokeWidth={3} />
-          </span>
-          <h2 className="mt-6 text-2xl font-bold text-neutral-900">Payment Successful</h2>
-          <p className="mt-2 text-3xl font-bold text-emerald-600 tabular-nums">{money(total)}</p>
-          <p className="text-sm font-semibold text-neutral-400 tabular-nums">{riel(total)}</p>
-          <p className="mt-2 text-sm text-neutral-500">Receipt has been printed successfully.</p>
+          {warning ? (
+            <>
+              <span className="flex h-20 w-20 items-center justify-center rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/30">
+                <LuTriangleAlert className="h-11 w-11" strokeWidth={2.5} />
+              </span>
+              <h2 className="mt-6 text-2xl font-bold text-neutral-900">Not Recorded on Server</h2>
+              <p className="mt-2 text-3xl font-bold text-rose-600 tabular-nums">{money(total)}</p>
+              <p className="text-sm font-semibold text-neutral-400 tabular-nums">{riel(total)}</p>
+              <p className="mt-2 text-sm text-neutral-500">
+                The receipt printed, but this sale did not reach the server — re-settle it once the
+                connection is back.
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
+                <LuCheck className="h-11 w-11" strokeWidth={3} />
+              </span>
+              <h2 className="mt-6 text-2xl font-bold text-neutral-900">Payment Successful</h2>
+              <p className="mt-2 text-3xl font-bold text-emerald-600 tabular-nums">{money(total)}</p>
+              <p className="text-sm font-semibold text-neutral-400 tabular-nums">{riel(total)}</p>
+              <p className="mt-2 text-sm text-neutral-500">Receipt has been printed successfully.</p>
+            </>
+          )}
 
           <div className="mt-8 flex w-full max-w-xs flex-col gap-3">
             <ActionButton icon={LuPrinter} label="Print Again" onClick={printReceipt} />

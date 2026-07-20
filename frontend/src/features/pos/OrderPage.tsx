@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LuArrowRightLeft,
   LuCheck,
@@ -117,6 +117,14 @@ export default function OrderPage({
   // Set when settling failed to record on the backend — the receipt shows it
   // as a persistent banner so the miss can't be overlooked.
   const [receiptWarning, setReceiptWarning] = useState<string | null>(null)
+  // Guards against a second settlement firing while the first is in flight — a
+  // double-tap on Validate would otherwise record the money once, complete the
+  // order, then hit the completed order again and paint a false "not recorded"
+  // banner on a sale that actually went through. The ref blocks re-entry
+  // synchronously (state alone can't, between two taps in one tick); `paying`
+  // just disables the button for feedback.
+  const settlingRef = useRef(false)
+  const [paying, setPaying] = useState(false)
 
   // Order-level state driven by the control buttons.
   const [activeTable, setActiveTable] = useState<PosTable>(table)
@@ -464,6 +472,10 @@ export default function OrderPage({
   // If the server can't be reached the receipt still prints; the sale just
   // isn't recorded.
   async function settlePayment(result: PaymentResult) {
+    // Never let two settlements overlap — see settlingRef above.
+    if (settlingRef.current) return
+    settlingRef.current = true
+    setPaying(true)
     const split = settling
     const billTotal = split ? split.total : total
     setReceiptWarning(null)
@@ -512,6 +524,11 @@ export default function OrderPage({
           : 'The server could not be reached.'
       notify(reason)
       setReceiptWarning(`NOT RECORDED ON THE SERVER — ${reason} Re-settle this bill once the server is back.`)
+    } finally {
+      // Cleared even though we're leaving for the receipt: a genuine failure
+      // above (server down) leaves the cashier able to retry from the bill.
+      settlingRef.current = false
+      setPaying(false)
     }
     setPayment(result)
     setScreen('receipt')
@@ -612,6 +629,7 @@ export default function OrderPage({
           setSettling(null)
           setScreen('order')
         }}
+        busy={paying}
         onValidate={(result) => void settlePayment(result)}
       />
     )

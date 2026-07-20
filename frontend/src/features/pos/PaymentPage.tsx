@@ -11,7 +11,7 @@ import {
   LuUser,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
-import { LoadingState } from '../../components/ui/Loader'
+import { Loader, LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
 import CustomerDialog from './CustomerDialog'
 import {
@@ -92,6 +92,7 @@ export default function PaymentPage({
   customer,
   onChangeCustomer,
   onBack,
+  busy = false,
   onValidate,
 }: {
   cashier: Cashier
@@ -100,6 +101,8 @@ export default function PaymentPage({
   customer: Customer | null
   onChangeCustomer: (c: Customer | null) => void
   onBack: () => void
+  /** True while a settlement is recording — keeps Validate from firing twice. */
+  busy?: boolean
   onValidate: (result: PaymentResult) => void
 }) {
   const [methods, setMethods] = useState<PaymentMethodRow[] | null>(null)
@@ -199,6 +202,8 @@ export default function PaymentPage({
   // Hand the settled bill to the order flow so it can print the receipt and
   // record the money on the backend.
   function validate() {
+    // A settlement is already recording — don't fire a second one.
+    if (busy) return
     // Merge split lines per method for the receipt and the method name.
     const byMethod = new Map<number, number>()
     for (const l of lines) byMethod.set(l.methodId, (byMethod.get(l.methodId) ?? 0) + l.amount)
@@ -310,15 +315,15 @@ export default function PaymentPage({
         <button
           type="button"
           onClick={validate}
-          disabled={!settled}
+          disabled={!settled || busy}
           className={`flex items-center gap-1.5 rounded-lg px-5 py-2.5 font-semibold text-white shadow-sm transition ${
-            settled
+            settled && !busy
               ? 'bg-emerald-600 hover:bg-emerald-700'
               : 'cursor-not-allowed bg-neutral-300 text-neutral-500'
           }`}
         >
-          Validate
-          <LuChevronsRight className="h-5 w-5" />
+          {busy ? 'Processing…' : 'Validate'}
+          {busy ? <Loader size="sm" /> : <LuChevronsRight className="h-5 w-5" />}
         </button>
       </div>
 
