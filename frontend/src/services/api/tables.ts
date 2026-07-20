@@ -22,7 +22,7 @@ export type ApiTable = {
 // *type*, not a table. These synthetic slots give the floor a tappable
 // "Take Away" section — orders started on one post as order_type=take_away
 // with no table_id.
-const TAKEAWAY_SLOTS = 6
+const TAKEAWAY_SLOTS = 8
 
 function toPosTable(t: ApiTable): PosTable {
   return {

@@ -19,7 +19,8 @@ class TableController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Table::query()
-            ->orderBy('name')
+            // Natural sort: E2 before E10 (plain name sort would put E10 first)
+            ->orderByRaw('LENGTH(name), name')
             ->addSelect([
                 'guest_count' => Order::select('guest_count')
                     ->whereColumn('table_id', 'tables.id')
