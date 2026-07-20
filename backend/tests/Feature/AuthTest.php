@@ -58,14 +58,20 @@ class AuthTest extends TestCase
     {
         $waiter = $this->staff('waiter', ['name' => 'Waiter']);
         $pinCashier = $this->staff('cashier', ['name' => 'Pin Cashier', 'pin' => '1234']);
-        $this->staff('cashier', ['name' => 'Password-only Cashier']);
-        $this->staff('waiter', ['name' => 'Gone Waiter', 'is_active' => false]);
+        $passwordOnly = $this->staff('cashier', ['name' => 'Password-only Cashier']);
+        $goneWaiter = $this->staff('waiter', ['name' => 'Gone Waiter', 'is_active' => false]);
 
         $response = $this->getJson('/api/staff')->assertOk();
 
-        $response->assertJsonCount(2)
-            ->assertJsonFragment(['id' => $waiter->id, 'requires_pin' => false])
+        // Tappable accounts show: PIN-less stations (waiter/kitchen) and any
+        // staff with a PIN. (A baseline PIN-less Kitchen account is seeded by
+        // migration, so this asserts the filter rules rather than a fixed count.)
+        $response->assertJsonFragment(['id' => $waiter->id, 'requires_pin' => false])
             ->assertJsonFragment(['id' => $pinCashier->id, 'requires_pin' => true]);
+
+        // Password-only and inactive accounts never appear.
+        $response->assertJsonMissing(['id' => $passwordOnly->id])
+            ->assertJsonMissing(['id' => $goneWaiter->id]);
 
         // Never leak credentials through the public roster.
         $this->assertStringNotContainsString('"pin"', $response->getContent());
