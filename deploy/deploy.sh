@@ -77,9 +77,14 @@ echo "==> Running database migrations..."
 php artisan migrate --force
 
 # Symlink public/storage -> storage/app/public so uploaded menu photos are
-# served. Harmless to re-run; skips if the link already exists.
+# served. Test first: `artisan storage:link` prints a red ERROR when the link
+# already exists, which looks like a failed deploy in the Actions log.
 echo "==> Linking public storage..."
-php artisan storage:link || true
+if [ -L public/storage ]; then
+  echo "    already linked."
+else
+  php artisan storage:link
+fi
 
 echo "==> Rebuilding caches..."
 php artisan config:cache
