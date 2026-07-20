@@ -44,6 +44,8 @@ export type DailySales = {
   orders_count: number
   gross_sales: number
   discount: number
+  /** Money handed back on partially refunded orders — already off net_sales. */
+  refunds: number
   net_sales: number
   payment_summary: PaymentSummaryRow[]
 }
@@ -105,9 +107,17 @@ export type SalesDetailsData = {
   payments: SalesDetailsPayment[]
 }
 
-/** start/end are datetimes (e.g. "2026-07-18T00:00"). */
-export function fetchSalesDetails(start: string, end: string): Promise<SalesDetailsData> {
+/** A register "side" — who fired the order (matches /reports/pos-configs). */
+export type RegisterSide = 'cashier' | 'waiter'
+
+/** start/end are datetimes (e.g. "2026-07-18T00:00"); omit sides for both registers. */
+export function fetchSalesDetails(
+  start: string,
+  end: string,
+  sides?: RegisterSide[],
+): Promise<SalesDetailsData> {
   const params = new URLSearchParams({ start, end })
+  if (sides && sides.length > 0) params.set('sides', sides.join(','))
   return api<SalesDetailsData>(`/reports/sales-details?${params}`)
 }
 

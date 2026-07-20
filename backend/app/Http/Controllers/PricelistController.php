@@ -22,7 +22,7 @@ class PricelistController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $data = $this->validated($request);
+        $data = $this->validated($request, creating: true);
 
         $pricelist = DB::transaction(function () use ($data) {
             $pricelist = Pricelist::create($data);
@@ -41,7 +41,7 @@ class PricelistController extends Controller
 
     public function update(Request $request, Pricelist $pricelist): JsonResponse
     {
-        $data = $this->validated($request);
+        $data = $this->validated($request, creating: false);
 
         DB::transaction(function () use ($data, $pricelist) {
             $pricelist->update($data);
@@ -80,12 +80,17 @@ class PricelistController extends Controller
         ], $rules);
     }
 
-    /** @return array<string, mixed> */
-    private function validated(Request $request): array
+    /**
+     * On update, name/currency may be omitted (a partial PUT keeps them) but
+     * still can't be blanked when sent.
+     *
+     * @return array<string, mixed>
+     */
+    private function validated(Request $request, bool $creating): array
     {
         return $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'currency' => ['required', 'in:USD,KHR'],
+            'name' => [$creating ? 'required' : 'sometimes', 'required', 'string', 'max:255'],
+            'currency' => [$creating ? 'required' : 'sometimes', 'required', 'in:USD,KHR'],
             'discount_policy' => ['nullable', 'in:included,public'],
             'rules' => ['sometimes', 'array'],
             // menu_item_id null = the rule prices all products.

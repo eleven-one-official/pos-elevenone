@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   LuArrowLeftRight,
   LuClipboardList,
@@ -18,6 +18,12 @@ import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
 import { LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
 import { useTables } from '../../hooks/useTables'
+import {
+  createCashMovement,
+  fetchCashMovements,
+  type ApiCashMovement,
+} from '../../services/api/cashMovements'
+import { ApiError } from '../../services/api/client'
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -208,29 +214,15 @@ function LegendItem({ color, label }: { color: string; label: string }) {
 // Page
 // ---------------------------------------------------------------------------
 
-// The drawer log only matters for the current day, so it's stored with its
-// date and dropped the first time the floor opens on a new day.
-const MOVEMENTS_KEY = 'pos_cash_movements'
-
-function loadTodaysMovements(): CashMovement[] {
-  try {
-    const raw = localStorage.getItem(MOVEMENTS_KEY)
-    if (!raw) return []
-    const stored = JSON.parse(raw) as { date?: string; movements?: CashMovement[] }
-    return stored.date === new Date().toDateString() ? (stored.movements ?? []) : []
-  } catch {
-    return []
-  }
-}
-
-function saveTodaysMovements(movements: CashMovement[]): void {
-  try {
-    localStorage.setItem(
-      MOVEMENTS_KEY,
-      JSON.stringify({ date: new Date().toDateString(), movements }),
-    )
-  } catch {
-    // Storage full/blocked — the in-memory log still works for this session.
+/** Map an API drawer row onto the dialog's display shape. */
+function toMovement(m: ApiCashMovement): CashMovement {
+  return {
+    id: String(m.id),
+    type: m.type,
+    amount: Number(m.amount),
+    reason: m.reason,
+    time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    cashier: m.user?.name ?? '—',
   }
 }
 
@@ -252,26 +244,39 @@ export default function TableFloorPage({
   const takeaway = floor.filter((t) => t.section === 'takeaway')
   const activeOrders = floor.reduce((sum, t) => sum + t.orders, 0)
 
-  // Cash drawer — the day's movements survive a reload via localStorage
-  // (yesterday's log is discarded); the opening float is an admin setting.
+  // Cash drawer — the log lives on the server so every terminal sees the same
+  // day and each movement is audited; the opening float is an admin setting.
   const { openingFloat } = useSettings()
   const [cashOpen, setCashOpen] = useState(false)
-  const [movements, setMovements] = useState<CashMovement[]>(loadTodaysMovements)
+  const [movements, setMovements] = useState<CashMovement[]>([])
+  const [drawerError, setDrawerError] = useState<string | null>(null)
 
-  function recordMovement(m: Omit<CashMovement, 'id' | 'time' | 'cashier'>) {
-    setMovements((prev) => {
-      const next = [
-        ...prev,
-        {
-          ...m,
-          id: String(Date.now()),
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          cashier: cashier.name,
-        },
-      ]
-      saveTodaysMovements(next)
-      return next
-    })
+  // Refresh the day's log every time the drawer opens, so movements recorded
+  // on another terminal are already in the list.
+  useEffect(() => {
+    if (!cashOpen) return
+    let alive = true
+    setDrawerError(null)
+    fetchCashMovements()
+      .then((rows) => alive && setMovements(rows.map(toMovement)))
+      .catch((e: unknown) => {
+        if (alive) setDrawerError(e instanceof ApiError ? e.message : 'Could not load the drawer log.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [cashOpen])
+
+  async function recordMovement(m: Omit<CashMovement, 'id' | 'time' | 'cashier'>) {
+    setDrawerError(null)
+    try {
+      const created = await createCashMovement({ type: m.type, amount: m.amount, reason: m.reason })
+      setMovements((prev) => [...prev, toMovement(created)])
+    } catch (e: unknown) {
+      setDrawerError(
+        e instanceof ApiError ? e.message : 'Not recorded — the server could not be reached.',
+      )
+    }
   }
 
   return (
@@ -356,7 +361,8 @@ export default function TableFloorPage({
         <CashInOutDialog
           movements={movements}
           openingFloat={openingFloat}
-          onSubmit={recordMovement}
+          error={drawerError}
+          onSubmit={(m) => void recordMovement(m)}
           onClose={() => setCashOpen(false)}
         />
       )}

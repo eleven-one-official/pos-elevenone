@@ -23,6 +23,7 @@ const EVENT_OPTIONS = [
 const TYPE_OPTIONS = [
   'Order',
   'Payment',
+  'CashMovement',
   'MenuItem',
   'Category',
   'Table',

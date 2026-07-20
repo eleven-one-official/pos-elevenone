@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CashMovementController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\MenuItemController;
@@ -77,6 +78,13 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::middleware('role:admin,manager,cashier')->group(function () {
         Route::apiResource('payments', PaymentController::class)->only(['index', 'show', 'store']);
+
+        // Cash drawer log — shared across terminals, audited via the model.
+        Route::get('/cash-movements', [CashMovementController::class, 'index']);
+        Route::post('/cash-movements', [CashMovementController::class, 'store']);
+
+        // Re-send a settled bill to the guest's inbox.
+        Route::post('/orders/{order}/email-receipt', [OrderController::class, 'emailReceipt']);
     });
 
     /*

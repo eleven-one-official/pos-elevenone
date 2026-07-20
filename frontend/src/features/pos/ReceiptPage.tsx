@@ -4,6 +4,7 @@ import {
   LuChevronsLeft,
   LuFileText,
   LuLock,
+  LuMail,
   LuPower,
   LuPrinter,
   LuRefreshCw,
@@ -12,7 +13,11 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import Modal from '../../components/ui/Modal'
+import { Loader } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
+import { emailReceipt } from '../../services/api/orders'
+import { ApiError } from '../../services/api/client'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { OrderLine } from './catalog'
 import { type PaymentResult } from './PaymentPage'
@@ -91,6 +96,7 @@ export default function ReceiptPage({
   customerName,
   payment,
   warning,
+  orderId,
   onBackToTables,
   onSeeOrder,
 }: {
@@ -105,11 +111,17 @@ export default function ReceiptPage({
   payment: PaymentResult
   /** Persistent banner when the sale failed to record on the backend. */
   warning?: string | null
+  /** Backend order id — enables Email Receipt (null = never recorded). */
+  orderId?: number | null
   onBackToTables: () => void
   onSeeOrder: () => void
 }) {
   // Freeze the printed timestamp at the moment the receipt is shown.
   const [printedAt] = useState(() => new Date())
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailNote, setEmailNote] = useState<{ ok: boolean; text: string } | null>(null)
   const { storeName, storeAddress, storePhone, khrRate } = useSettings()
   const riel = (value: number) => `៛ ${Math.round(value * khrRate).toLocaleString('en-US')}`
 
@@ -124,6 +136,23 @@ export default function ReceiptPage({
   const guests = guestsProp ?? (table.guests > 0 ? table.guests : 2)
 
   const printReceipt = () => window.print()
+
+  async function sendEmail() {
+    if (emailBusy || orderId == null) return
+    setEmailBusy(true)
+    setEmailNote(null)
+    try {
+      const res = await emailReceipt(orderId, emailTo.trim() || undefined)
+      setEmailNote({ ok: true, text: res.message })
+    } catch (e: unknown) {
+      setEmailNote({
+        ok: false,
+        text: e instanceof ApiError ? e.message : 'Sending failed. Check the connection.',
+      })
+    } finally {
+      setEmailBusy(false)
+    }
+  }
 
   return (
     <div className="flex h-screen flex-col bg-[#f3f4f6]">
@@ -338,6 +367,16 @@ export default function ReceiptPage({
 
           <div className="mt-8 flex w-full max-w-xs flex-col gap-3">
             <ActionButton icon={LuPrinter} label="Print Again" onClick={printReceipt} />
+            {orderId != null && (
+              <ActionButton
+                icon={LuMail}
+                label="Email Receipt"
+                onClick={() => {
+                  setEmailNote(null)
+                  setEmailOpen(true)
+                }}
+              />
+            )}
             <ActionButton icon={LuFileText} label="See Order" onClick={onSeeOrder} />
             <button
               type="button"
@@ -350,6 +389,55 @@ export default function ReceiptPage({
           </div>
         </div>
       </div>
+
+      {emailOpen && (
+        <Modal
+          title="Email Receipt"
+          subtitle="Send the guest their copy of this bill"
+          onClose={() => setEmailOpen(false)}
+          width="max-w-md"
+        >
+          <label className="text-xs font-bold uppercase tracking-wide text-neutral-400" htmlFor="receipt-email">
+            Email address
+          </label>
+          <input
+            id="receipt-email"
+            type="email"
+            autoFocus
+            value={emailTo}
+            onChange={(e) => setEmailTo(e.target.value)}
+            placeholder={customerName ? `Leave empty to use ${customerName}'s saved email` : 'guest@example.com'}
+            className="mt-2 h-11 w-full rounded-xl border border-neutral-200 px-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          {emailNote && (
+            <p
+              className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+                emailNote.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
+              }`}
+            >
+              {emailNote.text}
+            </p>
+          )}
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setEmailOpen(false)}
+              className="flex-1 rounded-xl border border-neutral-300 py-3 font-semibold text-neutral-700 transition hover:bg-neutral-100"
+            >
+              {emailNote?.ok ? 'Done' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void sendEmail()}
+              disabled={emailBusy}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2b2138] py-3 font-semibold text-white shadow-sm transition hover:bg-[#37294a] disabled:opacity-60"
+            >
+              {emailBusy && <Loader size="sm" />}
+              Send
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

@@ -658,6 +658,7 @@ export default function OrderPage({
         customerName={customer?.name}
         payment={payment}
         warning={receiptWarning}
+        orderId={backendOrderId}
         onBackToTables={() => leaveReceipt(onBack)}
         onSeeOrder={() => leaveReceipt(() => setScreen('order'))}
       />

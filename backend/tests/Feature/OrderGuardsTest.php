@@ -158,6 +158,17 @@ class OrderGuardsTest extends TestCase
     // Discount ceiling
     // ------------------------------------------------------------------
 
+    public function test_a_table_carries_only_one_open_order(): void
+    {
+        $item = MenuItem::factory()->create();
+        $table = \App\Models\Table::factory()->create();
+        Sanctum::actingAs($this->staff('cashier'));
+
+        $dineIn = ['order_type' => 'dine_in', 'table_id' => $table->id];
+        $this->postJson('/api/orders', $this->payload($item, $dineIn))->assertCreated();
+        $this->postJson('/api/orders', $this->payload($item, $dineIn))->assertStatus(422);
+    }
+
     public function test_discount_cannot_exceed_the_subtotal(): void
     {
         $item = MenuItem::factory()->create(['price' => 5.00]);

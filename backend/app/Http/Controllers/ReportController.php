@@ -23,9 +23,16 @@ class ReportController extends Controller
 
         $completed = Order::where('status', 'completed');
 
+        // Partially refunded orders stay `completed`, so the money handed back
+        // must come off the sales figures (fully refunded orders drop out via
+        // their status). Attributed to the order's own day, like the order.
+        $refundsSince = fn ($since) => (float) Payment::where('payments.status', 'refunded')
+            ->whereHas('order', fn ($q) => $q->where('status', 'completed')->where('created_at', '>=', $since))
+            ->sum('amount');
+
         return response()->json([
-            'today_sales' => (float) (clone $completed)->where('created_at', '>=', $today)->sum('total'),
-            'monthly_sales' => (float) (clone $completed)->where('created_at', '>=', $monthStart)->sum('total'),
+            'today_sales' => (float) (clone $completed)->where('created_at', '>=', $today)->sum('total') - $refundsSince($today),
+            'monthly_sales' => (float) (clone $completed)->where('created_at', '>=', $monthStart)->sum('total') - $refundsSince($monthStart),
             'total_orders_today' => Order::where('created_at', '>=', $today)->count(),
             'pending_orders' => Order::whereIn('status', ['new', 'preparing', 'ready'])->count(),
             'tables' => [
@@ -54,13 +61,19 @@ class ReportController extends Controller
             ->groupBy('method')
             ->get();
 
+        // Money handed back on partially refunded (still `completed`) orders.
+        $refunds = (float) Payment::where('payments.status', 'refunded')
+            ->whereHas('order', fn ($q) => $q->where('status', 'completed')->whereDate('created_at', $date))
+            ->sum('amount');
+
         return response()->json([
             'date' => $date->toDateString(),
             'orders_count' => (clone $orders)->count(),
             'gross_sales' => (float) (clone $orders)->sum('subtotal'),
             'discount' => (float) (clone $orders)->sum('discount'),
             'tax' => (float) (clone $orders)->sum('tax'),
-            'net_sales' => (float) (clone $orders)->sum('total'),
+            'refunds' => $refunds,
+            'net_sales' => (float) (clone $orders)->sum('total') - $refunds,
             'payment_summary' => $paymentSummary,
         ]);
     }
@@ -119,15 +132,36 @@ class ReportController extends Controller
         $request->validate([
             'start' => ['required', 'date'],
             'end' => ['required', 'date', 'after_or_equal:start'],
+            // CSV of registers to include: cashier,waiter (default both).
+            'sides' => ['nullable', 'string'],
         ]);
 
         $start = $request->date('start');
         $end = $request->date('end');
 
+        // Like posConfigs, a register "side" is the role of the user who fired
+        // the order. No filter when both (or none) are requested.
+        $sides = array_values(array_intersect(
+            array_filter(explode(',', (string) $request->string('sides'))),
+            ['cashier', 'waiter'],
+        ));
+        $sideFilter = function ($q) use ($sides) {
+            if (count($sides) !== 1) {
+                return;
+            }
+            $waiterIds = User::whereHas('role', fn ($r) => $r->where('slug', 'waiter'))->pluck('id');
+            if ($sides[0] === 'waiter') {
+                $q->whereIn('user_id', $waiterIds);
+            } else {
+                $q->where(fn ($w) => $w->whereNotIn('user_id', $waiterIds)->orWhereNull('user_id'));
+            }
+        };
+
         $lines = OrderItem::query()
             ->with(['order:id,status,discount,subtotal,created_at', 'menuItem:id,category_id', 'menuItem.category:id,name'])
-            ->whereHas('order', function ($q) use ($start, $end) {
+            ->whereHas('order', function ($q) use ($start, $end, $sideFilter) {
                 $q->where('status', 'completed')->whereBetween('created_at', [$start, $end]);
+                $sideFilter($q);
             })
             ->get();
 
@@ -159,12 +193,32 @@ class ReportController extends Controller
 
         ksort($products);
 
-        $payments = Payment::where('status', 'paid')
-            ->whereBetween('created_at', [$start, $end])
+        $payments = Payment::where('payments.status', 'paid')
+            ->whereBetween('payments.created_at', [$start, $end])
+            ->whereHas('order', $sideFilter)
             ->select('method', DB::raw('SUM(amount) as amount'), DB::raw('COUNT(*) as count'))
             ->groupBy('method')
             ->orderBy('method')
             ->get();
+
+        // Money handed back on partially refunded orders in the range shows as
+        // its own negative line so the payments column still reconciles.
+        $refunds = Payment::where('payments.status', 'refunded')
+            ->whereHas('order', function ($q) use ($start, $end, $sideFilter) {
+                $q->where('status', 'completed')->whereBetween('created_at', [$start, $end]);
+                $sideFilter($q);
+            })
+            ->selectRaw('COALESCE(SUM(amount), 0) as amount, COUNT(*) as count')
+            ->first();
+
+        if ((int) $refunds->count > 0) {
+            $payments->push([
+                'method' => 'refunds',
+                'amount' => -(float) $refunds->amount,
+                'count' => (int) $refunds->count,
+            ]);
+            $total -= (float) $refunds->amount;
+        }
 
         return response()->json([
             'start' => $start->toDateTimeString(),

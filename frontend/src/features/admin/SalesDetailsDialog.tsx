@@ -13,9 +13,11 @@ import type { SalesDetailsParams, SalesReportType } from './printSalesDetails'
 // pipeline the kitchen tickets use.
 // ---------------------------------------------------------------------------
 
+// Each register card maps to a backend "side" (who fired the order), so the
+// picker really filters the report.
 const ALL_CONFIGS = [
-  { pos: 'TTP', company: 'ElevenOne TTP' },
-  { pos: 'TTP Waiter', company: 'ElevenOne TTP' },
+  { pos: 'TTP', company: 'ElevenOne TTP', side: 'cashier' as const },
+  { pos: 'TTP Waiter', company: 'ElevenOne TTP', side: 'waiter' as const },
 ]
 
 const REPORT_TYPES: SalesReportType[] = ['Product', 'Category', 'Both']
@@ -109,11 +111,15 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
       setError('Pick a start and end date.')
       return
     }
+    if (configs.length === 0) {
+      setError('Pick at least one POS configuration.')
+      return
+    }
     setPrinting(true)
     setError(null)
     let data: SalesDetailsData
     try {
-      data = await fetchSalesDetails(startDate, endDate)
+      data = await fetchSalesDetails(startDate, endDate, configs.map((c) => c.side))
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load the sales details.')
       setPrinting(false)

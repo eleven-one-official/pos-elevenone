@@ -35,12 +35,15 @@ const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del']
 export default function CashInOutDialog({
   movements,
   openingFloat,
+  error,
   onSubmit,
   onClose,
 }: {
   movements: CashMovement[]
   /** Drawer balance at open of day — an admin setting. */
   openingFloat: number
+  /** Server failure loading or recording — shown until the next action. */
+  error?: string | null
   onSubmit: (movement: Omit<CashMovement, 'id' | 'time' | 'cashier'>) => void
   onClose: () => void
 }) {
@@ -128,6 +131,12 @@ export default function CashInOutDialog({
         </div>
       }
     >
+      {error && (
+        <p className="mb-4 rounded-xl bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-600">
+          {error}
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-5">
         {/* Left — type, amount, numpad */}
         <div>

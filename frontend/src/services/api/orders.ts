@@ -121,6 +121,16 @@ export function fetchOrder(id: number): Promise<ApiOrder> {
   return api<ApiOrder>(`/orders/${id}`)
 }
 
+/**
+ * Email the guest their receipt. Omit `email` to use the address saved on the
+ * order's customer. Only settled (completed/refunded) bills can be sent.
+ */
+export function emailReceipt(orderId: number, email?: string): Promise<{ message: string }> {
+  return api<{ message: string }>(`/orders/${orderId}/email-receipt`, {
+    body: { email: email || null },
+  })
+}
+
 /** Delete an order — a back-office op (admin/manager); frees its table. */
 export function deleteOrder(id: number): Promise<{ message: string }> {
   return api<{ message: string }>(`/orders/${id}`, { method: 'DELETE' })

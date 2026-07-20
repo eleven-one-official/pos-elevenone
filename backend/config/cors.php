@@ -22,11 +22,12 @@ return [
         'https://192.168.1.166:5443',
     ],
 
-    // Dev: Vite picks the first free port (5173, then 5174, ...), so allow any
-    // localhost / 127.0.0.1 port. Lock this down for production.
-    'allowed_origins_patterns' => [
-        '#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#',
-    ],
+    // Dev only: Vite picks the first free port (5173, then 5174, ...), so any
+    // localhost / 127.0.0.1 port is allowed while APP_ENV=local. In production
+    // this list is empty — only the explicit origins above may call the API.
+    'allowed_origins_patterns' => env('APP_ENV', 'production') === 'local'
+        ? ['#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#']
+        : [],
 
     'allowed_headers' => ['*'],
 

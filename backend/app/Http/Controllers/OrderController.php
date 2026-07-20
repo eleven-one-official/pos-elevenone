@@ -118,6 +118,21 @@ class OrderController extends Controller
             return response()->json(['message' => 'Waiters cannot apply discounts.'], 403);
         }
 
+        // One live bill per table — a second one would double-charge the
+        // guests. The POS loads the open order first; this catches the race
+        // (or a stale screen) where it didn't.
+        if ($data['order_type'] === 'dine_in' && ($data['table_id'] ?? null)) {
+            $existing = Order::where('table_id', $data['table_id'])
+                ->whereIn('status', ['new', 'preparing', 'ready', 'served'])
+                ->latest()
+                ->first();
+            if ($existing) {
+                return response()->json([
+                    'message' => "This table already has open order {$existing->order_number} — load it instead of starting a second bill.",
+                ], 422);
+            }
+        }
+
         $pricelist = $this->resolvePricelist($data['pricelist_id'] ?? null);
         $khrRate = $this->khrRate();
 
@@ -270,6 +285,38 @@ class OrderController extends Controller
         });
 
         return response()->json($order->load(self::WITH));
+    }
+
+    /**
+     * Email the guest their copy of a settled bill. Defaults to the linked
+     * customer's address when none is given.
+     */
+    public function emailReceipt(Request $request, Order $order): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['nullable', 'email', 'max:255'],
+        ]);
+
+        $email = $data['email'] ?? $order->customer?->email;
+        if (! $email) {
+            return response()->json(['message' => 'No email address given and the order has no customer email.'], 422);
+        }
+
+        if (! in_array($order->status, ['completed', 'refunded'], true)) {
+            return response()->json(['message' => 'Only a settled bill can be emailed.'], 422);
+        }
+
+        try {
+            \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\ReceiptMail($order));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json(['message' => 'Sending failed — check the mail settings on the server.'], 502);
+        }
+
+        \App\Models\AuditLog::record('receipt_emailed', $order, [], ['email' => $email], $order->order_number);
+
+        return response()->json(['message' => "Receipt sent to {$email}."]);
     }
 
     public function destroy(Order $order): JsonResponse

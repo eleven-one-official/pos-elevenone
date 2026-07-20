@@ -141,7 +141,7 @@ export default function PosSalesDashboard() {
                 <p className="py-4 text-center text-sm text-red-600">{dailyError}</p>
               ) : daily ? (
                 <>
-                  <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="grid grid-cols-4 gap-3 text-center">
                     <div>
                       <p className="text-[12px] uppercase tracking-wide text-neutral-500">Orders</p>
                       <p className="mt-0.5 text-xl font-semibold text-neutral-800">{daily.orders_count}</p>
@@ -149,6 +149,12 @@ export default function PosSalesDashboard() {
                     <div>
                       <p className="text-[12px] uppercase tracking-wide text-neutral-500">Discount</p>
                       <p className="mt-0.5 text-xl font-semibold text-neutral-800">{usd(daily.discount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[12px] uppercase tracking-wide text-neutral-500">Refunds</p>
+                      <p className={`mt-0.5 text-xl font-semibold ${daily.refunds > 0 ? 'text-rose-600' : 'text-neutral-800'}`}>
+                        {usd(daily.refunds)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[12px] uppercase tracking-wide text-neutral-500">Net Sales</p>
