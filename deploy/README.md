@@ -57,8 +57,7 @@ self-hosted runner on the VPS which runs `deploy/deploy.sh`: pull, build the
 SPA, `composer install`, migrate, re-cache, fix permissions, reload PHP-FPM,
 then health-check `https://pos.system11.app/up` and fail loudly if it's down.
 
-Manual run (same script, no push needed) — or use **Actions → Deploy to VPS →
-Run workflow**:
+Manual run (same script, no push needed):
 
 ```sh
 ssh pos-vps 'bash /var/www/pos-elevenone/deploy/deploy.sh'
@@ -76,22 +75,41 @@ heap at 512 MB, and runs the build under `nice`. It also greps the built bundle
 for the production API URL and aborts if it's missing — cheap insurance against
 shipping a bundle that points at `127.0.0.1`.
 
-### Runner and access
+### How the trigger works
+
+`pos-deploy.timer` runs `watch-deploy.sh` every 2 minutes. It compares local
+`HEAD` against `origin/main` and calls `deploy.sh` only when they differ, so a
+quiet repo costs one `git fetch` per tick and logs nothing. Expect a deploy to
+land within ~2 minutes of a push.
 
 | Thing | Where |
 |---|---|
-| Runner service | `actions.runner.eleven-one-official-pos-elevenone.pos-vps.service` |
-| Runner labels | `self-hosted`, `pos-elevenone` |
-| Runner dir | `/home/ubuntu/actions-runner-pos-elevenone` |
-| Deploy key | `~/.ssh/id_ed25519_pos_elevenone`, alias `github-pos-elevenone` (read-only) |
+| Timer / service | `pos-deploy.timer`, `pos-deploy.service` |
+| Watcher | `deploy/watch-deploy.sh` |
+| Lock | `/run/lock/pos-deploy.lock` (flock — a tick can't race a manual deploy) |
+| Deploy key | `~/.ssh/id_ed25519_pos_elevenone`, alias `github-pos-elevenone` (unused while the repo is public) |
 
-Runner logs: `journalctl -u actions.runner.eleven-one-official-pos-elevenone.pos-vps -f`
+```sh
+journalctl -u pos-deploy -f                      # watch deploys live
+systemctl list-timers pos-deploy.timer           # when does it next check
+sudo systemctl start pos-deploy.service          # force a check right now
+sudo systemctl disable --now pos-deploy.timer    # pause auto-deploy
+```
 
-> **The repo must stay private.** A self-hosted runner on a public repo lets
-> anyone open a fork pull request that runs code on this box — which also
-> serves five other production sites. The workflow triggers only on
-> push-to-`main` (fork PRs cannot fire a push event); do not add
-> `pull_request` to it.
+`Type=oneshot` means the service reads as `activating` for the ~60 s a deploy
+takes, and `list-timers` shows `n/a` for the next run until it finishes — that
+is normal, not a stuck timer.
+
+**Why polling rather than GitHub Actions.** A GitHub-hosted runner cannot reach
+this box (the provider's Anti-DDoS blocks inbound SSH from GitHub's runner IP
+ranges — see the note in `order-food`'s workflow). A self-hosted runner would
+work, but this repo is **public**, and a self-hosted runner on a public repo
+lets fork pull requests execute code on a box that also serves six other
+production sites. Polling needs no inbound access, no secrets and no runner.
+
+> If you later switch to a GitHub Actions trigger, make the repo **private**
+> first, and note that pushing any workflow file needs a token with the
+> **Workflows: Read and write** permission.
 
 ## Notes
 
