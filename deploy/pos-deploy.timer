@@ -1,0 +1,17 @@
+[Unit]
+# POS ElevenOne — polls GitHub for new commits on main.
+# Install: sudo cp deploy/pos-deploy.timer /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now pos-deploy.timer
+Description=Check for new POS ElevenOne commits every 2 minutes
+
+[Timer]
+# First check shortly after boot, then every 2 minutes. A tick with no new
+# commit is just one `git fetch` and exits silently.
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=pos-deploy.service
+
+[Install]
+WantedBy=timers.target

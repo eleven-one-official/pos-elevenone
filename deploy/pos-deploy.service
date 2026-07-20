@@ -1,0 +1,24 @@
+[Unit]
+# POS ElevenOne — one-shot auto-deploy check. Fired by pos-deploy.timer.
+# Install: sudo cp deploy/pos-deploy.service /etc/systemd/system/
+Description=POS ElevenOne auto-deploy (pull latest main and deploy if changed)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/bin/bash /var/www/pos-elevenone/deploy/watch-deploy.sh
+
+# A build plus composer must never crowd out the six live sites on this 2 GB
+# box, so the whole unit runs at low CPU and I/O priority.
+Nice=10
+IOSchedulingClass=idle
+
+# Builds are quick (~10s) but npm can hang on a bad network; don't let a stuck
+# run block the next tick forever.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
