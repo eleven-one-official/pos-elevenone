@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { LuChevronDown } from 'react-icons/lu'
 import SearchMoreDialog from './SearchMoreDialog'
@@ -64,6 +64,16 @@ export function Many2OneField({
   const [open, setOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [active, setActive] = useState(0)
+
+  // `useState(value)` only reads `value` on the first render, so if the parent
+  // recomputes it later — the category list finishes loading, or this field is
+  // reused for another record — the display would stay stuck on its first
+  // value (usually blank). Re-sync whenever `value` changes so an edited
+  // product's saved category actually shows. A user's own pick round-trips back
+  // as the same string, so this never fights their selection.
+  useEffect(() => {
+    setSelected(value)
+  }, [value])
 
   if (disabled) {
     return (
