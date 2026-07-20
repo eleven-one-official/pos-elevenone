@@ -1,0 +1,12 @@
+# The VPS runs deploy/deploy.sh directly. If it were ever checked out with CRLF
+# endings, bash would fail with errors like `$'\r': command not found`. Pin LF
+# for shell scripts and server configs regardless of a contributor's
+# core.autocrlf setting (it is `true` on the Windows POS machine).
+*.sh        text eol=lf
+*.conf      text eol=lf
+Caddyfile   text eol=lf
+
+# Windows-side launchers must keep CRLF — cmd.exe and WSH need it.
+*.bat       text eol=crlf
+*.ps1       text eol=crlf
+*.vbs       text eol=crlf

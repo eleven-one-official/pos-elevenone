@@ -5,11 +5,18 @@ Production lives on the shared Eleven One VPS (`208.122.28.102`), alongside
 exclusive to this app: nginx, PHP 8.2-FPM, MySQL 8, Composer, Node 22 and
 certbot were already installed for those sites.
 
+`/var/www/pos-elevenone` is a **git clone of this repo on the `main` branch**,
+pulled by the self-hosted runner on every push:
+
 ```
 /var/www/pos-elevenone/
-├── frontend/   # Vite build output (dist/ contents), served straight by nginx
+├── frontend/
+│   └── dist/   # Vite build output — this is what nginx serves
 └── backend/    # Laravel 12, served from backend/public via the `pos` FPM pool
 ```
+
+Two files on the VPS are **not** in git and must survive any redeploy:
+`backend/.env` and everything under `backend/storage/` (uploaded menu photos).
 
 Both are served from **one origin**, so the browser makes same-origin calls —
 no CORS preflight, no mixed content:
@@ -45,40 +52,46 @@ Re-run it if Cloudflare adds ranges.
 
 ## Redeploying
 
-**Frontend.** `.env.production` pins `VITE_API_URL=https://pos.system11.app/api`,
-but `.env.local` outranks it in Vite's precedence chain — move it aside for the
-build or you will ship a bundle pointing at `127.0.0.1`:
+**Push to `main`.** That's it. `.github/workflows/deploy.yml` fires a
+self-hosted runner on the VPS which runs `deploy/deploy.sh`: pull, build the
+SPA, `composer install`, migrate, re-cache, fix permissions, reload PHP-FPM,
+then health-check `https://pos.system11.app/up` and fail loudly if it's down.
+
+Manual run (same script, no push needed) — or use **Actions → Deploy to VPS →
+Run workflow**:
 
 ```sh
-cd frontend
-mv .env.local .env.local.bak && npm run build; mv .env.local.bak .env.local
-grep -o 'https://pos.system11.app/api' dist/assets/*.js   # verify before shipping
-tar -czf /tmp/pos-frontend.tar.gz -C dist .
-scp /tmp/pos-frontend.tar.gz pos-vps:/tmp/
-ssh pos-vps 'tar -xzf /tmp/pos-frontend.tar.gz -C /var/www/pos-elevenone/frontend && rm /tmp/pos-frontend.tar.gz'
+ssh pos-vps 'bash /var/www/pos-elevenone/deploy/deploy.sh'
 ```
 
-**Backend.** Ship source only — `vendor/` is built on the server and `.env`
-must never be overwritten:
-
-```sh
-tar -czf /tmp/pos-backend.tar.gz --exclude='./vendor' --exclude='./node_modules' \
-  --exclude='./.env' --exclude='./.git' --exclude='./storage/logs/*' \
-  --exclude='./public/storage' -C backend .
-scp /tmp/pos-backend.tar.gz pos-vps:/tmp/
-ssh pos-vps 'set -e
-  cd /var/www/pos-elevenone/backend
-  tar -xzf /tmp/pos-backend.tar.gz -C . && rm /tmp/pos-backend.tar.gz
-  composer install --no-dev --optimize-autoloader --no-interaction
-  php artisan migrate --force
-  php artisan config:cache && php artisan route:cache && php artisan view:cache
-  sudo chown -R www-data:www-data storage bootstrap/cache
-  sudo systemctl reload php8.2-fpm'
-```
-
-The FPM reload is **required**, not optional: the pool sets
+The FPM reload inside the script is **required**, not optional: the pool sets
 `opcache.validate_timestamps = 0`, so PHP never re-stats files and new code
 stays invisible until the pool reloads.
+
+### Why the build is fenced in
+
+This box has ~2 GB RAM and six other production sites. `deploy.sh` therefore
+reinstalls `node_modules` only when `package-lock.json` changes, caps the V8
+heap at 512 MB, and runs the build under `nice`. It also greps the built bundle
+for the production API URL and aborts if it's missing — cheap insurance against
+shipping a bundle that points at `127.0.0.1`.
+
+### Runner and access
+
+| Thing | Where |
+|---|---|
+| Runner service | `actions.runner.eleven-one-official-pos-elevenone.pos-vps.service` |
+| Runner labels | `self-hosted`, `pos-elevenone` |
+| Runner dir | `/home/ubuntu/actions-runner-pos-elevenone` |
+| Deploy key | `~/.ssh/id_ed25519_pos_elevenone`, alias `github-pos-elevenone` (read-only) |
+
+Runner logs: `journalctl -u actions.runner.eleven-one-official-pos-elevenone.pos-vps -f`
+
+> **The repo must stay private.** A self-hosted runner on a public repo lets
+> anyone open a fork pull request that runs code on this box — which also
+> serves five other production sites. The workflow triggers only on
+> push-to-`main` (fork PRs cannot fire a push event); do not add
+> `pull_request` to it.
 
 ## Notes
 
