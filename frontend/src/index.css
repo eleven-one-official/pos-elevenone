@@ -77,3 +77,51 @@ body {
     animation-duration: 2s;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Kitchen ticket "a cook is on it" frame — once someone taps Start, a band of
+ * colour keeps travelling around that card. Motion is what carries across a hot
+ * line: from two metres away it separates the tickets somebody already owns
+ * from the ones still waiting to be picked up, without anyone reading a word.
+ *
+ * The border is a conic gradient clipped to the border box (the white
+ * padding-box layer on top is the card's own fill), and what animates is the
+ * gradient's start angle — @property is what makes a custom property a real
+ * animatable <angle>. Browsers without it hold a still gradient frame, which
+ * still reads as "different from the rest".
+ * ------------------------------------------------------------------------- */
+@property --kds-cook-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.kds-cooking {
+  /* Thick enough to be the first thing you see on a wall-mounted screen. */
+  border: 5px solid transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    conic-gradient(
+        from var(--kds-cook-angle),
+        #fed7aa 0deg,
+        #f97316 45deg,
+        #fdba74 100deg,
+        #fed7aa 190deg,
+        #fed7aa 360deg
+      )
+      border-box;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.25), 0 6px 20px -6px rgba(249, 115, 22, 0.45);
+  animation: kds-cook-run 1.5s linear infinite;
+}
+
+@keyframes kds-cook-run {
+  to {
+    --kds-cook-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kds-cooking {
+    animation: none;
+  }
+}

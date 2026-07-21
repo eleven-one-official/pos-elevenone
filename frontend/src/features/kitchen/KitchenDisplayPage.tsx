@@ -633,7 +633,13 @@ function TicketCard({
   return (
     <article
       className={`flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition ${
-        isNew ? 'border-sky-400 ring-2 ring-sky-300' : 'border-neutral-200'
+        // A cook has this one: a colour runs around the frame for as long as
+        // it's on the pass, so an owned ticket is obvious from across the line.
+        cooking
+          ? 'kds-cooking'
+          : isNew
+            ? 'border-sky-400 ring-2 ring-sky-300'
+            : 'border-neutral-200'
       }`}
     >
       <div className={`h-1.5 ${tier.bar} ${tier.late ? 'animate-pulse' : ''}`} />
@@ -659,7 +665,8 @@ function TicketCard({
               </span>
             )}
             {cooking && (
-              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+              <span className="flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                 Cooking
               </span>
             )}
