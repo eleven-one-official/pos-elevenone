@@ -97,6 +97,31 @@ class ReportsTest extends TestCase
         $this->assertSame(3, $cashierOnly->json('products.0.quantity'));
     }
 
+    public function test_sales_details_range_honours_the_clients_utc_offset(): void
+    {
+        // The admin dialog sends the picked wall-clock as an absolute instant.
+        // An order at 23:30 UTC is 01:30 the next morning for a +02:00 client,
+        // so it belongs to that client's day — and only to that day.
+        $item = MenuItem::factory()->create();
+        $order = Order::factory()->completed()->create([
+            'subtotal' => 8, 'total' => 8, 'created_at' => '2026-07-20 23:30:00',
+        ]);
+        $order->items()->create([
+            'menu_item_id' => $item->id, 'name' => $item->name,
+            'price' => 8, 'quantity' => 1, 'line_total' => 8,
+        ]);
+
+        Sanctum::actingAs($this->staff('manager'));
+
+        $today = $this->getJson('/api/reports/sales-details?start=2026-07-21T00:00:00%2B02:00&end=2026-07-21T09:29:00%2B02:00')
+            ->assertOk();
+        $this->assertSame(1, $today->json('orders_count'));
+
+        $yesterday = $this->getJson('/api/reports/sales-details?start=2026-07-20T00:00:00%2B02:00&end=2026-07-20T23:59:00%2B02:00')
+            ->assertOk();
+        $this->assertSame(0, $yesterday->json('orders_count'));
+    }
+
     public function test_sales_details_shows_partial_refunds_as_a_negative_line(): void
     {
         $item = MenuItem::factory()->create();

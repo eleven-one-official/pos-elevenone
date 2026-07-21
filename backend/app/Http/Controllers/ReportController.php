@@ -137,8 +137,12 @@ class ReportController extends Controller
             'sides' => ['nullable', 'string'],
         ]);
 
-        $start = $request->date('start');
-        $end = $request->date('end');
+        // Timestamps are stored in UTC, and query bindings render a Carbon in
+        // its own timezone — so an ISO instant carrying an offset (what the
+        // admin dialog sends) has to be shifted to UTC or the window slides by
+        // the client's offset. A naive datetime is already read as UTC.
+        $start = $request->date('start')->utc();
+        $end = $request->date('end')->utc();
 
         // Like posConfigs, a register "side" is the role of the user who fired
         // the order. No filter when both (or none) are requested.

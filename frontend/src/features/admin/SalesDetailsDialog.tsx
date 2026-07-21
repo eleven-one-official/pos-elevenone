@@ -29,6 +29,13 @@ function toLocalInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** datetime-local values are naive wall-clock, but the backend stores and reads
+ *  UTC — send the absolute instant so the range means what the user picked. */
+function toUtcIso(value: string): string {
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? value : d.toISOString()
+}
+
 /** Odoo-style datetime label for the printed header, e.g. "18-Jul-2026 07:22". */
 function fmtDateTime(value: string): string {
   const d = new Date(value)
@@ -69,7 +76,7 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
   useEffect(() => {
     if (preview === null) return
     const start = preview || initial.start
-    fetchSalesDetails(start, initial.end)
+    fetchSalesDetails(toUtcIso(start), toUtcIso(initial.end))
       .then((data) =>
         setPreviewHtml(
           buildSalesDetailsHtml(
@@ -119,7 +126,11 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
     setError(null)
     let data: SalesDetailsData
     try {
-      data = await fetchSalesDetails(startDate, endDate, configs.map((c) => c.side))
+      data = await fetchSalesDetails(
+        toUtcIso(startDate),
+        toUtcIso(endDate),
+        configs.map((c) => c.side),
+      )
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load the sales details.')
       setPrinting(false)

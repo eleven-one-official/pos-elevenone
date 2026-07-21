@@ -110,7 +110,9 @@ export type SalesDetailsData = {
 /** A register "side" — who fired the order (matches /reports/pos-configs). */
 export type RegisterSide = 'cashier' | 'waiter'
 
-/** start/end are datetimes (e.g. "2026-07-18T00:00"); omit sides for both registers. */
+/** start/end are absolute instants — pass UTC ISO ("2026-07-17T17:00:00.000Z"),
+ *  not a naive local wall-clock, or the range shifts by the browser's offset.
+ *  Omit sides for both registers. */
 export function fetchSalesDetails(
   start: string,
   end: string,
