@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -50,10 +51,43 @@ class OrderRound extends Model
         return $this->belongsTo(Order::class);
     }
 
-    /** The cook who tapped "Start" on this ticket. */
+    /**
+     * The lead cook — the first name picked when the ticket was taken. The bill
+     * rolls up to this one so the floor has a single person to ask about a
+     * table; `chefs()` is who actually worked on it.
+     */
     public function chef(): BelongsTo
     {
         return $this->belongsTo(Chef::class);
+    }
+
+    /**
+     * Everyone cooking this ticket. One card often holds dishes from two
+     * sections, so the kitchen display lets the cooks tick more than one name —
+     * and the Chef Performance KPI credits the ticket to each of them.
+     */
+    public function chefs(): BelongsToMany
+    {
+        return $this->belongsToMany(Chef::class, 'order_round_chef')->withTimestamps();
+    }
+
+    /**
+     * Record who is cooking this ticket. The first name given leads (that is
+     * what the bill shows); an empty list leaves the current crew alone, so a
+     * later "Ready" tap never wipes the attribution.
+     *
+     * @param  array<int, int>  $chefIds
+     */
+    public function assignChefs(array $chefIds): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $chefIds)));
+        if ($ids === []) {
+            return;
+        }
+
+        $this->chefs()->sync($ids);
+        $this->chef_id = $ids[0];
+        $this->setRelation('chefs', Chef::whereIn('id', $ids)->get());
     }
 
     public function items(): HasMany

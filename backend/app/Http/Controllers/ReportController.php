@@ -339,11 +339,15 @@ class ReportController extends Controller
 
     /**
      * Chef Performance KPI — per-cook productivity for the admin report. Every
-     * ticket a cook picked up at the kitchen display (has a chef_id) counts:
-     * how many orders, how many item units they cooked, and their cook time
+     * ticket a cook picked up at the kitchen display counts: how many orders,
+     * how many item units they cooked, and their cook time
      * (the gap between tapping Start and Ready, only over tickets that carry
      * both stamps). Cancelled orders are excluded; a removed cook's tickets
      * fold into "Unknown".
+     *
+     * A ticket can be shared — two cooks split one card — and then it counts in
+     * full for each of them, so the per-cook rows deliberately add up to more
+     * than the `overview`, which counts every ticket once.
      *
      * Returns four views over the same set of tickets so the screen can show an
      * overview, a per-cook comparison, a trend and the raw list without four
@@ -375,12 +379,18 @@ class ReportController extends Controller
         // separate jobs, often for two different cooks, and averaging them into
         // one order would smear one cook's time across the other's.
         $rounds = OrderRound::query()
-            ->whereNotNull('chef_id')
+            // Attributed to somebody — the lead, or a crewmate still on the
+            // roster after the lead was removed.
+            ->where(fn ($q) => $q->whereNotNull('chef_id')->orWhereHas('chefs'))
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled']))
             ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
-            ->when($chefId, fn ($q) => $q->where('chef_id', $chefId))
+            // Filtering to one cook means every ticket they worked on, not only
+            // the ones they led — a shared card counts for both of them.
+            ->when($chefId, fn ($q) => $q->where(fn ($w) => $w
+                ->where('chef_id', $chefId)
+                ->orWhereHas('chefs', fn ($c) => $c->where('chefs.id', $chefId))))
             ->when($station, fn ($q) => $q->where('station', $station))
-            ->with(['chef:id,name', 'order:id,order_number,table_id', 'order.table:id,name'])
+            ->with(['chef:id,name', 'chefs:id,name', 'order:id,order_number,table_id', 'order.table:id,name'])
             ->withSum('items as items_count', 'quantity')
             ->get();
 
@@ -416,24 +426,34 @@ class ReportController extends Controller
             $hour = (int) $at->format('G');
             $roundStation = $round->station ?? OrderRound::STATION_KITCHEN;
 
+            // A card split between two cooks credits the ticket to each of them,
+            // so the per-cook rows can add up to more than the board fired —
+            // that is the point, and the overview below still counts it once.
+            // Rows from before crews existed fall back to their single cook.
+            $chefTargets = $round->chefs->isNotEmpty()
+                ? $round->chefs->map(fn ($chef) => [$chef->id, ['chef_id' => $chef->id, 'chef' => $chef->name]])->all()
+                : [[$round->chef_id, ['chef_id' => $round->chef_id, 'chef' => $round->chef?->name ?? 'Unknown']]];
+
             $targets = [
-                'chef' => [$round->chef_id, ['chef_id' => $round->chef_id, 'chef' => $round->chef?->name ?? 'Unknown']],
-                'day' => [$day, ['date' => $day]],
-                'hour' => [$hour, ['hour' => $hour]],
-                'station' => [$roundStation, ['station' => $roundStation]],
+                'chef' => $chefTargets,
+                'day' => [[$day, ['date' => $day]]],
+                'hour' => [[$hour, ['hour' => $hour]]],
+                'station' => [[$roundStation, ['station' => $roundStation]]],
             ];
 
-            foreach ($targets as $dim => [$key, $seed]) {
-                $bucket = $bags[$dim][$key] ?? $blank($seed);
-                // A cook who took both of a table's rounds still worked one order.
-                $bucket['order_ids'][$round->order_id] = true;
-                $bucket['rounds']++;
-                $bucket['items'] += $roundItems;
-                if ($prep !== null) {
-                    $bucket['prep_seconds_total'] += $prep;
-                    $bucket['prep_count']++;
+            foreach ($targets as $dim => $entries) {
+                foreach ($entries as [$key, $seed]) {
+                    $bucket = $bags[$dim][$key] ?? $blank($seed);
+                    // A cook who took both of a table's rounds still worked one order.
+                    $bucket['order_ids'][$round->order_id] = true;
+                    $bucket['rounds']++;
+                    $bucket['items'] += $roundItems;
+                    if ($prep !== null) {
+                        $bucket['prep_seconds_total'] += $prep;
+                        $bucket['prep_count']++;
+                    }
+                    $bags[$dim][$key] = $bucket;
                 }
-                $bags[$dim][$key] = $bucket;
             }
 
             $orderIds[$round->order_id] = true;
@@ -507,7 +527,11 @@ class ReportController extends Controller
                 'station' => $round->station,
                 'status' => $round->status,
                 'chef_id' => $round->chef_id,
-                'chef' => $round->chef?->name ?? 'Unknown',
+                // The whole crew on one line — "Bopha + Rithy" — so a shared
+                // ticket doesn't read as if one person cooked it alone.
+                'chef' => $round->chefs->isNotEmpty()
+                    ? $round->chefs->pluck('name')->join(' + ')
+                    : ($round->chef?->name ?? 'Unknown'),
                 'items' => (int) $round->items_count,
                 'started_at' => $round->started_at?->toIso8601String(),
                 'ready_at' => $round->ready_at?->toIso8601String(),

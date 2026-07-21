@@ -24,6 +24,7 @@ class KitchenController extends Controller
     private const WITH = [
         'items',
         'chef:id,name',
+        'chefs:id,name',
         'order:id,order_number,order_type,table_id,transferred_from_table_id,user_id,guest_count,status',
         'order.table:id,name',
         'order.transferredFrom:id,name',
@@ -79,15 +80,22 @@ class KitchenController extends Controller
     }
 
     /**
-     * Move one ticket along. `preparing` names the cook who picked it up (the
+     * Move one ticket along. `preparing` names the cooks who picked it up (the
      * kitchen only — the bar has no roster) and starts their clock; `ready`
      * stops it and bumps the card off the board.
+     *
+     * A card is often split between two cooks, so the crew arrives as
+     * `chef_ids` and every one of them is credited with the ticket. The older
+     * single `chef_id` still works and simply names a crew of one; either way
+     * the first cook given leads, and that is what the bill rolls up to.
      */
     public function update(Request $request, OrderRound $round): JsonResponse
     {
         $data = $request->validate([
             'status' => ['required', 'in:new,preparing,ready'],
             'chef_id' => ['nullable', 'exists:chefs,id'],
+            'chef_ids' => ['nullable', 'array'],
+            'chef_ids.*' => ['integer', 'exists:chefs,id'],
         ]);
 
         // Each board only bumps its own tickets, so a stale screen can never
@@ -104,11 +112,17 @@ class KitchenController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($data, $round) {
+        // Both spellings fold into one crew, first-picked first — an empty list
+        // leaves whoever is already on the ticket alone, so the "Ready" tap
+        // (which names nobody) can never wipe the attribution.
+        $crew = array_merge(
+            $data['chef_ids'] ?? [],
+            isset($data['chef_id']) && $data['chef_id'] !== null ? [$data['chef_id']] : [],
+        );
+
+        DB::transaction(function () use ($crew, $data, $round) {
             $round->status = $data['status'];
-            if (array_key_exists('chef_id', $data) && $data['chef_id'] !== null) {
-                $round->chef_id = $data['chef_id'];
-            }
+            $round->assignChefs($crew);
 
             // Stamped once: a re-tap never rewrites when the ticket was first
             // started or plated, which is what the Chef Performance KPI measures.

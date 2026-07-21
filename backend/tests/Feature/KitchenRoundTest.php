@@ -193,6 +193,58 @@ class KitchenRoundTest extends TestCase
         $this->assertSame('ready', Order::find($id)->status);
     }
 
+    public function test_two_cooks_share_one_ticket_and_both_are_credited(): void
+    {
+        $table = Table::create(['name' => 'E8', 'seats' => 4, 'type' => 'normal', 'status' => 'available']);
+        $grill = MenuItem::factory()->create(['price' => 9]);
+        $wok = MenuItem::factory()->create(['price' => 6]);
+        $bopha = Chef::create(['name' => 'Bopha', 'is_active' => true, 'sort_order' => 1]);
+        $rithy = Chef::create(['name' => 'Rithy', 'is_active' => true, 'sort_order' => 2]);
+
+        Sanctum::actingAs($this->staff('waiter'));
+        $id = $this->postJson('/api/orders', $this->dineIn($table, [
+            ['menu_item_id' => $grill->id, 'quantity' => 1],
+            ['menu_item_id' => $wok->id, 'quantity' => 1],
+        ]))->assertCreated()->json('id');
+
+        // One card, two sections — the cooks tick both names and split it.
+        Sanctum::actingAs($this->staff('kitchen'));
+        $ticket = $this->getJson('/api/kitchen/tickets')->assertOk()->json('0.id');
+        $this->putJson("/api/kitchen/tickets/{$ticket}", [
+            'status' => 'preparing',
+            'chef_ids' => [$bopha->id, $rithy->id],
+        ])
+            ->assertOk()
+            ->assertJsonCount(2, 'chefs')
+            // The first ticked leads, and that is what the bill rolls up to.
+            ->assertJsonPath('chef.id', $bopha->id);
+
+        $this->assertSame($bopha->id, Order::find($id)->chef_id);
+
+        // Plating names nobody — it must not wipe the crew off the ticket.
+        $this->putJson("/api/kitchen/tickets/{$ticket}", ['status' => 'ready'])->assertOk();
+        $this->getJson('/api/kitchen/tickets/history')
+            ->assertOk()
+            ->assertJsonCount(2, '0.chefs');
+
+        // The KPI credits the shared ticket in full to each of them, so the
+        // per-cook rows add up to more than the one ticket the board fired.
+        Sanctum::actingAs($this->staff('admin'));
+        $report = $this->getJson('/api/reports/chef-performance')->assertOk()->json();
+        $this->assertSame(1, $report['overview']['rounds']);
+        $this->assertSame(2, $report['overview']['chefs']);
+        $this->assertSame(
+            ['Bopha' => 1, 'Rithy' => 1],
+            collect($report['chefs'])->pluck('rounds', 'chef')->all(),
+        );
+        $this->assertSame('Bopha + Rithy', $report['details'][0]['chef']);
+
+        // Filtering to one cook keeps the tickets they only shared.
+        $this->getJson("/api/reports/chef-performance?chef_id={$rithy->id}")
+            ->assertOk()
+            ->assertJsonPath('overview.rounds', 1);
+    }
+
     public function test_the_board_is_readable_by_staff_but_closed_bills_are_off_it(): void
     {
         $table = Table::create(['name' => 'E6', 'seats' => 4, 'type' => 'normal', 'status' => 'available']);

@@ -217,10 +217,17 @@ export type ApiStationTicket = {
   started_at: string | null
   ready_at: string | null
   /**
-   * The cook who took this round (null until someone taps Start — and always
-   * null at the bar, which pours without naming anyone).
+   * The lead cook — the first name ticked when the round was taken (null until
+   * someone taps Start, and always null at the bar, which pours without naming
+   * anyone). The bill rolls up to this one.
    */
   chef?: { id: number; name: string } | null
+  /**
+   * Everyone cooking this round. One card often holds dishes from two sections,
+   * so the kitchen ticks more than one name and the KPI credits them all.
+   * Empty until the ticket is taken.
+   */
+  chefs?: { id: number; name: string }[]
   items: ApiOrderItem[]
   /** The bill this round belongs to — where the table and waiter come from. */
   order: {
@@ -258,17 +265,18 @@ export function fetchStationHistory(station: Station): Promise<ApiStationTicket[
 
 /**
  * Someone picks a ticket up: move it to "preparing" and, in the kitchen,
- * attribute it to the cook who tapped their name. Stamps started_at
- * server-side — the clock the Chef Performance KPI reads.
+ * attribute it to the cooks who ticked their names — a card split between two
+ * sections credits both. The first id leads (that is what the bill shows).
+ * Stamps started_at server-side — the clock the Chef Performance KPI reads.
  */
 export function startTicket(
   id: number,
   station: Station,
-  chefId?: number,
+  chefIds: number[] = [],
 ): Promise<ApiStationTicket> {
   return api<ApiStationTicket>(`${STATION_PATH[station]}/${id}`, {
     method: 'PUT',
-    body: { status: 'preparing', chef_id: chefId ?? null },
+    body: { status: 'preparing', chef_ids: chefIds },
   })
 }
 
