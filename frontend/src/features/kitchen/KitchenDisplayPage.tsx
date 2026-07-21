@@ -87,6 +87,8 @@ const VOICE_SRC = '/sounds/new-order-km.mp3'
 const VOICE_TEXT = 'មានការកម្ម៉ងថ្មី សូមរៀបចំ'
 /** Hold the voice until the chime has finished ringing. */
 const VOICE_DELAY_MS = 1400
+/** How long to let a resume() settle before calling the speaker blocked. */
+const RESUME_GRACE_MS = 1500
 
 function playChime(ctx: AudioContext) {
   const base = ctx.currentTime
@@ -159,69 +161,96 @@ export default function KitchenDisplayPage({
   const loadedOnceRef = useRef(false)
   const arrivedRef = useRef<Map<number, number>>(new Map())
   const audioRef = useRef<AudioContext | null>(null)
-  const voiceRef = useRef<HTMLAudioElement | null>(null)
+  const voiceBufferRef = useRef<AudioBuffer | null>(null)
+  const voiceSourceRef = useRef<AudioBufferSourceNode | null>(null)
   const voiceTimerRef = useRef<number | null>(null)
   const soundOnRef = useRef(soundOn)
   soundOnRef.current = soundOn
 
   // Build the audio context once and nudge it out of the suspended state a
-  // browser parks it in until the page has seen a real gesture. Resolves true
-  // when the speaker is genuinely live.
-  const unlockAudio = useCallback(async (): Promise<boolean> => {
+  // browser parks it in until the page has seen a real gesture. Hands back the
+  // context only when it can genuinely make sound right now.
+  const unlockAudio = useCallback(async (): Promise<AudioContext | null> => {
     if (!audioRef.current) {
       const Ctor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      if (!Ctor) return false
+      if (!Ctor) return null
       audioRef.current = new Ctor()
     }
     const ctx = audioRef.current
     if (ctx.state !== 'running') {
-      try {
-        await ctx.resume()
-      } catch {
-        /* still blocked — reported below */
-      }
+      // Chrome leaves this promise *pending forever* on a page that has never
+      // been touched, so it can't be awaited on its own — that would hang the
+      // announcement and leave the "tap to enable" hint unshown. Race it: carry
+      // on the moment it settles (~460ms after a real tap), give up after that.
+      await Promise.race([
+        ctx.resume().catch(() => {}),
+        new Promise((resolve) => window.setTimeout(resolve, RESUME_GRACE_MS)),
+      ])
     }
     const ready = ctx.state === 'running'
     setAudioBlocked(!ready)
-    return ready
+    return ready ? ctx : null
   }, [])
 
-  // One <audio> element reused for every announcement, so a burst of tickets
-  // restarts the sentence instead of stacking overlapping voices.
-  const speak = useCallback(() => {
-    if (!voiceRef.current) voiceRef.current = new Audio(VOICE_SRC)
-    const el = voiceRef.current
-    try {
-      el.currentTime = 0
-    } catch {
-      /* not seekable yet — play() still starts it from the top */
-    }
-    void el.play().catch(() => {
-      // Recording missing or still blocked — try the platform voice.
-      speakFallback()
-    })
+  // The voice rides the same AudioContext as the chime rather than an <audio>
+  // element. An element is gated by a *second*, separate autoplay rule, which
+  // is how the chime could ring while the sentence stayed silent — one unlocked
+  // context means if you hear the chime, you hear the words.
+  const loadVoice = useCallback(async (ctx: AudioContext): Promise<AudioBuffer> => {
+    if (voiceBufferRef.current) return voiceBufferRef.current
+    const res = await fetch(VOICE_SRC)
+    if (!res.ok) throw new Error(`voice clip ${res.status}`)
+    voiceBufferRef.current = await ctx.decodeAudioData(await res.arrayBuffer())
+    return voiceBufferRef.current
   }, [])
+
+  const speak = useCallback(
+    async (ctx: AudioContext) => {
+      try {
+        const buffer = await loadVoice(ctx)
+        // A burst of tickets restarts the sentence instead of stacking voices.
+        try {
+          voiceSourceRef.current?.stop()
+        } catch {
+          /* already finished */
+        }
+        const source = ctx.createBufferSource()
+        source.buffer = buffer
+        source.connect(ctx.destination)
+        source.start()
+        voiceSourceRef.current = source
+      } catch {
+        // Recording missing or undecodable — try the platform's Khmer voice.
+        speakFallback()
+      }
+    },
+    [loadVoice],
+  )
 
   /** New-order alert: chime, then the spoken reminder. Unlocks audio first. */
   const announce = useCallback(async () => {
-    const ready = await unlockAudio()
-    if (!ready || !audioRef.current) return
+    const ctx = await unlockAudio()
+    if (!ctx) return
     try {
-      playChime(audioRef.current)
+      playChime(ctx)
     } catch {
       // Never let a dead speaker stop the board from updating.
     }
     if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
-    voiceTimerRef.current = window.setTimeout(speak, VOICE_DELAY_MS)
+    voiceTimerRef.current = window.setTimeout(() => void speak(ctx), VOICE_DELAY_MS)
   }, [unlockAudio, speak])
 
   // Don't let a queued sentence speak into an empty room after sign-out.
   useEffect(
     () => () => {
       if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
-      voiceRef.current?.pause()
+      try {
+        voiceSourceRef.current?.stop()
+      } catch {
+        /* already finished */
+      }
       window.speechSynthesis?.cancel()
     },
     [],
@@ -230,7 +259,11 @@ export default function KitchenDisplayPage({
   // Any touch of the screen counts as the gesture that unlocks audio. The
   // listeners stay put — a tab left in the background can be suspended again.
   useEffect(() => {
-    void unlockAudio()
+    // Decode the clip up front (this works on a still-suspended context) so the
+    // first announcement isn't waiting on a fetch.
+    void unlockAudio().then((ctx) => {
+      if (audioRef.current) void loadVoice(ctx ?? audioRef.current).catch(() => {})
+    })
     const unlock = () => void unlockAudio()
     window.addEventListener('pointerdown', unlock)
     window.addEventListener('keydown', unlock)
@@ -238,7 +271,7 @@ export default function KitchenDisplayPage({
       window.removeEventListener('pointerdown', unlock)
       window.removeEventListener('keydown', unlock)
     }
-  }, [unlockAudio])
+  }, [unlockAudio, loadVoice])
 
   const load = useCallback(async () => {
     try {
@@ -317,7 +350,11 @@ export default function KitchenDisplayPage({
       return
     }
     if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
-    voiceRef.current?.pause()
+    try {
+      voiceSourceRef.current?.stop()
+    } catch {
+      /* already finished */
+    }
     window.speechSynthesis?.cancel()
   }
 
