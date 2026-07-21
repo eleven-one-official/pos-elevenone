@@ -11,6 +11,13 @@ class Category extends Model
 {
     use Auditable, HasFactory;
 
+    /**
+     * The category whose products are made at the bar rather than the kitchen —
+     * see MenuItem::station(). Renaming the category is safe; changing its slug
+     * would send drinks back to the cooks.
+     */
+    public const DRINK_SLUG = 'drink';
+
     protected $fillable = [
         'name',
         'slug',

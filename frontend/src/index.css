@@ -114,6 +114,25 @@ body {
   animation: kds-cook-run 1.5s linear infinite;
 }
 
+/* The bar board runs the same frame in its own colour, so a glance at a screen
+   across the room says which station it is before any word is read. */
+.kds-pouring {
+  border: 5px solid transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    conic-gradient(
+        from var(--kds-cook-angle),
+        #bae6fd 0deg,
+        #0ea5e9 45deg,
+        #7dd3fc 100deg,
+        #bae6fd 190deg,
+        #bae6fd 360deg
+      )
+      border-box;
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.25), 0 6px 20px -6px rgba(14, 165, 233, 0.45);
+  animation: kds-cook-run 1.5s linear infinite;
+}
+
 @keyframes kds-cook-run {
   to {
     --kds-cook-angle: 360deg;
@@ -121,7 +140,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kds-cooking {
+  .kds-cooking,
+  .kds-pouring {
     animation: none;
   }
 }

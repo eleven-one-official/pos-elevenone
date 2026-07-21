@@ -8,10 +8,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The kitchen display board. It works in rounds, not bills: a table that orders
- * again gets a second ticket under the same table number instead of extra lines
- * quietly appearing on a card the cook has already started. Read-only apart from
- * the two taps that move a ticket along — Start (a cook takes it) and Ready.
+ * The station display boards — the kitchen's and the bar's. Both work in
+ * rounds, not bills: a table that orders again gets a second ticket under the
+ * same table number instead of extra lines quietly appearing on a card someone
+ * has already started. Read-only apart from the two taps that move a ticket
+ * along — Start (someone takes it) and Ready.
+ *
+ * Which board a request is for comes from the route (`/kitchen/tickets` vs
+ * `/bar/tickets`), and a round is only ever on one of them: the food half of a
+ * send goes to the kitchen, the drinks half to the bar.
  */
 class KitchenController extends Controller
 {
@@ -25,16 +30,17 @@ class KitchenController extends Controller
         'order.user:id,name,username',
     ];
 
-    /** Bills that have left the floor — their rounds are no longer cooked. */
+    /** Bills that have left the floor — their rounds are no longer made. */
     private const DEAD_ORDER_STATUSES = ['completed', 'cancelled', 'refunded'];
 
     /**
-     * The live queue: every round still to cook, oldest first, so the board
-     * reads as a first-in-first-out ticket rail.
+     * The live queue for one station: every round it still has to make, oldest
+     * first, so the board reads as a first-in-first-out ticket rail.
      */
-    public function tickets(): JsonResponse
+    public function tickets(Request $request): JsonResponse
     {
         $rounds = OrderRound::query()
+            ->where('station', $this->station($request))
             ->whereIn('status', OrderRound::OPEN_STATUSES)
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', self::DEAD_ORDER_STATUSES))
             ->with(self::WITH)
@@ -46,8 +52,9 @@ class KitchenController extends Controller
     }
 
     /**
-     * Move one ticket along. `preparing` names the cook who picked it up and
-     * starts their clock; `ready` stops it and bumps the card off the board.
+     * Move one ticket along. `preparing` names the cook who picked it up (the
+     * kitchen only — the bar has no roster) and starts their clock; `ready`
+     * stops it and bumps the card off the board.
      */
     public function update(Request $request, OrderRound $round): JsonResponse
     {
@@ -55,6 +62,14 @@ class KitchenController extends Controller
             'status' => ['required', 'in:new,preparing,ready'],
             'chef_id' => ['nullable', 'exists:chefs,id'],
         ]);
+
+        // Each board only bumps its own tickets, so a stale screen can never
+        // plate the other station's half of the same send.
+        if ($round->station !== $this->station($request)) {
+            return response()->json([
+                'message' => 'That ticket belongs to another station.',
+            ], 404);
+        }
 
         if (in_array($round->order?->status, self::DEAD_ORDER_STATUSES, true)) {
             return response()->json([
@@ -68,8 +83,8 @@ class KitchenController extends Controller
                 $round->chef_id = $data['chef_id'];
             }
 
-            // Stamped once: a re-tap never rewrites when the cook first started
-            // or plated, which is what the Chef Performance KPI measures.
+            // Stamped once: a re-tap never rewrites when the ticket was first
+            // started or plated, which is what the Chef Performance KPI measures.
             if ($data['status'] === 'preparing' && $round->started_at === null) {
                 $round->started_at = now();
             }
@@ -82,5 +97,18 @@ class KitchenController extends Controller
         });
 
         return response()->json($round->load(self::WITH));
+    }
+
+    /**
+     * Which board this request is for. The bar routes carry it as a route
+     * default; anything else is the kitchen.
+     */
+    private function station(Request $request): string
+    {
+        $station = (string) $request->route('station');
+
+        return in_array($station, OrderRound::STATIONS, true)
+            ? $station
+            : OrderRound::STATION_KITCHEN;
     }
 }

@@ -15,6 +15,7 @@ class RoleSeeder extends Seeder
             ['name' => 'Cashier', 'slug' => 'cashier', 'description' => 'Take orders and process payments'],
             ['name' => 'Waiter', 'slug' => 'waiter', 'description' => 'Take orders and serve tables'],
             ['name' => 'Kitchen', 'slug' => 'kitchen', 'description' => 'View and update kitchen tickets'],
+            ['name' => 'Bar', 'slug' => 'bar', 'description' => 'View and update bar tickets'],
         ];
 
         foreach ($roles as $role) {

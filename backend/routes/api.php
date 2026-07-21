@@ -60,18 +60,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin,manager,cashier,waiter')->group(function () {
         Route::apiResource('orders', OrderController::class)->only(['store']);
     });
-    Route::middleware('role:admin,manager,cashier,waiter,kitchen')->group(function () {
+    Route::middleware('role:admin,manager,cashier,waiter,kitchen,bar')->group(function () {
         Route::apiResource('orders', OrderController::class)->only(['update']);
     });
 
-    // Kitchen display board — tickets are rounds, not bills, so a table that
-    // orders again shows up as a second card under the same table number. Any
-    // signed-in role may read the board; advancing a ticket is kitchen work
-    // (the floor stations keep it too, to bump a ticket when the screen is out
-    // of reach).
+    // Station display boards — tickets are rounds, not bills, so a table that
+    // orders again shows up as a second card under the same table number. Each
+    // send is split by station: the food lands on /kitchen/tickets, the drinks
+    // on /bar/tickets, both under the same round number. Any signed-in role may
+    // read a board; advancing a ticket is station work (the floor stations keep
+    // it too, to bump a ticket when the screen is out of reach).
     Route::get('/kitchen/tickets', [KitchenController::class, 'tickets']);
-    Route::middleware('role:admin,manager,cashier,waiter,kitchen')->group(function () {
+    Route::get('/bar/tickets', [KitchenController::class, 'tickets'])->defaults('station', 'bar');
+    Route::middleware('role:admin,manager,cashier,waiter,kitchen,bar')->group(function () {
         Route::put('/kitchen/tickets/{round}', [KitchenController::class, 'update']);
+        Route::put('/bar/tickets/{round}', [KitchenController::class, 'update'])
+            ->defaults('station', 'bar');
     });
 
     // Customer directory — cashiers may look up and add customers on the fly.

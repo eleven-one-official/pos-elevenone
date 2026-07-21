@@ -3,6 +3,7 @@ import { LuChevronLeft } from 'react-icons/lu'
 import CashierLoginDialog, { type Cashier } from '../auth/CashierLoginDialog'
 import WaiterLoginDialog, { type Waiter } from '../waiter/WaiterLoginDialog'
 import KitchenLoginDialog, { type Kitchen } from '../kitchen/KitchenLoginDialog'
+import BarLoginDialog, { type Bar } from '../bar/BarLoginDialog'
 
 // ---------------------------------------------------------------------------
 // POS session login — the Odoo-style full-screen gate shown after pressing
@@ -31,17 +32,26 @@ export default function PosSessionLogin({
   onLoggedIn,
   onWaiterLoggedIn,
   onKitchenLoggedIn,
+  onBarLoggedIn,
 }: {
   name: string
-  /** Which roster the gate offers — waiter/kitchen configs log in that station, not a cashier. */
-  kind?: 'cashier' | 'waiter' | 'kitchen'
+  /** Which roster the gate offers — waiter/kitchen/bar configs log in that station, not a cashier. */
+  kind?: 'cashier' | 'waiter' | 'kitchen' | 'bar'
   onBack: () => void
   onLoggedIn?: (cashier: Cashier) => void
   onWaiterLoggedIn?: (waiter: Waiter) => void
   onKitchenLoggedIn?: (kitchen: Kitchen) => void
+  onBarLoggedIn?: (bar: Bar) => void
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
-  const staffLabel = kind === 'waiter' ? 'Waiter' : kind === 'kitchen' ? 'Kitchen' : 'Cashier'
+  const staffLabel =
+    kind === 'waiter'
+      ? 'Waiter'
+      : kind === 'kitchen'
+        ? 'Kitchen'
+        : kind === 'bar'
+          ? 'Bar'
+          : 'Cashier'
 
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-[#7d6e73]">
@@ -122,6 +132,14 @@ export default function PosSessionLogin({
             onLoggedIn={(kitchen) => {
               setDialogOpen(false)
               onKitchenLoggedIn?.(kitchen)
+            }}
+          />
+        ) : kind === 'bar' ? (
+          <BarLoginDialog
+            onClose={() => setDialogOpen(false)}
+            onLoggedIn={(bar) => {
+              setDialogOpen(false)
+              onBarLoggedIn?.(bar)
             }}
           />
         ) : (

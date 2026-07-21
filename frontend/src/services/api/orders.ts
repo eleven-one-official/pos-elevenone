@@ -185,16 +185,28 @@ export async function fetchOpenOrderForTakeawaySlot(slot: number): Promise<ApiOr
 }
 
 // ---------------------------------------------------------------------------
-// Kitchen display
+// Station displays (kitchen / bar)
 // ---------------------------------------------------------------------------
 
 /**
- * One kitchen ticket: a *round* of an order, not the order itself. A table that
- * orders again keeps one bill but fires a second round, and the kitchen sees it
- * as its own card under the same table number — with its own cook, its own
+ * Where a round is made. Every send is split in two by the backend — the food
+ * to the kitchen, the drinks (the "Drink" category) to the bar — as two rounds
+ * sharing one round number, so neither board shows the other's lines.
+ */
+export type Station = 'kitchen' | 'bar'
+
+const STATION_PATH: Record<Station, string> = {
+  kitchen: '/kitchen/tickets',
+  bar: '/bar/tickets',
+}
+
+/**
+ * One station ticket: a *round* of an order, not the order itself. A table that
+ * orders again keeps one bill but fires a second round, and the station sees it
+ * as its own card under the same table number — with its own maker, its own
  * clock and its own Ready button.
  */
-export type ApiKitchenTicket = {
+export type ApiStationTicket = {
   id: number
   order_id: number
   /** 1 for the table's first order, 2 for what they added after, … */
@@ -204,7 +216,10 @@ export type ApiKitchenTicket = {
   created_at: string
   started_at: string | null
   ready_at: string | null
-  /** The cook who took this round (null until someone taps Start). */
+  /**
+   * The cook who took this round (null until someone taps Start — and always
+   * null at the bar, which pours without naming anyone).
+   */
   chef?: { id: number; name: string } | null
   items: ApiOrderItem[]
   /** The bill this round belongs to — where the table and waiter come from. */
@@ -220,32 +235,40 @@ export type ApiKitchenTicket = {
 }
 
 /**
- * The live kitchen queue — every round still to cook (just fired, or being
- * prepared), oldest first so the display reads as a first-in-first-out ticket
- * rail. The backend already sorts it; re-sorting here keeps the board honest if
- * that ever changes.
+ * The live queue for one station — every round it still has to make (just
+ * fired, or being prepared), oldest first so the display reads as a
+ * first-in-first-out ticket rail. The backend already sorts it; re-sorting here
+ * keeps the board honest if that ever changes.
  */
-export async function fetchKitchenTickets(): Promise<ApiKitchenTicket[]> {
-  const tickets = await api<ApiKitchenTicket[]>('/kitchen/tickets')
+export async function fetchStationTickets(station: Station): Promise<ApiStationTicket[]> {
+  const tickets = await api<ApiStationTicket[]>(STATION_PATH[station])
   return tickets
     .slice()
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 }
 
 /**
- * A cook picks a ticket up: attribute it to them and move it to "preparing".
- * Stamps started_at server-side — the clock the Chef Performance KPI reads.
+ * Someone picks a ticket up: move it to "preparing" and, in the kitchen,
+ * attribute it to the cook who tapped their name. Stamps started_at
+ * server-side — the clock the Chef Performance KPI reads.
  */
-export function startTicket(id: number, chefId: number): Promise<ApiKitchenTicket> {
-  return api<ApiKitchenTicket>(`/kitchen/tickets/${id}`, {
+export function startTicket(
+  id: number,
+  station: Station,
+  chefId?: number,
+): Promise<ApiStationTicket> {
+  return api<ApiStationTicket>(`${STATION_PATH[station]}/${id}`, {
     method: 'PUT',
-    body: { status: 'preparing', chef_id: chefId },
+    body: { status: 'preparing', chef_id: chefId ?? null },
   })
 }
 
-/** Bump a ticket off the kitchen board — the food is cooked and plated. */
-export function markTicketReady(id: number): Promise<ApiKitchenTicket> {
-  return api<ApiKitchenTicket>(`/kitchen/tickets/${id}`, { method: 'PUT', body: { status: 'ready' } })
+/** Bump a ticket off its board — the order is made and on the pass. */
+export function markTicketReady(id: number, station: Station): Promise<ApiStationTicket> {
+  return api<ApiStationTicket>(`${STATION_PATH[station]}/${id}`, {
+    method: 'PUT',
+    body: { status: 'ready' },
+  })
 }
 
 /**

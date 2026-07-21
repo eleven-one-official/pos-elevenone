@@ -13,9 +13,9 @@ class AuthController extends Controller
 {
     /**
      * Roles whose staff sign in with a single tap (no PIN): shared, fixed-device
-     * stations — the waiter tablet and the kitchen display.
+     * stations — the waiter tablet and the kitchen / bar displays.
      */
-    private const PIN_LESS_ROLES = ['waiter', 'kitchen'];
+    private const PIN_LESS_ROLES = ['waiter', 'kitchen', 'bar'];
 
     /**
      * Authenticate a user by username + password and issue an API token.

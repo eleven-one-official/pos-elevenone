@@ -17,6 +17,7 @@ import {
 import type { Cashier } from '../auth/CashierLoginDialog'
 import type { Waiter } from '../waiter/WaiterLoginDialog'
 import type { Kitchen } from '../kitchen/KitchenLoginDialog'
+import type { Bar } from '../bar/BarLoginDialog'
 import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
@@ -124,7 +125,7 @@ const COMPANIES = ['ElevenOne BKK', 'ElevenOne TTP', 'Crums']
 type PosTab = { menu: string; item?: string }
 
 /** A dashboard card handed over to the full-screen POS session login. */
-type SessionGate = { name: string; kind: 'cashier' | 'waiter' | 'kitchen' }
+type SessionGate = { name: string; kind: 'cashier' | 'waiter' | 'kitchen' | 'bar' }
 
 export default function AdminApp({
   admin,
@@ -132,6 +133,7 @@ export default function AdminApp({
   onCashierLogin,
   onWaiterLogin,
   onKitchenLogin,
+  onBarLogin,
 }: {
   admin: Cashier
   onLogout: () => void
@@ -141,6 +143,8 @@ export default function AdminApp({
   onWaiterLogin: (waiter: Waiter) => void
   /** The kitchen station tapped in — open the kitchen display screen. */
   onKitchenLogin: (kitchen: Kitchen) => void
+  /** The bar station tapped in — open the bar display screen. */
+  onBarLogin: (bar: Bar) => void
 }) {
   const [moduleKey, setModuleKey] = useState<ModuleKey>('pos')
   // Dev builds can jump to a menu screen with `?pos-tab=<menu>/<item>`.
@@ -165,14 +169,20 @@ export default function AdminApp({
   // "Continue selling" hands over the whole screen to the POS session login,
   // Odoo style — no back-office chrome around it. Dev builds can jump straight
   // there with `?pos-login=<config name>` for quick UI iteration (a name
-  // containing "waiter"/"kitchen" gates that roster).
+  // containing "waiter"/"kitchen"/"bar" gates that roster).
   const [sessionLogin, setSessionLogin] = useState<SessionGate | null>(() => {
     const name = import.meta.env.DEV
       ? new URLSearchParams(window.location.search).get('pos-login')
       : null
     if (!name) return null
     const lower = name.toLowerCase()
-    const kind = lower.includes('kitchen') ? 'kitchen' : lower.includes('waiter') ? 'waiter' : 'cashier'
+    const kind = lower.includes('kitchen')
+      ? 'kitchen'
+      : lower.includes('bar')
+        ? 'bar'
+        : lower.includes('waiter')
+          ? 'waiter'
+          : 'cashier'
     return { name, kind }
   })
 
@@ -206,6 +216,7 @@ export default function AdminApp({
         onLoggedIn={onCashierLogin}
         onWaiterLoggedIn={onWaiterLogin}
         onKitchenLoggedIn={onKitchenLogin}
+        onBarLoggedIn={onBarLogin}
       />
     )
   }

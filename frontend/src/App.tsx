@@ -5,6 +5,7 @@ import OrderPage from './features/pos/OrderPage'
 import WaiterFloorPage from './features/waiter/WaiterFloorPage'
 import WaiterOrderPage from './features/waiter/WaiterOrderPage'
 import KitchenDisplayPage from './features/kitchen/KitchenDisplayPage'
+import BarDisplayPage from './features/bar/BarDisplayPage'
 import AdminApp from './features/admin/AdminApp'
 import { fetchMe, logout as apiLogout, type ApiUser } from './services/api/auth'
 import { api, getToken, setOnUnauthorized, setToken } from './services/api/client'
@@ -13,6 +14,7 @@ import { LoadingState } from './components/ui/Loader'
 import type { Cashier } from './features/auth/CashierLoginDialog'
 import type { Waiter } from './features/waiter/WaiterLoginDialog'
 import type { Kitchen } from './features/kitchen/KitchenLoginDialog'
+import type { Bar } from './features/bar/BarLoginDialog'
 
 /** The admin session to return to when a register opened from the dashboard exits. */
 type AdminReturn = { staff: Cashier; token: string | null }
@@ -44,13 +46,15 @@ function writeAdminReturn(admin: AdminReturn | null): void {
 // Who is signed in drives which "side" of the app renders: admins get the back
 // office (dashboard / reports / menu management); cashiers get the full POS
 // (order → payment → receipt); waiters get the tablet flow (order → send to
-// kitchen); the kitchen gets the display screen (live tickets → mark ready).
-// Cashiers and waiters both start from the same table floor.
+// kitchen); the kitchen and the bar each get a display screen (live tickets →
+// mark ready), the kitchen taking the food half of every send and the bar the
+// drinks. Cashiers and waiters both start from the same table floor.
 type Session =
   | { role: 'admin'; staff: Cashier; token: string | null }
   | { role: 'cashier'; staff: Cashier; admin?: AdminReturn }
   | { role: 'waiter'; staff: Waiter; admin?: AdminReturn }
   | { role: 'kitchen'; staff: Kitchen; admin?: AdminReturn }
+  | { role: 'bar'; staff: Bar; admin?: AdminReturn }
 
 // Rebuild the session LoginPage/StaffLoginDialog would have produced from a
 // /me response. Routing keys off the role *slug* — display names can change.
@@ -65,6 +69,7 @@ function sessionFromUser(user: ApiUser): Session {
   const admin = readAdminReturn()
   if (user.role?.slug === 'waiter') return { role: 'waiter', staff, admin }
   if (user.role?.slug === 'kitchen') return { role: 'kitchen', staff, admin }
+  if (user.role?.slug === 'bar') return { role: 'bar', staff, admin }
   return { role: 'cashier', staff, admin }
 }
 
@@ -193,6 +198,9 @@ export default function App() {
           onKitchenLogin={launch((kitchen: Kitchen) =>
             setSession({ role: 'kitchen', staff: kitchen, admin: adminReturn }),
           )}
+          onBarLogin={launch((bar: Bar) =>
+            setSession({ role: 'bar', staff: bar, admin: adminReturn }),
+          )}
         />
       )
     }
@@ -204,6 +212,10 @@ export default function App() {
 
     if (active.role === 'kitchen') {
       return <KitchenDisplayPage staff={active.staff} onLogout={exitRegister} />
+    }
+
+    if (active.role === 'bar') {
+      return <BarDisplayPage staff={active.staff} onLogout={exitRegister} />
     }
 
     if (active.role === 'waiter') {

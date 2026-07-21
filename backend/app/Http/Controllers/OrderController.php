@@ -45,8 +45,8 @@ class OrderController extends Controller
     }
 
     /**
-     * Reconcile the POS cart against what the kitchen has already been told,
-     * and fire only the difference as a fresh round.
+     * Reconcile the POS cart against what the kitchen and bar have already been
+     * told, and fire only the difference as a fresh round.
      *
      * The floor sends the whole cart on every "Send to Kitchen" — it has no
      * idea which dishes already went out — so the split happens here: dishes
@@ -60,8 +60,13 @@ class OrderController extends Controller
      * repeats of a dish into one cart line — matching on the note as well would
      * read a re-typed note as "one dish cancelled, another ordered".
      *
+     * The fresh dishes are then split by station — food to the kitchen, drinks
+     * to the bar — as one round each under a shared round number, so a cook is
+     * never handed a coffee to make and the bar hears about it without anyone
+     * shouting across the room.
+     *
      * @param  array<int, array<string, mixed>>  $lines
-     * @return bool  true when a new round was fired (the kitchen has work)
+     * @return bool  true when a new round was fired (a station has work)
      */
     private function fireItemsIntoRound(Order $order, array $lines, ?Pricelist $pricelist, float $khrRate): bool
     {
@@ -144,15 +149,24 @@ class OrderController extends Controller
             return false;
         }
 
-        $round = $order->rounds()->create([
-            'round_no' => ((int) $order->rounds()->max('round_no')) + 1,
-            'status' => 'new',
-        ]);
+        // One number for the whole send — the table's second fire is "R2" on
+        // both boards — but a row per station, created only where there is
+        // something to make.
+        $roundNo = ((int) $order->rounds()->max('round_no')) + 1;
+        /** @var array<string, \App\Models\OrderRound> $rounds */
+        $rounds = [];
 
         foreach ($fresh as $line) {
-            $menuItem = MenuItem::findOrFail($line['menu_item_id']);
+            $menuItem = MenuItem::with('category:id,slug')->findOrFail($line['menu_item_id']);
             $quantity = (int) $line['quantity'];
             $price = $pricelist?->priceFor($menuItem, $quantity, $khrRate) ?? (float) $menuItem->price;
+
+            $station = $menuItem->station();
+            $round = $rounds[$station] ??= $order->rounds()->create([
+                'round_no' => $roundNo,
+                'station' => $station,
+                'status' => 'new',
+            ]);
 
             $round->items()->create([
                 'order_id' => $order->id,
@@ -360,16 +374,16 @@ class OrderController extends Controller
             }
         }
 
-        // The kitchen display only advances an order through the cooking flow —
-        // it never edits items, prices, guests or the table, and can't close a
-        // bill. So it may send `status` (within the kitchen flow) and the
-        // `chef_id` of the cook who picked the ticket up, and nothing else.
-        if ($user?->hasRole('kitchen')) {
+        // A station display (kitchen, bar) only advances an order through the
+        // making flow — it never edits items, prices, guests or the table, and
+        // can't close a bill. So it may send `status` (within that flow) and
+        // the `chef_id` of the cook who picked the ticket up, and nothing else.
+        if ($user?->hasRole('kitchen') || $user?->hasRole('bar')) {
             if (array_diff(array_keys($data), ['status', 'chef_id'])) {
-                return response()->json(['message' => 'The kitchen can only update an order’s status.'], 403);
+                return response()->json(['message' => 'A station display can only update an order’s status.'], 403);
             }
             if (isset($data['status']) && ! in_array($data['status'], ['new', 'preparing', 'ready', 'served'], true)) {
-                return response()->json(['message' => 'The kitchen cannot close or cancel an order.'], 403);
+                return response()->json(['message' => 'A station display cannot close or cancel an order.'], 403);
             }
         }
 

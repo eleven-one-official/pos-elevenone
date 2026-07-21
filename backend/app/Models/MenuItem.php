@@ -55,6 +55,19 @@ class MenuItem extends Model
         return $this->belongsTo(Category::class);
     }
 
+    /**
+     * Which station makes this product: anything in the "drink" category is
+     * poured at the bar, everything else is cooked in the kitchen. Routing is
+     * read off the category rather than stored per product, so moving an item
+     * between Food and Drink moves it between the two display boards too.
+     */
+    public function station(): string
+    {
+        return $this->category?->slug === Category::DRINK_SLUG
+            ? OrderRound::STATION_BAR
+            : OrderRound::STATION_KITCHEN;
+    }
+
     public function orderItems(): HasMany
     {
         return $this->hasMany(OrderItem::class);

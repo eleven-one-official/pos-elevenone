@@ -40,7 +40,7 @@ export default function StaffLoginDialog({
   onClose,
   onLoggedIn,
 }: {
-  role: 'waiter' | 'cashier' | 'kitchen'
+  role: 'waiter' | 'cashier' | 'kitchen' | 'bar'
   heading: string
   onClose: () => void
   onLoggedIn?: (staff: StaffSession) => void

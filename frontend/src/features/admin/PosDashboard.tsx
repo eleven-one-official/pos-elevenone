@@ -21,9 +21,12 @@ type PosConfig = {
   id: string
   name: string
   /** Which staff role this register serves — drives the session login gate. */
-  kind: 'cashier' | 'waiter' | 'kitchen'
+  kind: 'cashier' | 'waiter' | 'kitchen' | 'bar'
   stats: PosConfigStats
 }
+
+/** A live station screen rather than a register — no cash, nothing to close. */
+const isDisplay = (c: PosConfig) => c.kind === 'kitchen' || c.kind === 'bar'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -38,7 +41,7 @@ function fmtDate(iso: string | null): string {
 export default function PosDashboard({
   onContinueSelling,
 }: {
-  onContinueSelling: (config: { name: string; kind: 'cashier' | 'waiter' | 'kitchen' }) => void
+  onContinueSelling: (config: { name: string; kind: 'cashier' | 'waiter' | 'kitchen' | 'bar' }) => void
 }) {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
@@ -81,12 +84,20 @@ export default function PosDashboard({
   const configs: PosConfig[] = [
     { id: 'ttp', name: 'TTP', kind: 'cashier', stats: stats.cashier },
     { id: 'ttp-waiter', name: 'TTP Waiter', kind: 'waiter', stats: stats.waiter },
-    // The kitchen display isn't a register (no cash, no closing) — it's a live
-    // screen. It reuses the same card + session-login gate as an entry point.
+    // The station displays aren't registers (no cash, no closing) — they're
+    // live screens, one per station: the kitchen takes the food half of every
+    // send, the bar the drinks. Both reuse the same card + session-login gate
+    // as an entry point.
     {
       id: 'ttp-kitchen',
       name: 'TTP Kitchen',
       kind: 'kitchen',
+      stats: { open_orders: 0, last_closing_date: null, last_closing_cash: null },
+    },
+    {
+      id: 'ttp-bar',
+      name: 'TTP Bar',
+      kind: 'bar',
       stats: { open_orders: 0, last_closing_date: null, last_closing_cash: null },
     },
   ]
@@ -221,13 +232,14 @@ export default function PosDashboard({
                   onClick={() => onContinueSelling({ name: c.name, kind: c.kind })}
                   className="shrink-0 rounded-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
                 >
-                  {c.kind === 'kitchen' ? 'Open display' : 'Continue selling'}
+                  {isDisplay(c) ? 'Open display' : 'Continue selling'}
                 </button>
 
-                {c.kind === 'kitchen' ? (
+                {isDisplay(c) ? (
                   <p className="ml-auto mr-4 max-w-64 text-[13px] leading-relaxed text-neutral-600">
-                    Live order screen — tickets appear as they're fired; the kitchen marks each
-                    ready when it's cooked.
+                    {c.kind === 'bar'
+                      ? "Live drinks screen — every item in the Drink category lands here; the bar marks each ready when it's poured."
+                      : "Live order screen — tickets appear as they're fired; the kitchen marks each ready when it's cooked."}
                   </p>
                 ) : (
                   /* Label / value columns, values left-aligned — Odoo kanban style */
