@@ -27,12 +27,14 @@ export default function Modal({
   }, [onClose])
 
   return (
+    // On paper the dialog is the whole page, so top-align it instead of
+    // floating it down the middle of an otherwise blank sheet.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px] print:items-start print:p-0"
       onClick={onClose}
     >
       <div
-        className={`flex max-h-[90vh] w-full ${width} flex-col overflow-hidden rounded-2xl bg-white shadow-2xl print:shadow-none`}
+        className={`flex max-h-[90vh] w-full ${width} flex-col overflow-hidden rounded-2xl bg-white shadow-2xl print:max-h-none print:overflow-visible print:shadow-none`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4">
@@ -50,7 +52,7 @@ export default function Modal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className="flex-1 overflow-y-auto p-5 print:overflow-visible">{children}</div>
 
         {footer && <div className="border-t border-neutral-200 p-4 print:hidden">{footer}</div>}
       </div>
