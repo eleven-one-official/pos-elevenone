@@ -194,11 +194,14 @@ const VOICE_TEXT = 'មានការកម្ម៉ងថ្មី សូម�
 /** Hold the voice until the chime has finished ringing. */
 const VOICE_DELAY_MS = 1400
 /**
- * Playback speed of the recording. Web Audio resamples rather than time-
- * stretches, so this lifts the pitch along with the pace — this is the one
- * number to turn if the announcement feels slow (or starts sounding squeaky).
+ * Playback speed of the recording. Leave this at 1: Web Audio resamples rather
+ * than time-stretches, so anything above 1 lifts the pitch too and the
+ * announcement comes out thin and squeaky instead of sounding like a person.
+ * If the clip ever feels slow, re-record it faster — don't turn this up.
  */
-const VOICE_RATE = 1.4
+const VOICE_RATE = 1
+/** Speed of the synthesis fallback. Safe to raise: an engine keeps the pitch. */
+const SPEECH_RATE = 1
 /** How long to let a resume() settle before calling the speaker blocked. */
 const RESUME_GRACE_MS = 1500
 
@@ -233,7 +236,7 @@ function speakFallback(): boolean {
   const utterance = new SpeechSynthesisUtterance(VOICE_TEXT)
   utterance.voice = voice
   utterance.lang = voice.lang
-  utterance.rate = VOICE_RATE
+  utterance.rate = SPEECH_RATE
   synth.cancel()
   synth.speak(utterance)
   return true
