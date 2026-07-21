@@ -33,6 +33,9 @@ class KitchenController extends Controller
     /** Bills that have left the floor — their rounds are no longer made. */
     private const DEAD_ORDER_STATUSES = ['completed', 'cancelled', 'refunded'];
 
+    /** How many plated tickets the history panel looks back over. */
+    private const HISTORY_LIMIT = 100;
+
     /**
      * The live queue for one station: every round it still has to make, oldest
      * first, so the board reads as a first-in-first-out ticket rail.
@@ -46,6 +49,30 @@ class KitchenController extends Controller
             ->with(self::WITH)
             ->orderBy('created_at')
             ->orderBy('id')
+            ->get();
+
+        return response()->json($rounds);
+    }
+
+    /**
+     * What this station has already made today — the tickets it bumped off the
+     * board, newest first. The board itself only ever shows outstanding work, so
+     * once a card is plated it is gone; this is where someone looks when a
+     * waiter asks "did that go out, and when?".
+     *
+     * Scoped to the current service day (the same start-of-day the reports use)
+     * and capped, because a board is glanced at, not paged through.
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $rounds = OrderRound::query()
+            ->where('station', $this->station($request))
+            ->where('status', 'ready')
+            ->where('ready_at', '>=', now()->startOfDay())
+            ->with(self::WITH)
+            ->orderByDesc('ready_at')
+            ->orderByDesc('id')
+            ->limit(self::HISTORY_LIMIT)
             ->get();
 
         return response()->json($rounds);

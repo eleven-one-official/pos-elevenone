@@ -72,6 +72,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // it too, to bump a ticket when the screen is out of reach).
     Route::get('/kitchen/tickets', [KitchenController::class, 'tickets']);
     Route::get('/bar/tickets', [KitchenController::class, 'tickets'])->defaults('station', 'bar');
+    // Today's plated tickets — the board drops a card the moment it's bumped,
+    // so this is the only way back to "did that go out, and when?".
+    Route::get('/kitchen/tickets/history', [KitchenController::class, 'history']);
+    Route::get('/bar/tickets/history', [KitchenController::class, 'history'])
+        ->defaults('station', 'bar');
     Route::middleware('role:admin,manager,cashier,waiter,kitchen,bar')->group(function () {
         Route::put('/kitchen/tickets/{round}', [KitchenController::class, 'update']);
         Route::put('/bar/tickets/{round}', [KitchenController::class, 'update'])

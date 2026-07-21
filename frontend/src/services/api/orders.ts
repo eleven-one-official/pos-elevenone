@@ -248,6 +248,15 @@ export async function fetchStationTickets(station: Station): Promise<ApiStationT
 }
 
 /**
+ * What the station has already sent out today, newest first. The board itself
+ * only carries outstanding work — a bumped card is gone — so this is what the
+ * history panel reads when someone asks whether a table's food went out.
+ */
+export function fetchStationHistory(station: Station): Promise<ApiStationTicket[]> {
+  return api<ApiStationTicket[]>(`${STATION_PATH[station]}/history`)
+}
+
+/**
  * Someone picks a ticket up: move it to "preparing" and, in the kitchen,
  * attribute it to the cook who tapped their name. Stamps started_at
  * server-side — the clock the Chef Performance KPI reads.

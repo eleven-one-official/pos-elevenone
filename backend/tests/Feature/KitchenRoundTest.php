@@ -212,4 +212,48 @@ class KitchenRoundTest extends TestCase
         $this->getJson('/api/kitchen/tickets')->assertOk()->assertJsonCount(0);
         $this->putJson("/api/kitchen/tickets/{$ticket}", ['status' => 'ready'])->assertStatus(422);
     }
+
+    public function test_history_keeps_todays_plated_tickets_after_they_leave_the_board(): void
+    {
+        $table = Table::create(['name' => 'E7', 'seats' => 4, 'type' => 'normal', 'status' => 'available']);
+        $soup = MenuItem::factory()->create(['price' => 5]);
+        $cake = MenuItem::factory()->create(['price' => 3]);
+        $chef = Chef::create(['name' => 'Bopha', 'is_active' => true, 'sort_order' => 1]);
+
+        Sanctum::actingAs($this->staff('waiter'));
+        $id = $this->postJson('/api/orders', $this->dineIn($table, [
+            ['menu_item_id' => $soup->id, 'quantity' => 1],
+        ]))->assertCreated()->json('id');
+        // A second fire that nobody has plated yet — outstanding work belongs on
+        // the board, never in the history.
+        $this->putJson("/api/orders/{$id}", $this->dineIn($table, [
+            ['menu_item_id' => $soup->id, 'quantity' => 1],
+            ['menu_item_id' => $cake->id, 'quantity' => 1],
+        ]))->assertOk();
+
+        Sanctum::actingAs($this->staff('kitchen'));
+        $this->getJson('/api/kitchen/tickets/history')->assertOk()->assertJsonCount(0);
+
+        [$r1] = array_column($this->getJson('/api/kitchen/tickets')->json(), 'id');
+        $this->putJson("/api/kitchen/tickets/{$r1}", ['status' => 'preparing', 'chef_id' => $chef->id])
+            ->assertOk();
+        $this->putJson("/api/kitchen/tickets/{$r1}", ['status' => 'ready'])->assertOk();
+
+        // Off the board, on the record — with who cooked it and when it went out.
+        $this->getJson('/api/kitchen/tickets')->assertOk()->assertJsonCount(1);
+        $this->getJson('/api/kitchen/tickets/history')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.id', $r1)
+            ->assertJsonPath('0.chef.name', 'Bopha')
+            ->assertJsonPath('0.order.table.name', 'E7');
+
+        // Paying up closes the bill, but what the kitchen cooked still happened.
+        Order::find($id)->update(['status' => 'completed']);
+        $this->getJson('/api/kitchen/tickets/history')->assertOk()->assertJsonCount(1);
+
+        // Yesterday's service is a different day's board.
+        Order::find($id)->rounds()->where('id', $r1)->update(['ready_at' => now()->subDay()]);
+        $this->getJson('/api/kitchen/tickets/history')->assertOk()->assertJsonCount(0);
+    }
 }
