@@ -14,6 +14,8 @@ export type OrderItemPayload = {
 export type OrderPayload = {
   order_type: 'dine_in' | 'take_away' | 'delivery'
   table_id?: number | null
+  /** Floor slot a take-away bill sits on (T1 = 1). Null on a dine-in order. */
+  takeaway_slot?: number | null
   customer_id?: number | null
   /** Omit to let the backend apply the venue's default pricelist. */
   pricelist_id?: number | null
@@ -55,6 +57,8 @@ export type ApiOrder = {
   order_number: string
   order_type: 'dine_in' | 'take_away' | 'delivery'
   table_id: number | null
+  /** Take-away floor slot (T1 = 1); null on dine-in and pre-feature orders. */
+  takeaway_slot: number | null
   status: 'new' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled' | 'refunded'
   /** Seated guests. 0 = not recorded (take-away or pre-feature orders). */
   guest_count: number
@@ -159,6 +163,25 @@ export async function fetchOpenOrderForTable(tableId: number): Promise<ApiOrder 
   const orders = await api<ApiOrder[]>(`/orders?table_id=${tableId}`)
   // The index returns newest-first, so the first open one is the current bill.
   return orders.find((o) => OPEN_STATUSES.includes(o.status)) ?? null
+}
+
+/**
+ * Every take-away bill still running, whichever terminal opened it. The floor
+ * uses this to light up the slot cards — a take-away order carries no table, so
+ * its slot number is the only thing tying it back to a card.
+ */
+export async function fetchOpenTakeawayOrders(): Promise<ApiOrder[]> {
+  const orders = await api<ApiOrder[]>(
+    `/orders?order_type=take_away&status=${OPEN_STATUSES.join(',')}`,
+  )
+  return orders.filter((o) => o.takeaway_slot != null)
+}
+
+/** The live bill on a take-away slot, or null when the slot is free. */
+export async function fetchOpenOrderForTakeawaySlot(slot: number): Promise<ApiOrder | null> {
+  const orders = await fetchOpenTakeawayOrders()
+  // Newest-first from the index, so the first match is the current bill.
+  return orders.find((o) => o.takeaway_slot === slot) ?? null
 }
 
 // ---------------------------------------------------------------------------

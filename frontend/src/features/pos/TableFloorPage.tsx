@@ -35,12 +35,17 @@ export type PosTable = {
   id: string
   /** Numeric id of the table row in the backend; absent for take-away slots. */
   backendId?: number
+  /** Slot number of a take-away card (T1 = 1); absent on real tables. */
+  takeawaySlot?: number
   label: string
   seats: number
   /** Guests currently seated — numerator of the bottom pill. */
   guests: number
   /** Active orders on the table — shown as a red corner badge when > 0. */
   orders: number
+  /** Take-away only: the bill running on this slot, so the card can show it. */
+  openOrderNumber?: string
+  openOrderTotal?: number
   section: Section
 }
 
@@ -48,6 +53,12 @@ const SECTION_UI: Record<Section, { card: string; ring: string }> = {
   'dine-in': { card: 'bg-[#4caf50] hover:bg-[#43a047]', ring: 'focus-visible:ring-[#4caf50]' },
   vip: { card: 'bg-[#f0a11e] hover:bg-[#e0940f]', ring: 'focus-visible:ring-[#f0a11e]' },
   takeaway: { card: 'bg-[#5c6bc0] hover:bg-[#5061b8]', ring: 'focus-visible:ring-[#5c6bc0]' },
+}
+
+/** A take-away slot with a bill running on it — darker, like a seated table. */
+const TAKEAWAY_BUSY_UI = {
+  card: 'bg-[#3949ab] hover:bg-[#303f9f]',
+  ring: 'focus-visible:ring-[#3949ab]',
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +175,24 @@ export function SectionHeading({ icon: Icon, title, color }: { icon: IconType; t
 }
 
 export function TableCard({ table, onSelect }: { table: PosTable; onSelect: (table: PosTable) => void }) {
-  const ui = SECTION_UI[table.section]
   const isTakeaway = table.section === 'takeaway'
+  // A take-away slot is "busy" when a bill is running on it — the equivalent of
+  // a seated table, so it gets the same darker card and a badge.
+  const busyTakeaway = isTakeaway && table.orders > 0
+  const ui = busyTakeaway ? TAKEAWAY_BUSY_UI : SECTION_UI[table.section]
   const seated = table.guests > 0
   // More guests than seats (e.g. 5/4) — make the pill stand out as a warning.
   const overfull = !isTakeaway && table.guests > table.seats
+
+  // Take-away carries no seats or guests; show the running bill instead, so the
+  // cashier can see at a glance which slot has an order waiting and for how much.
+  const orderTag = table.openOrderNumber ? `#${table.openOrderNumber.slice(-4)}` : '-'
+  const topLine = isTakeaway ? orderTag : table.seats
+  const bottomLine = isTakeaway
+    ? table.openOrderTotal != null
+      ? `$${table.openOrderTotal.toFixed(2)}`
+      : '-'
+    : `${table.guests}/${table.seats}`
 
   return (
     <button
@@ -185,17 +209,17 @@ export function TableCard({ table, onSelect }: { table: PosTable; onSelect: (tab
       <div>
         <span className="block text-2xl font-bold leading-none">{table.label}</span>
         <span className="mt-2 flex items-center gap-1.5 text-sm font-medium text-white/90">
-          <LuUsers className="h-4 w-4" />
-          {isTakeaway ? '-' : table.seats}
+          {isTakeaway ? <LuShoppingBag className="h-4 w-4" /> : <LuUsers className="h-4 w-4" />}
+          {topLine}
         </span>
       </div>
 
       <span
         className={`mt-2 rounded-md py-1 text-center text-sm font-semibold ${
-          overfull ? 'bg-rose-600/90' : seated ? 'bg-black/25' : 'bg-black/15'
+          overfull ? 'bg-rose-600/90' : seated || busyTakeaway ? 'bg-black/25' : 'bg-black/15'
         }`}
       >
-        {isTakeaway ? '-' : `${table.guests}/${table.seats}`}
+        {bottomLine}
       </span>
     </button>
   )

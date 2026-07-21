@@ -36,6 +36,7 @@ import ReceiptPage from './ReceiptPage'
 import {
   createOrder,
   fetchOpenOrderForTable,
+  fetchOpenOrderForTakeawaySlot,
   orderToLines,
   updateOrder,
   type OrderPayload,
@@ -162,8 +163,10 @@ export default function OrderPage({
   const [orderNo, setOrderNo] = useState(() =>
     String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
   )
-  // Take-away slots are synthetic (no backend id), so they never carry a bill.
-  const [loadingOrder, setLoadingOrder] = useState(table.backendId != null)
+  // Both a real table and a take-away slot can already have a bill running.
+  const [loadingOrder, setLoadingOrder] = useState(
+    table.backendId != null || table.takeawaySlot != null,
+  )
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -181,12 +184,16 @@ export default function OrderPage({
 
   // Pick up whatever is already running on this table — an order the waiter
   // fired, or one this POS left open — so the cashier sees the guest's items
-  // and can add to them, print the bill, or take payment.
+  // and can add to them, print the bill, or take payment. Take-away slots carry
+  // no table row, so their bill is found by slot number instead.
   useEffect(() => {
     const tableId = table.backendId
-    if (tableId == null) return
+    const slot = table.takeawaySlot
+    if (tableId == null && slot == null) return
     let alive = true
-    fetchOpenOrderForTable(tableId)
+    const pending =
+      tableId != null ? fetchOpenOrderForTable(tableId) : fetchOpenOrderForTakeawaySlot(slot!)
+    pending
       .then((order) => {
         if (!alive || !order) return
         setBackendOrderId(order.id)
@@ -208,7 +215,7 @@ export default function OrderPage({
     return () => {
       alive = false
     }
-  }, [table.backendId, reloadKey])
+  }, [table.backendId, table.takeawaySlot, reloadKey])
 
   function retryLoad() {
     setLoadError(null)
@@ -386,6 +393,7 @@ export default function OrderPage({
       const moved = await updateOrder(backendOrderId, {
         order_type: t.section === 'takeaway' ? 'take_away' : 'dine_in',
         table_id: t.backendId ?? null,
+        takeaway_slot: t.takeawaySlot ?? null,
       })
       setActiveTable(t)
       // The server decides the origin — it keeps the *first* table across
@@ -421,6 +429,9 @@ export default function OrderPage({
     return {
       order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
       table_id: activeTable.backendId ?? null,
+      // Binds the bill to its floor card — without it a take-away order has
+      // nothing to reappear on once the cashier leaves this screen.
+      takeaway_slot: activeTable.takeawaySlot ?? null,
       customer_id: customer?.id ?? null,
       guest_count: guestCount,
       discount: Math.max(0, round2(grossPositive - subtotal)),

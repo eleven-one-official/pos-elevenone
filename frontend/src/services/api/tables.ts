@@ -1,4 +1,5 @@
 import { api } from './client'
+import { fetchOpenTakeawayOrders } from './orders'
 import type { PosTable } from '../../features/pos/TableFloorPage'
 
 // ---------------------------------------------------------------------------
@@ -38,16 +39,37 @@ function toPosTable(t: ApiTable): PosTable {
 
 /** Fetch the floor: real tables from the API + synthetic take-away slots. */
 export async function fetchFloorTables(): Promise<PosTable[]> {
-  const tables = await api<ApiTable[]>('/tables')
+  const [tables, takeawayOrders] = await Promise.all([
+    api<ApiTable[]>('/tables'),
+    // A slot the terminal can't confirm is better shown empty than blocked, so
+    // a failed lookup just leaves the take-away cards blank.
+    fetchOpenTakeawayOrders().catch(() => []),
+  ])
 
-  const takeaway: PosTable[] = Array.from({ length: TAKEAWAY_SLOTS }, (_, i) => ({
-    id: `ta-${i + 1}`,
-    label: `T${i + 1}`,
-    seats: 0,
-    guests: 0,
-    orders: 0,
-    section: 'takeaway',
-  }))
+  // Newest-first from the API: keep the first bill seen per slot, which is the
+  // current one if a closed-and-reopened slot ever doubles up.
+  const bySlot = new Map<number, (typeof takeawayOrders)[number]>()
+  for (const order of takeawayOrders) {
+    if (order.takeaway_slot != null && !bySlot.has(order.takeaway_slot)) {
+      bySlot.set(order.takeaway_slot, order)
+    }
+  }
+
+  const takeaway: PosTable[] = Array.from({ length: TAKEAWAY_SLOTS }, (_, i) => {
+    const slot = i + 1
+    const open = bySlot.get(slot)
+    return {
+      id: `ta-${slot}`,
+      label: `T${slot}`,
+      takeawaySlot: slot,
+      seats: 0,
+      guests: 0,
+      orders: open ? 1 : 0, // running bill → corner badge, like a seated table
+      openOrderNumber: open?.order_number,
+      openOrderTotal: open ? Number(open.total) : undefined,
+      section: 'takeaway',
+    }
+  })
 
   return [...tables.map(toPosTable), ...takeaway]
 }

@@ -16,6 +16,7 @@ class Order extends Model
         'order_number',
         'order_type',
         'table_id',
+        'takeaway_slot',
         'transferred_from_table_id',
         'user_id',
         'chef_id',
@@ -36,6 +37,7 @@ class Order extends Model
     {
         return [
             'guest_count' => 'integer',
+            'takeaway_slot' => 'integer',
             'subtotal' => 'decimal:2',
             'discount' => 'decimal:2',
             'tax' => 'decimal:2',

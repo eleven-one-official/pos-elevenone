@@ -108,6 +108,7 @@ class OrderController extends Controller
         $data = $request->validate([
             'order_type' => ['required', 'in:dine_in,take_away,delivery'],
             'table_id' => ['nullable', 'required_if:order_type,dine_in', 'exists:tables,id'],
+            'takeaway_slot' => ['nullable', 'integer', 'min:1', 'max:255'],
             'customer_id' => ['nullable', 'exists:customers,id'],
             'pricelist_id' => ['nullable', 'exists:pricelists,id'],
             'guest_count' => ['nullable', 'integer', 'min:0', 'max:65535'],
@@ -141,14 +142,30 @@ class OrderController extends Controller
             }
         }
 
+        // Same rule for the take-away slots: one live bill per slot, so a stale
+        // floor can't stack a second order on T3 while the first is still open.
+        $slot = $data['order_type'] === 'dine_in' ? null : ($data['takeaway_slot'] ?? null);
+        if ($slot !== null) {
+            $existing = Order::where('takeaway_slot', $slot)
+                ->whereIn('status', self::OPEN_STATUSES)
+                ->latest()
+                ->first();
+            if ($existing) {
+                return response()->json([
+                    'message' => "This take-away slot already has open order {$existing->order_number} — load it instead of starting a second bill.",
+                ], 422);
+            }
+        }
+
         $pricelist = $this->resolvePricelist($data['pricelist_id'] ?? null);
         $khrRate = $this->khrRate();
 
-        $order = DB::transaction(function () use ($data, $request, $pricelist, $khrRate) {
+        $order = DB::transaction(function () use ($data, $request, $pricelist, $khrRate, $slot) {
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),
                 'order_type' => $data['order_type'],
                 'table_id' => $data['table_id'] ?? null,
+                'takeaway_slot' => $slot,
                 'user_id' => $request->user()?->id,
                 'customer_id' => $data['customer_id'] ?? null,
                 'pricelist_id' => $pricelist?->id,
@@ -201,6 +218,7 @@ class OrderController extends Controller
             'status' => ['sometimes', 'in:new,preparing,ready,served,completed,cancelled'],
             'order_type' => ['sometimes', 'in:dine_in,take_away,delivery'],
             'table_id' => ['nullable', 'exists:tables,id'],
+            'takeaway_slot' => ['nullable', 'integer', 'min:1', 'max:255'],
             'chef_id' => ['nullable', 'exists:chefs,id'],
             'customer_id' => ['nullable', 'exists:customers,id'],
             'pricelist_id' => ['nullable', 'exists:pricelists,id'],
@@ -287,6 +305,24 @@ class OrderController extends Controller
             }
         }
 
+        // Moving a bill onto a take-away slot follows the same rule: the slot
+        // has to be free, or the floor would show two bills on one card.
+        if (array_key_exists('takeaway_slot', $data)) {
+            $targetSlot = $data['takeaway_slot'] === null ? null : (int) $data['takeaway_slot'];
+            if ($targetSlot !== null && $targetSlot !== ($order->takeaway_slot === null ? null : (int) $order->takeaway_slot)) {
+                $taken = Order::where('takeaway_slot', $targetSlot)
+                    ->whereKeyNot($order->id)
+                    ->whereIn('status', self::OPEN_STATUSES)
+                    ->latest()
+                    ->first();
+                if ($taken) {
+                    return response()->json([
+                        'message' => "That take-away slot already has open order {$taken->order_number} — close it before moving another bill there.",
+                    ], 422);
+                }
+            }
+        }
+
         // An order keeps the pricelist it was opened with unless the request
         // names another (or explicitly clears it with null); replaced items
         // re-price through the resulting pricelist either way.
@@ -295,7 +331,14 @@ class OrderController extends Controller
         $khrRate = $this->khrRate();
 
         DB::transaction(function () use ($data, $order, $pricelist, $khrRate, $previousTableId) {
-            $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'chef_id', 'customer_id', 'guest_count', 'discount', 'tax', 'note'])->all());
+            $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'takeaway_slot', 'chef_id', 'customer_id', 'guest_count', 'discount', 'tax', 'note'])->all());
+
+            // A bill transferred onto a real table is no longer a take-away one,
+            // so it must let go of its slot — otherwise the floor keeps showing
+            // it on both the table and the take-away card.
+            if ($order->order_type === 'dine_in') {
+                $order->takeaway_slot = null;
+            }
 
             // Stamp the kitchen-flow timestamps as the ticket advances, for the
             // Chef Performance KPI. Set once — a re-tap or a later status change
