@@ -18,6 +18,7 @@ import {
   LuX,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import ZoomControl from '../../components/ui/ZoomControl'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 import { fetchActiveChefs, type Chef } from '../../services/api/chefs'
 import {
@@ -605,6 +606,8 @@ export default function StationDisplayPage({
             <LuClock className="h-4 w-4 text-neutral-400" />
             {clockLabel(new Date(now))}
           </span>
+
+          <ZoomControl />
 
           <button
             type="button"

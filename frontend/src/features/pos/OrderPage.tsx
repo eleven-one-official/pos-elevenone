@@ -27,6 +27,7 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import ZoomControl from '../../components/ui/ZoomControl'
 import Modal from '../../components/ui/Modal'
 import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
@@ -746,6 +747,7 @@ export default function OrderPage({
             </span>
             <span className="text-sm font-semibold text-neutral-800">{cashier.name}</span>
           </div>
+          <ZoomControl />
           <LuWifi className="h-5 w-5 text-emerald-500" />
           <LuMenu className="h-5 w-5 text-neutral-500" />
         </div>

@@ -14,6 +14,7 @@ import {
 import type { IconType } from 'react-icons'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import ZoomControl from '../../components/ui/ZoomControl'
 import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
 import { LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
@@ -151,6 +152,7 @@ function HeaderBar({
       {/* Right: session controls — all three exit the register (back to the
           dashboard when it was opened from the admin side, login otherwise) */}
       <div className="flex items-center justify-end gap-1">
+        <ZoomControl tone="dark" className="mr-2" />
         <HeaderIconButton icon={LuRefreshCw} label="Reload" onClick={onLogout} />
         <div className="h-8 w-px bg-white/15" />
         <HeaderIconButton icon={LuLock} label="Lock" onClick={onLogout} />

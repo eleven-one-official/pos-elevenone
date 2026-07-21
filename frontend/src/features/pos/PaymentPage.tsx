@@ -11,6 +11,7 @@ import {
   LuUser,
 } from 'react-icons/lu'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import ZoomControl from '../../components/ui/ZoomControl'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
 import CustomerDialog from './CustomerDialog'
@@ -264,6 +265,7 @@ export default function PaymentPage({
         </button>
 
         <div className="ml-auto flex items-center gap-4">
+          <ZoomControl tone="dark" />
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
               {initials}

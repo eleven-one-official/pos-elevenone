@@ -10,6 +10,35 @@ body {
   @apply font-sans antialiased;
 }
 
+/* ---------------------------------------------------------------------------
+ * UI zoom — the header's zoom buttons (components/ui/ZoomControl) only write
+ * --ui-zoom; the scaling happens here, so one variable resizes every side.
+ * Viewport units deliberately ignore `zoom`, so a plain h-screen would grow
+ * past the screen once zoomed in and the pages would scroll; dividing by the
+ * same factor keeps every full-height layout pinned to the real viewport.
+ * Printing is exempt — a receipt must come out of the printer at its true size
+ * whatever the cashier set on screen.
+ * ------------------------------------------------------------------------- */
+html {
+  zoom: var(--ui-zoom, 1);
+}
+
+@layer utilities {
+  .h-screen {
+    height: calc(100vh / var(--ui-zoom, 1));
+  }
+
+  .min-h-screen {
+    min-height: calc(100vh / var(--ui-zoom, 1));
+  }
+}
+
+@media print {
+  html {
+    zoom: 1;
+  }
+}
+
 /* Printing — the browser stamps a header/footer band (date, page title, URL,
  * page number) into the page margins. Zero the margin and that band disappears,
  * so window.print() shows only our own content. Kitchen dockets print from their

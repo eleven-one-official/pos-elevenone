@@ -9,6 +9,7 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import ZoomControl from '../../components/ui/ZoomControl'
 import { SectionHeading, TableCard, type PosTable } from '../pos/TableFloorPage'
 import { LoadingState } from '../../components/ui/Loader'
 import { useTables } from '../../hooks/useTables'
@@ -90,6 +91,7 @@ export default function WaiterFloorPage({
         {/* Right: session controls — all three exit the session (back to the
             dashboard when it was opened from the admin side, login otherwise) */}
         <div className="flex items-center justify-end gap-1">
+          <ZoomControl tone="dark" className="mr-2" />
           <HeaderIconButton icon={LuRefreshCw} label="Reload" onClick={onLogout} />
           <div className="h-8 w-px bg-white/15" />
           <HeaderIconButton icon={LuLock} label="Lock" onClick={onLogout} />

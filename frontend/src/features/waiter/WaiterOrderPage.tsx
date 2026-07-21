@@ -16,6 +16,7 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
+import ZoomControl from '../../components/ui/ZoomControl'
 import Modal from '../../components/ui/Modal'
 import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
@@ -479,6 +480,7 @@ export default function WaiterOrderPage({
           TABLES
         </button>
         <div className="flex flex-1 items-center justify-end gap-3">
+          <ZoomControl />
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2b2138] text-xs font-bold text-white">
             {initials}
           </span>

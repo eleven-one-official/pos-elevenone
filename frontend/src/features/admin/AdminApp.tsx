@@ -18,6 +18,7 @@ import type { Cashier } from '../auth/CashierLoginDialog'
 import type { Waiter } from '../waiter/WaiterLoginDialog'
 import type { Kitchen } from '../kitchen/KitchenLoginDialog'
 import type { Bar } from '../bar/BarLoginDialog'
+import ZoomControl from '../../components/ui/ZoomControl'
 import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
@@ -338,6 +339,7 @@ export default function AdminApp({
         )}
 
         <div className="ml-auto flex items-center gap-1">
+          <ZoomControl tone="dark" size="sm" className="mr-1" />
           <button
             type="button"
             aria-label="Messages"
