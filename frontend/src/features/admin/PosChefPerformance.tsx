@@ -21,6 +21,7 @@ import {
   type ChefTicket,
   type Station,
 } from '../../services/api/reports'
+import { downloadTablePdf } from './exportPdf'
 
 // ---------------------------------------------------------------------------
 // Reporting › Chef Performance — a per-cook KPI over the real order history
@@ -733,7 +734,7 @@ function Details({
           </button>
           <button
             type="button"
-            onClick={() => exportCsv(rows)}
+            onClick={() => exportPdf(rows)}
             disabled={rows.length === 0}
             className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
           >
@@ -852,28 +853,28 @@ function dishList(r: ChefTicket): string {
   return r.lines.map((l) => `${l.quantity}× ${l.name}`).join(' · ')
 }
 
-/** The rows on screen, as a spreadsheet — same order, same filtering. */
-function exportCsv(rows: ChefTicket[]) {
-  const head = [
-    'Fired',
-    'Order',
-    'Table',
-    'Round',
-    'Station',
-    'Chef',
-    'Dishes',
-    'Kinds',
-    'Units',
-    'Start',
-    'Ready',
-    'Cook time (s)',
-  ]
-  const cell = (v: string | number | null) => {
-    const s = v === null ? '' : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  const body = rows.map((r) =>
-    [
+/** The rows on screen, as a PDF — same order, same filtering. */
+function exportPdf(rows: ChefTicket[]) {
+  void downloadTablePdf({
+    fileName: 'chef-performance.pdf',
+    title: 'Chef Performance — Tickets',
+    subtitle: `${rows.length} ticket${rows.length === 1 ? '' : 's'}`,
+    landscape: true,
+    columns: [
+      { header: 'Fired' },
+      { header: 'Order' },
+      { header: 'Table' },
+      { header: 'Round' },
+      { header: 'Station' },
+      { header: 'Chef' },
+      { header: 'Dishes' },
+      { header: 'Kinds', align: 'right' },
+      { header: 'Units', align: 'right' },
+      { header: 'Start', align: 'right' },
+      { header: 'Ready', align: 'right' },
+      { header: 'Cook time (s)', align: 'right' },
+    ],
+    rows: rows.map((r) => [
       fmtStamp(r.created_at),
       r.order_number ?? `#${r.order_id}`,
       r.table ?? '',
@@ -886,19 +887,8 @@ function exportCsv(rows: ChefTicket[]) {
       fmtClock(r.started_at),
       fmtClock(r.ready_at),
       r.prep_seconds ?? '',
-    ]
-      .map(cell)
-      .join(','),
-  )
-  const blob = new Blob([[head.join(','), ...body].join('\n')], {
-    type: 'text/csv;charset=utf-8',
+    ]),
   })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'chef-performance.csv'
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 // --- Shared bits ------------------------------------------------------------

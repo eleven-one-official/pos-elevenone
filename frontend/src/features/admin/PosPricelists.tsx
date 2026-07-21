@@ -13,13 +13,14 @@ import {
 import { LoadingState } from '../../components/ui/Loader'
 import { fetchAdminMenuItems } from '../../services/api/adminMenu'
 import { deletePricelist, fetchPricelists, type Pricelist } from '../../services/api/pricelists'
+import { downloadTablePdf } from './exportPdf'
 import PosPricelistForm from './PosPricelistForm'
 import SearchMenus, { toggleIn } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
 // Pricelists — Odoo-style list/kanban over the real pricelists table. Create
 // and row-click open the form; checking rows surfaces a Delete button; Export
-// downloads the visible pricelists (one CSV row per price rule). Currency
+// downloads the visible pricelists as a PDF (one row per price rule). Currency
 // filters and the Currency/Company group-bys work client-side.
 // ---------------------------------------------------------------------------
 
@@ -35,12 +36,6 @@ const GROUP_VALUE: Record<string, (p: Pricelist) => string> = {
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : 'Something went wrong. Try again.'
-}
-
-/** Quote a CSV cell when it needs it. */
-function csvCell(value: string | number | null): string {
-  const s = value === null ? '' : String(value)
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 export default function PosPricelists() {
@@ -119,18 +114,8 @@ export default function PosPricelists() {
     }
   }
 
-  // Export — the visible pricelists flattened to one CSV row per price rule.
-  const exportCsv = () => {
-    const header = [
-      'pricelist',
-      'currency',
-      'discount_policy',
-      'applied_on',
-      'min_quantity',
-      'fixed_price',
-      'date_start',
-      'date_end',
-    ]
+  // Export — the visible pricelists flattened to one PDF row per price rule.
+  const exportPdf = () => {
     const rows = visible.flatMap((p) => {
       const base = [p.name, p.currency, p.discount_policy]
       if (p.rules.length === 0) return [[...base, '', '', '', '', '']]
@@ -143,13 +128,25 @@ export default function PosPricelists() {
         r.date_end ?? '',
       ])
     })
-    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'pricelists.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    void downloadTablePdf({
+      fileName: 'pricelists.pdf',
+      title: 'Pricelists',
+      subtitle: `${visible.length} pricelist${visible.length === 1 ? '' : 's'} — ${rows.length} price rule${
+        rows.length === 1 ? '' : 's'
+      }`,
+      landscape: true,
+      columns: [
+        { header: 'Pricelist' },
+        { header: 'Currency' },
+        { header: 'Discount policy' },
+        { header: 'Applied on' },
+        { header: 'Min quantity', align: 'right' },
+        { header: 'Fixed price', align: 'right' },
+        { header: 'Date start' },
+        { header: 'Date end' },
+      ],
+      rows,
+    })
   }
 
   if (loadError) {
@@ -270,7 +267,7 @@ export default function PosPricelists() {
                 <button
                   type="button"
                   aria-label="Export"
-                  onClick={exportCsv}
+                  onClick={exportPdf}
                   className="rounded-r-[3px] border border-neutral-300 bg-white px-2.5 text-neutral-600 transition hover:bg-neutral-50"
                 >
                   <LuDownload className="h-4 w-4" />

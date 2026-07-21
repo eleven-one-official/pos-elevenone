@@ -19,6 +19,7 @@ import {
   type AnalysisPeriod,
   type OrdersAnalysisRow,
 } from '../../services/api/reports'
+import { downloadTablePdf } from './exportPdf'
 import FacetChip, { type Facet } from './FacetChip'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 
@@ -657,21 +658,20 @@ export default function PosOrdersAnalysis() {
       : [...graphData].sort((a, b) => (sortDir === 'desc' ? b.v - a.v : a.v - b.v))
   const pivotCols = [...MEASURES, 'Count'].filter((m) => pivotMeasures.has(m))
 
-  // Download the pivot as CSV — one row per bucket, one column per measure.
-  const downloadCsv = () => {
-    const cell = (v: string | number) => {
-      const s = String(v)
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-    }
-    const header = [groupDim, ...pivotCols]
-    const body = visibleRows.map((r) => [r.label, ...pivotCols.map((m) => measureValue(m, r))])
-    const csv = [header, ...body].map((row) => row.map(cell).join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'orders-analysis.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+  // Download the pivot as PDF — one row per bucket, one column per measure.
+  const downloadPdf = () => {
+    void downloadTablePdf({
+      fileName: 'orders-analysis.pdf',
+      title: 'Orders Analysis',
+      subtitle: `Grouped by ${groupDim} — ${visibleRows.length} row${
+        visibleRows.length === 1 ? '' : 's'
+      }`,
+      columns: [
+        { header: groupDim },
+        ...pivotCols.map((m) => ({ header: m, align: 'right' as const })),
+      ],
+      rows: visibleRows.map((r) => [r.label, ...pivotCols.map((m) => measureValue(m, r))]),
+    })
   }
 
   return (
@@ -787,12 +787,12 @@ export default function PosOrdersAnalysis() {
                   </button>
                   <button
                     type="button"
-                    aria-label="Download csv"
-                    onClick={downloadCsv}
+                    aria-label="Download pdf"
+                    onClick={downloadPdf}
                     className="group relative bg-white px-2.5 py-1.5 text-neutral-500 transition hover:bg-neutral-50"
                   >
                     <LuDownload className="h-4 w-4" />
-                    <Tip label="Download csv" />
+                    <Tip label="Download pdf" />
                   </button>
                 </div>
               )}
