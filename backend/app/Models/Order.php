@@ -16,6 +16,7 @@ class Order extends Model
         'order_number',
         'order_type',
         'table_id',
+        'transferred_from_table_id',
         'user_id',
         'chef_id',
         'customer_id',
@@ -47,6 +48,15 @@ class Order extends Model
     public function table(): BelongsTo
     {
         return $this->belongsTo(Table::class);
+    }
+
+    /**
+     * The table this bill was opened on, when it has since been transferred
+     * elsewhere. Null for an order still sitting where it started.
+     */
+    public function transferredFrom(): BelongsTo
+    {
+        return $this->belongsTo(Table::class, 'transferred_from_table_id');
     }
 
     public function user(): BelongsTo

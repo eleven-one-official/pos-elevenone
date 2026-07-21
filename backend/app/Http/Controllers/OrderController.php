@@ -16,8 +16,8 @@ class OrderController extends Controller
 {
     /** Relations every order response carries. */
     private const WITH = [
-        'items', 'table', 'user:id,name,username', 'chef:id,name', 'customer:id,name',
-        'payments', 'payments.paymentMethod:id,label',
+        'items', 'table', 'transferredFrom:id,name', 'user:id,name,username', 'chef:id,name',
+        'customer:id,name', 'payments', 'payments.paymentMethod:id,label',
     ];
 
     /** An order still in service — it holds its table until it closes. */
@@ -338,6 +338,17 @@ class OrderController extends Controller
             // flagged occupied forever and the new one never lights up.
             $currentTableId = $order->table_id === null ? null : (int) $order->table_id;
             if ($currentTableId !== $previousTableId) {
+                // Remember where the bill started so the POS header and the
+                // kitchen ticket can show "E1 → E7". Set once — a second hop
+                // keeps the original table, not the previous one — and cleared
+                // again when the bill lands back where it began.
+                if ($order->transferred_from_table_id === null) {
+                    $order->transferred_from_table_id = $previousTableId;
+                } elseif ((int) $order->transferred_from_table_id === $currentTableId) {
+                    $order->transferred_from_table_id = null;
+                }
+                $order->save();
+
                 if ($previousTableId !== null) {
                     $stillSeated = Order::where('table_id', $previousTableId)
                         ->whereKeyNot($order->id)

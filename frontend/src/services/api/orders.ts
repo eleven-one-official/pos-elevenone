@@ -70,6 +70,12 @@ export type ApiOrder = {
   items: ApiOrderItem[]
   /** Loaded relations — present on every order the API returns. */
   table?: { id: number; name: string } | null
+  /**
+   * The table this bill was opened on, when it has since been transferred —
+   * the original one, so E1 → E3 → E7 still reports E1. Null when the order
+   * never moved (or moved back to where it started).
+   */
+  transferred_from?: { id: number; name: string } | null
   user?: { id: number; name: string; username: string } | null
   /** The cook who picked this ticket up at the kitchen display. */
   chef?: { id: number; name: string } | null

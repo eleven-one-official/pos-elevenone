@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  LuArrowRight,
   LuArrowRightLeft,
   LuCheck,
   LuChevronLeft,
@@ -83,6 +84,10 @@ export default function WaiterOrderPage({
   const [keyboardFor, setKeyboardFor] = useState<null | 'search' | 'note'>(null)
 
   const [activeTable, setActiveTable] = useState<PosTable>(table)
+  // Label of the table this order was opened on, once it has been transferred
+  // away from it — the server keeps it, so it survives a reload and shows on
+  // whichever terminal picks the order up.
+  const [transferredFrom, setTransferredFrom] = useState<string | null>(null)
   const [guestCount, setGuestCount] = useState(table.guests > 0 ? table.guests : 2)
   // Dine-in tables must have a guest count before the menu opens: the popup
   // fires as soon as the table is entered, and cancelling it goes back to the
@@ -141,6 +146,7 @@ export default function WaiterOrderPage({
         if (!alive) return
         if (order) {
           setBackendOrderId(order.id)
+          setTransferredFrom(order.transferred_from?.name ?? null)
           setLines(orderToLines(order))
           // These items were already fired — the button re-arms on any change.
           setSent(true)
@@ -301,11 +307,14 @@ export default function WaiterOrderPage({
     setTransferring(true)
     setTransferError(null)
     try {
-      await updateOrder(backendOrderId, {
+      const moved = await updateOrder(backendOrderId, {
         order_type: t.section === 'takeaway' ? 'take_away' : 'dine_in',
         table_id: t.backendId ?? null,
       })
       setActiveTable(t)
+      // The server decides the origin — it keeps the *first* table across
+      // repeated moves, and drops it when the bill lands back home.
+      setTransferredFrom(moved.transferred_from?.name ?? null)
       closeDialog()
       notify(`Order moved to ${t.label}`)
     } catch (e) {
@@ -406,6 +415,14 @@ export default function WaiterOrderPage({
           <ElevenOneLogo tone="dark" />
           <span className="flex items-center gap-1.5 rounded-lg bg-neutral-100 px-2.5 py-1 text-sm font-semibold text-neutral-700">
             <LuUtensils className="h-4 w-4 text-neutral-400" />
+            {/* A transferred bill names where it started, so the staff can see
+                at a glance that these guests moved — "E1 → E2". */}
+            {transferredFrom && (
+              <>
+                <span className="font-medium text-neutral-400 line-through">{transferredFrom}</span>
+                <LuArrowRight className="h-3.5 w-3.5 text-neutral-400" />
+              </>
+            )}
             {activeTable.label}
           </span>
         </div>

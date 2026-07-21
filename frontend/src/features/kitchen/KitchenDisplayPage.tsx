@@ -474,6 +474,14 @@ function TicketCard({
             <span className="truncate text-lg font-extrabold tracking-wide text-neutral-900">
               {tableLabel}
             </span>
+            {/* The ticket relabels itself when the bill is transferred, so name
+                the table it came from — a cook plating for E1 has to see that
+                these guests moved. */}
+            {order.transferred_from && (
+              <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                from {order.transferred_from.name}
+              </span>
+            )}
             {!cooking && isNew && (
               <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700">
                 New

@@ -101,6 +101,50 @@ class OrderTransferTest extends TestCase
         $this->assertSame('occupied', $table->fresh()->status);
     }
 
+    public function test_repeated_transfers_keep_naming_the_original_table(): void
+    {
+        $item = MenuItem::factory()->create();
+        $first = Table::factory()->create(['name' => 'E1']);
+        $middle = Table::factory()->create(['name' => 'E3']);
+        $last = Table::factory()->create(['name' => 'E7']);
+
+        Sanctum::actingAs($this->staff('cashier'));
+        $id = $this->seat($first, $item);
+
+        // A fresh bill has no origin to report.
+        $this->assertNull($this->getJson("/api/orders/{$id}")->json('transferred_from'));
+
+        $this->putJson("/api/orders/{$id}", ['table_id' => $middle->id])
+            ->assertOk()
+            ->assertJsonPath('transferred_from.name', 'E1');
+
+        // Second hop: E1 → E3 → E7 still reports where the guests started.
+        $this->putJson("/api/orders/{$id}", ['table_id' => $last->id])
+            ->assertOk()
+            ->assertJsonPath('table.name', 'E7')
+            ->assertJsonPath('transferred_from.name', 'E1');
+
+        // Sent back home, the bill is no longer "transferred" at all.
+        $this->putJson("/api/orders/{$id}", ['table_id' => $first->id])
+            ->assertOk()
+            ->assertJsonPath('transferred_from', null);
+    }
+
+    public function test_the_origin_is_server_owned_and_not_client_settable(): void
+    {
+        $item = MenuItem::factory()->create();
+        $table = Table::factory()->create(['name' => 'E9']);
+        $other = Table::factory()->create(['name' => 'E10']);
+
+        Sanctum::actingAs($this->staff('cashier'));
+        $id = $this->seat($table, $item);
+
+        // A terminal can't invent a transfer that never happened.
+        $this->putJson("/api/orders/{$id}", ['transferred_from_table_id' => $other->id])
+            ->assertOk()
+            ->assertJsonPath('transferred_from', null);
+    }
+
     public function test_the_kitchen_sees_the_new_table_on_a_transferred_ticket(): void
     {
         $item = MenuItem::factory()->create();
@@ -118,6 +162,9 @@ class OrderTransferTest extends TestCase
         $this->getJson('/api/orders?status=new,preparing')
             ->assertOk()
             ->assertJsonPath('0.id', $id)
-            ->assertJsonPath('0.table.name', 'E8');
+            ->assertJsonPath('0.table.name', 'E8')
+            // …and it says where the food was ordered, so a cook already
+            // plating for E7 knows the guests moved.
+            ->assertJsonPath('0.transferred_from.name', 'E7');
     }
 }
