@@ -89,10 +89,10 @@ const VOICE_TEXT = 'មានការកម្ម៉ងថ្មី សូម�
 const VOICE_DELAY_MS = 1400
 /**
  * Playback speed of the recording. Web Audio resamples rather than time-
- * stretches, so this lifts the pitch a little as well — past ~1.3 the voice
- * starts to sound comical, which is not what a cook wants shouted at them.
+ * stretches, so this lifts the pitch along with the pace — this is the one
+ * number to turn if the announcement feels slow (or starts sounding squeaky).
  */
-const VOICE_RATE = 1.2
+const VOICE_RATE = 1.4
 /** How long to let a resume() settle before calling the speaker blocked. */
 const RESUME_GRACE_MS = 1500
 
