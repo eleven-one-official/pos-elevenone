@@ -71,24 +71,30 @@ function clockLabel(d: Date): string {
   return `${pad(h)}:${pad(d.getMinutes())} ${ampm}`
 }
 
-// Two-tone chime for a new ticket. Built on demand; silently no-ops where the
-// browser blocks audio until a user gesture (we resume on the bell toggle).
+// Rising three-note chime for a new ticket, played twice so it carries over
+// extractor fans and pans. Synthesised on the fly — no audio file to ship.
+const CHIME_NOTES = [880, 1320, 1760]
+const CHIME_GAP = 0.14
+const CHIME_REPEATS = 2
+
 function playChime(ctx: AudioContext) {
-  const now = ctx.currentTime
-  ;[880, 1320].forEach((freq, i) => {
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.type = 'sine'
-    osc.frequency.value = freq
-    const start = now + i * 0.18
-    gain.gain.setValueAtTime(0.0001, start)
-    gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3)
-    osc.start(start)
-    osc.stop(start + 0.32)
-  })
+  const base = ctx.currentTime
+  for (let pass = 0; pass < CHIME_REPEATS; pass += 1) {
+    CHIME_NOTES.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      const start = base + pass * (CHIME_NOTES.length * CHIME_GAP + 0.25) + i * CHIME_GAP
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.32)
+      osc.start(start)
+      osc.stop(start + 0.34)
+    })
+  }
 }
 
 export default function KitchenDisplayPage({
@@ -104,6 +110,9 @@ export default function KitchenDisplayPage({
   // board feels snappy, before the server confirms and the next poll drops them.
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set())
   const [soundOn, setSoundOn] = useState(true)
+  // The browser withholds audio until someone touches the screen. Until then we
+  // say so in the header rather than letting tickets land in silence.
+  const [audioBlocked, setAudioBlocked] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   // The kitchen station signs in on one shared account, so a cook names
@@ -121,6 +130,54 @@ export default function KitchenDisplayPage({
   const soundOnRef = useRef(soundOn)
   soundOnRef.current = soundOn
 
+  // Build the audio context once and nudge it out of the suspended state a
+  // browser parks it in until the page has seen a real gesture. Resolves true
+  // when the speaker is genuinely live.
+  const unlockAudio = useCallback(async (): Promise<boolean> => {
+    if (!audioRef.current) {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctor) return false
+      audioRef.current = new Ctor()
+    }
+    const ctx = audioRef.current
+    if (ctx.state !== 'running') {
+      try {
+        await ctx.resume()
+      } catch {
+        /* still blocked — reported below */
+      }
+    }
+    const ready = ctx.state === 'running'
+    setAudioBlocked(!ready)
+    return ready
+  }, [])
+
+  /** Sound the new-order chime, unlocking audio first if the browser allows. */
+  const chime = useCallback(async () => {
+    const ready = await unlockAudio()
+    if (!ready || !audioRef.current) return
+    try {
+      playChime(audioRef.current)
+    } catch {
+      // Never let a dead speaker stop the board from updating.
+    }
+  }, [unlockAudio])
+
+  // Any touch of the screen counts as the gesture that unlocks audio. The
+  // listeners stay put — a tab left in the background can be suspended again.
+  useEffect(() => {
+    void unlockAudio()
+    const unlock = () => void unlockAudio()
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [unlockAudio])
+
   const load = useCallback(async () => {
     try {
       const list = await fetchKitchenTickets()
@@ -129,13 +186,9 @@ export default function KitchenDisplayPage({
       // Announce tickets that weren't on the last board (skip the first load).
       const firstLoad = seenRef.current.size === 0 && orders === null
       const fresh = list.filter((o) => !seenRef.current.has(o.id))
-      if (!firstLoad && fresh.length > 0 && soundOnRef.current && audioRef.current) {
-        try {
-          playChime(audioRef.current)
-        } catch {
-          // Audio not permitted yet — the visual highlight still fires.
-        }
-      }
+      // If audio is still locked the visual highlight carries the news, and the
+      // header asks for the tap that unlocks the chime.
+      if (!firstLoad && fresh.length > 0 && soundOnRef.current) void chime()
       const nowMs = Date.now()
       for (const o of fresh) arrivedRef.current.set(o.id, nowMs)
       // Forget tickets that have left the board.
@@ -153,7 +206,7 @@ export default function KitchenDisplayPage({
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not reach the server.')
     }
-  }, [orders])
+  }, [orders, chime])
 
   // Poll the queue on a fixed interval.
   useEffect(() => {
@@ -191,18 +244,11 @@ export default function KitchenDisplayPage({
   }, [toast])
 
   function toggleSound() {
-    setSoundOn((on) => {
-      const next = !on
-      if (next) {
-        // First enable doubles as the user gesture that unlocks audio.
-        if (!audioRef.current) {
-          const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-          if (Ctor) audioRef.current = new Ctor()
-        }
-        void audioRef.current?.resume().catch(() => {})
-      }
-      return next
-    })
+    const next = !soundOn
+    setSoundOn(next)
+    // Tapping the bell is itself a gesture, so switching sound on both unlocks
+    // audio and previews the chime — the cook hears what a new ticket sounds like.
+    if (next) void chime()
   }
 
   // A cook took the ticket: attribute it to them and move it to "preparing".
@@ -268,6 +314,17 @@ export default function KitchenDisplayPage({
             <LuRefreshCw className="h-3.5 w-3.5" />
             Reconnecting…
           </span>
+        )}
+
+        {soundOn && audioBlocked && (
+          <button
+            type="button"
+            onClick={() => void chime()}
+            className="hidden items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:bg-amber-200 sm:flex"
+          >
+            <LuBellOff className="h-3.5 w-3.5" />
+            Tap to turn the chime on
+          </button>
         )}
 
         <div className="ml-auto flex items-center gap-2">
