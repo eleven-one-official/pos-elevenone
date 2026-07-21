@@ -28,9 +28,10 @@ import type { Kitchen } from './KitchenLoginDialog'
 // Kitchen Display Screen (KDS) — replaces the kitchen/bar printer. Every order
 // a waiter or cashier fires lands here as a ticket card, oldest first (a
 // first-in-first-out rail). The cook reads what to make, then taps "Ready" to
-// bump the ticket off the board. A gentle chime + highlight announces each new
-// ticket; a per-ticket timer turns amber then red as an order ages so nothing
-// is forgotten. Read-only otherwise: the kitchen never edits items or money.
+// bump the ticket off the board. A chime, a spoken Khmer announcement and a
+// highlight announce each new ticket; a per-ticket timer turns amber then red
+// as an order ages so nothing is forgotten. Read-only otherwise: the kitchen
+// never edits items or money.
 // ---------------------------------------------------------------------------
 
 /** How often the board re-pulls the queue from the backend. */
@@ -77,6 +78,16 @@ const CHIME_NOTES = [880, 1320, 1760]
 const CHIME_GAP = 0.14
 const CHIME_REPEATS = 2
 
+// After the chime, a Khmer voice says it out loud — a cook with both hands in a
+// pan hears the words without looking up. It's a recording rather than
+// speech synthesis because Windows ships no Khmer voice; replace the file to
+// change who speaks. VOICE_TEXT is only used by the synthesis fallback (Android
+// kitchen tablets do have a Khmer engine).
+const VOICE_SRC = '/sounds/new-order-km.mp3'
+const VOICE_TEXT = 'មានការកម្ម៉ងថ្មី សូមរៀបចំ'
+/** Hold the voice until the chime has finished ringing. */
+const VOICE_DELAY_MS = 1400
+
 function playChime(ctx: AudioContext) {
   const base = ctx.currentTime
   for (let pass = 0; pass < CHIME_REPEATS; pass += 1) {
@@ -95,6 +106,23 @@ function playChime(ctx: AudioContext) {
       osc.stop(start + 0.34)
     })
   }
+}
+
+// Last-resort voice: the platform's own Khmer engine. Returns false when there
+// isn't one — an English engine would only mangle the script, so we stay quiet
+// and let the chime carry the alert.
+function speakFallback(): boolean {
+  const synth = window.speechSynthesis
+  if (!synth) return false
+  const voice = synth.getVoices().find((v) => v.lang?.toLowerCase().startsWith('km'))
+  if (!voice) return false
+  const utterance = new SpeechSynthesisUtterance(VOICE_TEXT)
+  utterance.voice = voice
+  utterance.lang = voice.lang
+  utterance.rate = 0.95
+  synth.cancel()
+  synth.speak(utterance)
+  return true
 }
 
 export default function KitchenDisplayPage({
@@ -125,8 +153,14 @@ export default function KitchenDisplayPage({
   // Ticket ids already on the board, and when each first appeared — drives the
   // "new" highlight and the chime without re-rendering on every poll.
   const seenRef = useRef<Set<number>>(new Set())
+  // Whether a board has come back at least once. A ref, not the `orders` state:
+  // the poll interval holds the first `load` closure forever, so reading state
+  // there would say "still loading" and mute the first ticket of the service.
+  const loadedOnceRef = useRef(false)
   const arrivedRef = useRef<Map<number, number>>(new Map())
   const audioRef = useRef<AudioContext | null>(null)
+  const voiceRef = useRef<HTMLAudioElement | null>(null)
+  const voiceTimerRef = useRef<number | null>(null)
   const soundOnRef = useRef(soundOn)
   soundOnRef.current = soundOn
 
@@ -154,8 +188,24 @@ export default function KitchenDisplayPage({
     return ready
   }, [])
 
-  /** Sound the new-order chime, unlocking audio first if the browser allows. */
-  const chime = useCallback(async () => {
+  // One <audio> element reused for every announcement, so a burst of tickets
+  // restarts the sentence instead of stacking overlapping voices.
+  const speak = useCallback(() => {
+    if (!voiceRef.current) voiceRef.current = new Audio(VOICE_SRC)
+    const el = voiceRef.current
+    try {
+      el.currentTime = 0
+    } catch {
+      /* not seekable yet — play() still starts it from the top */
+    }
+    void el.play().catch(() => {
+      // Recording missing or still blocked — try the platform voice.
+      speakFallback()
+    })
+  }, [])
+
+  /** New-order alert: chime, then the spoken reminder. Unlocks audio first. */
+  const announce = useCallback(async () => {
     const ready = await unlockAudio()
     if (!ready || !audioRef.current) return
     try {
@@ -163,7 +213,19 @@ export default function KitchenDisplayPage({
     } catch {
       // Never let a dead speaker stop the board from updating.
     }
-  }, [unlockAudio])
+    if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
+    voiceTimerRef.current = window.setTimeout(speak, VOICE_DELAY_MS)
+  }, [unlockAudio, speak])
+
+  // Don't let a queued sentence speak into an empty room after sign-out.
+  useEffect(
+    () => () => {
+      if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
+      voiceRef.current?.pause()
+      window.speechSynthesis?.cancel()
+    },
+    [],
+  )
 
   // Any touch of the screen counts as the gesture that unlocks audio. The
   // listeners stay put — a tab left in the background can be suspended again.
@@ -183,12 +245,14 @@ export default function KitchenDisplayPage({
       const list = await fetchKitchenTickets()
       const ids = new Set(list.map((o) => o.id))
 
-      // Announce tickets that weren't on the last board (skip the first load).
-      const firstLoad = seenRef.current.size === 0 && orders === null
+      // Announce tickets that weren't on the last board — but never the tickets
+      // already waiting when the screen was switched on.
+      const firstLoad = !loadedOnceRef.current
+      loadedOnceRef.current = true
       const fresh = list.filter((o) => !seenRef.current.has(o.id))
       // If audio is still locked the visual highlight carries the news, and the
       // header asks for the tap that unlocks the chime.
-      if (!firstLoad && fresh.length > 0 && soundOnRef.current) void chime()
+      if (!firstLoad && fresh.length > 0 && soundOnRef.current) void announce()
       const nowMs = Date.now()
       for (const o of fresh) arrivedRef.current.set(o.id, nowMs)
       // Forget tickets that have left the board.
@@ -206,16 +270,15 @@ export default function KitchenDisplayPage({
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not reach the server.')
     }
-  }, [orders, chime])
+  }, [announce])
 
-  // Poll the queue on a fixed interval.
+  // Poll the queue on a fixed interval. `load` no longer closes over state, so
+  // the interval can depend on it honestly without being torn down each render.
   useEffect(() => {
     void load()
     const id = window.setInterval(() => void load(), POLL_MS)
     return () => window.clearInterval(id)
-    // load is stable enough; re-running the interval each render is wasteful.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [load])
 
   // Load the cook roster once — it changes rarely (managed in admin) and only
   // needs to be fresh enough to fill the "who's cooking?" picker.
@@ -247,8 +310,15 @@ export default function KitchenDisplayPage({
     const next = !soundOn
     setSoundOn(next)
     // Tapping the bell is itself a gesture, so switching sound on both unlocks
-    // audio and previews the chime — the cook hears what a new ticket sounds like.
-    if (next) void chime()
+    // audio and previews the alert — the cook hears exactly what a new ticket
+    // sounds like. Switching it off silences anything mid-sentence.
+    if (next) {
+      void announce()
+      return
+    }
+    if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
+    voiceRef.current?.pause()
+    window.speechSynthesis?.cancel()
   }
 
   // A cook took the ticket: attribute it to them and move it to "preparing".
@@ -319,7 +389,7 @@ export default function KitchenDisplayPage({
         {soundOn && audioBlocked && (
           <button
             type="button"
-            onClick={() => void chime()}
+            onClick={() => void announce()}
             className="hidden items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:bg-amber-200 sm:flex"
           >
             <LuBellOff className="h-3.5 w-3.5" />
