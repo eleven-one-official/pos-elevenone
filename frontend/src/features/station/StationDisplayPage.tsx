@@ -194,14 +194,13 @@ const VOICE_TEXT = 'មានការកម្ម៉ងថ្មី សូម�
 /** Hold the voice until the chime has finished ringing. */
 const VOICE_DELAY_MS = 1400
 /**
- * Playback speed of the recording. Leave this at 1: Web Audio resamples rather
- * than time-stretches, so anything above 1 lifts the pitch too and the
- * announcement comes out thin and squeaky instead of sounding like a person.
- * If the clip ever feels slow, re-record it faster — don't turn this up.
+ * Playback speed of the recording. Safe to turn: the clip plays through a media
+ * element with `preservesPitch`, which time-stretches, so a faster announcement
+ * still sounds like the same person. Past ~1.5 the words start to slur.
  */
-const VOICE_RATE = 1
-/** Speed of the synthesis fallback. Safe to raise: an engine keeps the pitch. */
-const SPEECH_RATE = 1
+const VOICE_RATE = 1.25
+/** Speed of the synthesis fallback. An engine keeps the pitch on its own. */
+const SPEECH_RATE = 1.25
 /** How long to let a resume() settle before calling the speaker blocked. */
 const RESUME_GRACE_MS = 1500
 
@@ -288,6 +287,7 @@ export default function StationDisplayPage({
   const loadedOnceRef = useRef(false)
   const arrivedRef = useRef<Map<number, number>>(new Map())
   const audioRef = useRef<AudioContext | null>(null)
+  const voiceElRef = useRef<HTMLAudioElement | null>(null)
   const voiceBufferRef = useRef<AudioBuffer | null>(null)
   const voiceSourceRef = useRef<AudioBufferSourceNode | null>(null)
   const voiceTimerRef = useRef<number | null>(null)
@@ -321,10 +321,27 @@ export default function StationDisplayPage({
     return ready ? ctx : null
   }, [])
 
-  // The voice rides the same AudioContext as the chime rather than an <audio>
-  // element. An element is gated by a *second*, separate autoplay rule, which
-  // is how the chime could ring while the sentence stayed silent — one unlocked
-  // context means if you hear the chime, you hear the words.
+  // Speed and pitch are only separate knobs on a media element: `preservesPitch`
+  // time-stretches, where a Web Audio buffer source can nothing but resample —
+  // which is what turned a faster announcement squeaky. So the clip plays
+  // through an <audio> element, but *routed into the same AudioContext* as the
+  // chime: an element is otherwise gated by a second, separate autoplay rule,
+  // which is how the chime could ring while the sentence stayed silent.
+  const voiceElement = useCallback((ctx: AudioContext): HTMLAudioElement | null => {
+    if (voiceElRef.current) return voiceElRef.current
+    try {
+      const el = new Audio(VOICE_SRC)
+      el.preload = 'auto'
+      ctx.createMediaElementSource(el).connect(ctx.destination)
+      voiceElRef.current = el
+      return el
+    } catch {
+      return null
+    }
+  }, [])
+
+  // Fallback path for a browser that won't give us a routed element. Plays at
+  // the recorded speed — resampling here would bring the squeak back.
   const loadVoice = useCallback(async (ctx: AudioContext): Promise<AudioBuffer> => {
     if (voiceBufferRef.current) return voiceBufferRef.current
     const res = await fetch(VOICE_SRC)
@@ -335,9 +352,23 @@ export default function StationDisplayPage({
 
   const speak = useCallback(
     async (ctx: AudioContext) => {
+      const el = voiceElement(ctx)
+      if (el) {
+        el.playbackRate = VOICE_RATE
+        // Chrome and Safari default this on, but say it out loud — it's the
+        // whole reason VOICE_RATE is safe to raise.
+        el.preservesPitch = true
+        // A burst of tickets restarts the sentence instead of stacking voices.
+        el.currentTime = 0
+        try {
+          await el.play()
+          return
+        } catch {
+          // Blocked or the file is missing — drop to the buffer path below.
+        }
+      }
       try {
         const buffer = await loadVoice(ctx)
-        // A burst of tickets restarts the sentence instead of stacking voices.
         try {
           voiceSourceRef.current?.stop()
         } catch {
@@ -345,7 +376,6 @@ export default function StationDisplayPage({
         }
         const source = ctx.createBufferSource()
         source.buffer = buffer
-        source.playbackRate.value = VOICE_RATE
         source.connect(ctx.destination)
         source.start()
         voiceSourceRef.current = source
@@ -354,7 +384,7 @@ export default function StationDisplayPage({
         speakFallback()
       }
     },
-    [loadVoice],
+    [voiceElement, loadVoice],
   )
 
   /** New-order alert: chime, then the spoken reminder. Unlocks audio first. */
@@ -374,6 +404,7 @@ export default function StationDisplayPage({
   useEffect(
     () => () => {
       if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
+      voiceElRef.current?.pause()
       try {
         voiceSourceRef.current?.stop()
       } catch {
@@ -387,10 +418,13 @@ export default function StationDisplayPage({
   // Any touch of the screen counts as the gesture that unlocks audio. The
   // listeners stay put — a tab left in the background can be suspended again.
   useEffect(() => {
-    // Decode the clip up front (this works on a still-suspended context) so the
-    // first announcement isn't waiting on a fetch.
+    // Wire up and decode the clip up front (both work on a still-suspended
+    // context) so the first announcement isn't waiting on a fetch.
     void unlockAudio().then((ctx) => {
-      if (audioRef.current) void loadVoice(ctx ?? audioRef.current).catch(() => {})
+      const c = ctx ?? audioRef.current
+      if (!c) return
+      voiceElement(c)?.load()
+      void loadVoice(c).catch(() => {})
     })
     const unlock = () => void unlockAudio()
     window.addEventListener('pointerdown', unlock)
@@ -399,7 +433,7 @@ export default function StationDisplayPage({
       window.removeEventListener('pointerdown', unlock)
       window.removeEventListener('keydown', unlock)
     }
-  }, [unlockAudio, loadVoice])
+  }, [unlockAudio, voiceElement, loadVoice])
 
   const load = useCallback(async () => {
     try {
@@ -499,6 +533,7 @@ export default function StationDisplayPage({
       return
     }
     if (voiceTimerRef.current) window.clearTimeout(voiceTimerRef.current)
+    voiceElRef.current?.pause()
     try {
       voiceSourceRef.current?.stop()
     } catch {
