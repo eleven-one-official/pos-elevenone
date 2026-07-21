@@ -87,6 +87,12 @@ const VOICE_SRC = '/sounds/new-order-km.mp3'
 const VOICE_TEXT = 'មានការកម្ម៉ងថ្មី សូមរៀបចំ'
 /** Hold the voice until the chime has finished ringing. */
 const VOICE_DELAY_MS = 1400
+/**
+ * Playback speed of the recording. Web Audio resamples rather than time-
+ * stretches, so this lifts the pitch a little as well — past ~1.3 the voice
+ * starts to sound comical, which is not what a cook wants shouted at them.
+ */
+const VOICE_RATE = 1.2
 /** How long to let a resume() settle before calling the speaker blocked. */
 const RESUME_GRACE_MS = 1500
 
@@ -121,7 +127,7 @@ function speakFallback(): boolean {
   const utterance = new SpeechSynthesisUtterance(VOICE_TEXT)
   utterance.voice = voice
   utterance.lang = voice.lang
-  utterance.rate = 0.95
+  utterance.rate = VOICE_RATE
   synth.cancel()
   synth.speak(utterance)
   return true
@@ -218,6 +224,7 @@ export default function KitchenDisplayPage({
         }
         const source = ctx.createBufferSource()
         source.buffer = buffer
+        source.playbackRate.value = VOICE_RATE
         source.connect(ctx.destination)
         source.start()
         voiceSourceRef.current = source
