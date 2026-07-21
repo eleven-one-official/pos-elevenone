@@ -241,9 +241,11 @@ export default function ReceiptPage({
       )}
 
       {/* Body */}
-      <div className="flex flex-1 gap-6 overflow-auto p-6 print:block print:overflow-visible print:p-0">
+      {/* items-start so each card is only as tall as its own content — stretched
+          cards would clip a long receipt against the viewport instead. */}
+      <div className="flex flex-1 items-start gap-6 overflow-auto p-6 print:block print:overflow-visible print:p-0">
         {/* Left — printed receipt */}
-        <div className="flex-1 rounded-2xl border border-neutral-200 bg-white p-8 text-neutral-800 shadow-sm print:mx-auto print:max-w-md print:rounded-none print:border-0 print:p-6 print:shadow-none">
+        <div className="min-w-0 flex-1 rounded-2xl border border-neutral-200 bg-white p-8 text-neutral-800 shadow-sm print:mx-auto print:max-w-md print:rounded-none print:border-0 print:p-6 print:shadow-none">
           {/* Store header */}
           <div className="flex items-start gap-4">
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#2b2138] text-white">
@@ -359,7 +361,9 @@ export default function ReceiptPage({
         </div>
 
         {/* Right — payment confirmation */}
-        <div className="flex w-[38%] min-w-[360px] max-w-[520px] flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm print:hidden">
+        {/* Sticky + min-h-full: keeps the confirmation card in view and full
+            height while a long receipt scrolls beside it. */}
+        <div className="sticky top-0 flex max-h-full min-h-full w-[38%] min-w-[360px] max-w-[520px] shrink-0 flex-col items-center justify-center overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm print:hidden">
           {warning ? (
             <>
               <span className="flex h-20 w-20 items-center justify-center rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/30">
