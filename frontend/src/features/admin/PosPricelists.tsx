@@ -134,6 +134,7 @@ export default function PosPricelists() {
       subtitle: `${visible.length} pricelist${visible.length === 1 ? '' : 's'} — ${rows.length} price rule${
         rows.length === 1 ? '' : 's'
       }`,
+      sectionTitle: 'Price rules',
       landscape: true,
       columns: [
         { header: 'Pricelist' },

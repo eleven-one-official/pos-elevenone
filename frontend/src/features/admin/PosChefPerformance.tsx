@@ -320,6 +320,7 @@ export default function PosChefPerformance() {
               onSearch={setSearch}
               sort={sort}
               onSort={setSort}
+              periodLabel={PERIODS.find((p) => p.value === period)?.label ?? 'All Time'}
             />
           )}
 
@@ -673,6 +674,7 @@ function Details({
   onSearch,
   sort,
   onSort,
+  periodLabel,
 }: {
   rows: ChefTicket[]
   total: number
@@ -681,6 +683,8 @@ function Details({
   onSearch: (v: string) => void
   sort: SortKey
   onSort: (v: SortKey) => void
+  /** Named period, printed under the title on the exported PDF. */
+  periodLabel: string
 }) {
   // Which tickets have their dish list unfolded.
   const [open, setOpen] = useState<Set<number>>(new Set())
@@ -734,7 +738,7 @@ function Details({
           </button>
           <button
             type="button"
-            onClick={() => exportPdf(rows)}
+            onClick={() => exportPdf(rows, periodLabel)}
             disabled={rows.length === 0}
             className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
           >
@@ -854,11 +858,12 @@ function dishList(r: ChefTicket): string {
 }
 
 /** The rows on screen, as a PDF — same order, same filtering. */
-function exportPdf(rows: ChefTicket[]) {
+function exportPdf(rows: ChefTicket[], periodLabel: string) {
   void downloadTablePdf({
     fileName: 'chef-performance.pdf',
-    title: 'Chef Performance — Tickets',
-    subtitle: `${rows.length} ticket${rows.length === 1 ? '' : 's'}`,
+    title: 'Chef Performance',
+    subtitle: `${periodLabel} — ${rows.length} ticket${rows.length === 1 ? '' : 's'}`,
+    sectionTitle: 'Tickets',
     landscape: true,
     columns: [
       { header: 'Fired' },

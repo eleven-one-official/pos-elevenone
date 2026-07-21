@@ -663,9 +663,10 @@ export default function PosOrdersAnalysis() {
     void downloadTablePdf({
       fileName: 'orders-analysis.pdf',
       title: 'Orders Analysis',
-      subtitle: `Grouped by ${groupDim} — ${visibleRows.length} row${
-        visibleRows.length === 1 ? '' : 's'
-      }`,
+      subtitle: `${timeChecked.length > 0 ? timeChecked.join(', ') : 'All Time'} — ${
+        visibleRows.length
+      } row${visibleRows.length === 1 ? '' : 's'}`,
+      sectionTitle: `By ${groupDim}`,
       columns: [
         { header: groupDim },
         ...pivotCols.map((m) => ({ header: m, align: 'right' as const })),
