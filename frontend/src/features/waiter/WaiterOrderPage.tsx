@@ -101,8 +101,11 @@ export default function WaiterOrderPage({
     askGuestsOnEntry && table.backendId == null ? 'guests' : null,
   )
   const [toast, setToast] = useState<string | null>(null)
-  const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
+  // How much of each line the kitchen already has, per product. Everything on
+  // top of this is what the next "Order" fires as a new round — and everything
+  // at or below it is food already being cooked, which a waiter can't take back.
+  const [sentQty, setSentQty] = useState<Record<string, number>>({})
   // Transfer is a server round-trip: block the grid while it flies and keep the
   // dialog open with the reason when it fails.
   const [transferring, setTransferring] = useState(false)
@@ -129,6 +132,15 @@ export default function WaiterOrderPage({
   const itemCount = useMemo(() => lines.reduce((sum, l) => sum + l.qty, 0), [lines])
   const selectedLine = lines.find((l) => l.id === selectedId) ?? null
 
+  // Dishes the kitchen hasn't seen yet — the next round. Nothing new means the
+  // order is fully fired, so the button rests instead of sending an empty round.
+  const newItemCount = useMemo(
+    () => lines.reduce((sum, l) => sum + Math.max(0, l.qty - (sentQty[l.id] ?? 0)), 0),
+    [lines, sentQty],
+  )
+  // This table has already ordered once, so what's on top of that is an "add".
+  const hasSent = useMemo(() => Object.values(sentQty).some((q) => q > 0), [sentQty])
+
   // Auto-dismiss the confirmation toast.
   useEffect(() => {
     if (!toast) return
@@ -152,11 +164,13 @@ export default function WaiterOrderPage({
       .then((order) => {
         if (!alive) return
         if (order) {
+          const saved = orderToLines(order)
           setBackendOrderId(order.id)
           setTransferredFrom(order.transferred_from?.name ?? null)
-          setLines(orderToLines(order))
-          // These items were already fired — the button re-arms on any change.
-          setSent(true)
+          setLines(saved)
+          // Everything on a saved order has already been fired, so it becomes
+          // the baseline: only what the waiter adds on top goes to the kitchen.
+          setSentQty(Object.fromEntries(saved.map((l) => [l.id, l.qty])))
           setToast(`Loaded order #${order.order_number}`)
         }
         if (order && order.guest_count > 0) {
@@ -206,7 +220,6 @@ export default function WaiterOrderPage({
     })
     setSelectedId(product.id)
     setEntry(null)
-    setSent(false)
   }
 
   function selectLine(id: string) {
@@ -219,10 +232,14 @@ export default function WaiterOrderPage({
   }
 
   function removeLine(id: string) {
+    // Food the kitchen is already cooking isn't a waiter's to take back — that
+    // is a void, and voids live on the cashier station.
+    if ((sentQty[id] ?? 0) > 0) {
+      return notify('Already sent to the kitchen — ask the cashier to void it')
+    }
     setLines((prev) => prev.filter((l) => l.id !== id))
     if (selectedId === id) setSelectedId(null)
     setEntry(null)
-    setSent(false)
   }
 
   // Numpad — types the selected line's quantity directly (whole numbers).
@@ -240,8 +257,14 @@ export default function WaiterOrderPage({
     // A quantity of zero means the item is gone — drop the line instead of
     // leaving a 0-qty ghost row on screen.
     if (parsed === 0) return removeLine(selectedLine.id)
+    // The kitchen already has this many; typing fewer would silently cancel a
+    // dish that may be in the pan. Hold at what was fired and say why.
+    const locked = sentQty[selectedLine.id] ?? 0
+    if (parsed < locked) {
+      updateLine(selectedLine.id, { qty: locked })
+      return notify(`${locked} already sent to the kitchen — can’t go below`)
+    }
     updateLine(selectedLine.id, { qty: parsed })
-    setSent(false)
   }
 
   // ---- Dialogs --------------------------------------------------------------
@@ -337,14 +360,18 @@ export default function WaiterOrderPage({
   }
 
   // Fire the order to the kitchen: save it on the backend (create on the first
-  // send, replace items after that). The Kitchen Display screen polls for open
-  // orders, so a saved order shows up there within seconds — there is no
-  // printing. If the save fails the kitchen never sees it, so the waiter is
-  // told to retry rather than being left thinking the food is on its way.
+  // send, add to it after that). The whole cart goes over — the server works out
+  // which dishes are new and fires just those as a fresh round, so a table that
+  // orders again gets its own ticket on the kitchen display under the same table
+  // number instead of extra lines appearing on a card already being cooked.
+  // The Kitchen Display screen polls, so the round shows up within seconds —
+  // there is no printing. If the save fails the kitchen never sees it, so the
+  // waiter is told to retry rather than thinking the food is on its way.
   async function sendToKitchen() {
     if (sending) return
     const cook = lines.filter((l) => l.qty > 0)
     if (cook.length === 0) return notify('The order is empty')
+    if (newItemCount === 0) return notify('Everything here is already with the kitchen')
 
     setSending(true)
     try {
@@ -365,9 +392,15 @@ export default function WaiterOrderPage({
         backendOrderId == null
           ? await createOrder(payload)
           : await updateOrder(backendOrderId, payload)
+      const fired = newItemCount
       setBackendOrderId(order.id)
-      setSent(true)
-      notify(`Order #${order.order_number} sent to the kitchen`)
+      // The kitchen now has all of this, so the next round starts from here.
+      setSentQty(Object.fromEntries(cook.map((l) => [l.id, l.qty])))
+      notify(
+        hasSent
+          ? `${fired} more item${fired === 1 ? '' : 's'} sent to the kitchen`
+          : `Order #${order.order_number} sent to the kitchen`,
+      )
     } catch {
       notify('Could not send to the kitchen — check the connection and try again')
     } finally {
@@ -470,6 +503,9 @@ export default function WaiterOrderPage({
             ) : (
               lines.map((line) => {
                 const selected = line.id === selectedId
+                // What this line adds on top of what the kitchen already has —
+                // the waiter needs to see which dishes the next round carries.
+                const pending = Math.max(0, line.qty - (sentQty[line.id] ?? 0))
                 return (
                   <div
                     key={line.id}
@@ -481,7 +517,14 @@ export default function WaiterOrderPage({
                     }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-neutral-800">{line.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-neutral-800">{line.name}</p>
+                        {hasSent && pending > 0 && (
+                          <span className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700">
+                            +{pending} new
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-0.5 text-sm text-neutral-500">{money(line.price)} / unit</p>
                       {line.note ? (
                         <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
@@ -541,29 +584,42 @@ export default function WaiterOrderPage({
 
           {/* Send to Kitchen + qty numpad */}
           <div className="flex border-t border-neutral-200">
+            {/* Fires only what the kitchen hasn't got. Once everything is with
+                them it rests on "Sent" until the guests order something else,
+                which then goes out as a round of its own. */}
             <button
               type="button"
               onClick={() => void sendToKitchen()}
-              disabled={lines.length === 0 || sending}
+              disabled={lines.length === 0 || sending || newItemCount === 0}
               className={`flex w-[38%] min-w-[150px] flex-col items-center justify-center gap-2 border-r border-neutral-200 px-2 py-4 text-center transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                sent ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-primary/10 hover:bg-primary/15'
+                newItemCount === 0 ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-primary/10 hover:bg-primary/15'
               }`}
             >
               <span
                 className={`flex h-12 w-12 items-center justify-center rounded-full text-white ${
-                  sent ? 'bg-emerald-500' : 'bg-primary'
+                  newItemCount === 0 ? 'bg-emerald-500' : 'bg-primary'
                 }`}
               >
                 {sending ? (
                   <Loader size="sm" />
-                ) : sent ? (
+                ) : newItemCount === 0 ? (
                   <LuCheck className="h-7 w-7" />
                 ) : (
                   <LuUtensils className="h-7 w-7" />
                 )}
               </span>
-              <span className={`text-sm font-bold leading-tight ${sent ? 'text-emerald-700' : 'text-primary-dark'}`}>
-                {sending ? 'Sending…' : sent ? 'Sent — Order Again' : 'Order'}
+              <span
+                className={`text-sm font-bold leading-tight ${
+                  newItemCount === 0 ? 'text-emerald-700' : 'text-primary-dark'
+                }`}
+              >
+                {sending
+                  ? 'Sending…'
+                  : newItemCount === 0
+                    ? 'Sent'
+                    : hasSent
+                      ? `Send ${newItemCount} New`
+                      : 'Order'}
               </span>
             </button>
 

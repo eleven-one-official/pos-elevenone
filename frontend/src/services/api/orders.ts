@@ -188,18 +188,46 @@ export async function fetchOpenOrderForTakeawaySlot(slot: number): Promise<ApiOr
 // Kitchen display
 // ---------------------------------------------------------------------------
 
-/** Statuses an order passes through before the kitchen is done with it. */
-const KITCHEN_QUEUE_STATUSES: ApiOrder['status'][] = ['new', 'preparing']
+/**
+ * One kitchen ticket: a *round* of an order, not the order itself. A table that
+ * orders again keeps one bill but fires a second round, and the kitchen sees it
+ * as its own card under the same table number — with its own cook, its own
+ * clock and its own Ready button.
+ */
+export type ApiKitchenTicket = {
+  id: number
+  order_id: number
+  /** 1 for the table's first order, 2 for what they added after, … */
+  round_no: number
+  status: 'new' | 'preparing' | 'ready'
+  /** When *this round* was fired — the age the card counts up from. */
+  created_at: string
+  started_at: string | null
+  ready_at: string | null
+  /** The cook who took this round (null until someone taps Start). */
+  chef?: { id: number; name: string } | null
+  items: ApiOrderItem[]
+  /** The bill this round belongs to — where the table and waiter come from. */
+  order: {
+    id: number
+    order_number: string
+    order_type: ApiOrder['order_type']
+    guest_count: number
+    table?: { id: number; name: string } | null
+    transferred_from?: { id: number; name: string } | null
+    user?: { id: number; name: string; username: string } | null
+  }
+}
 
 /**
- * The live kitchen queue — every order still to cook (just fired, or being
+ * The live kitchen queue — every round still to cook (just fired, or being
  * prepared), oldest first so the display reads as a first-in-first-out ticket
- * rail. One call pulls the whole board (comma-separated ?status=).
+ * rail. The backend already sorts it; re-sorting here keeps the board honest if
+ * that ever changes.
  */
-export async function fetchKitchenTickets(): Promise<ApiOrder[]> {
-  const orders = await api<ApiOrder[]>(`/orders?status=${KITCHEN_QUEUE_STATUSES.join(',')}`)
-  // The index returns newest-first; the kitchen cooks oldest-first.
-  return orders
+export async function fetchKitchenTickets(): Promise<ApiKitchenTicket[]> {
+  const tickets = await api<ApiKitchenTicket[]>('/kitchen/tickets')
+  return tickets
     .slice()
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 }
@@ -208,13 +236,16 @@ export async function fetchKitchenTickets(): Promise<ApiOrder[]> {
  * A cook picks a ticket up: attribute it to them and move it to "preparing".
  * Stamps started_at server-side — the clock the Chef Performance KPI reads.
  */
-export function startOrder(id: number, chefId: number): Promise<ApiOrder> {
-  return updateOrder(id, { status: 'preparing', chef_id: chefId })
+export function startTicket(id: number, chefId: number): Promise<ApiKitchenTicket> {
+  return api<ApiKitchenTicket>(`/kitchen/tickets/${id}`, {
+    method: 'PUT',
+    body: { status: 'preparing', chef_id: chefId },
+  })
 }
 
 /** Bump a ticket off the kitchen board — the food is cooked and plated. */
-export function markOrderReady(id: number): Promise<ApiOrder> {
-  return updateOrder(id, { status: 'ready' })
+export function markTicketReady(id: number): Promise<ApiKitchenTicket> {
+  return api<ApiKitchenTicket>(`/kitchen/tickets/${id}`, { method: 'PUT', body: { status: 'ready' } })
 }
 
 /**

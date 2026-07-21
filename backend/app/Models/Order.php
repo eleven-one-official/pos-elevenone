@@ -89,6 +89,15 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    /**
+     * The kitchen jobs this bill has fired — one per "Send to Kitchen". Round 1
+     * is the first order the table placed, round 2 whatever they added after.
+     */
+    public function rounds(): HasMany
+    {
+        return $this->hasMany(OrderRound::class)->orderBy('round_no');
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
@@ -109,6 +118,49 @@ class Order extends Model
         $sequence = $lastNumber ? ((int) substr($lastNumber, -4)) + 1 : 1;
 
         return $prefix.str_pad((string) $sequence, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Roll the bill's kitchen status up from its rounds. The bill is only as far
+     * along as its least-finished round: one round still waiting keeps the whole
+     * order "new", so a table that ordered again is back in the kitchen queue
+     * even if its first round was plated an hour ago.
+     *
+     * Money statuses are never touched — a settled bill is history — and a bill
+     * the floor already marked "served" doesn't slide back to "ready" just
+     * because its rounds are all done.
+     */
+    public function syncStatusFromRounds(): void
+    {
+        if (in_array($this->status, ['completed', 'cancelled', 'refunded'], true)) {
+            return;
+        }
+
+        $rounds = $this->rounds()->get();
+        if ($rounds->isEmpty()) {
+            return;
+        }
+
+        $next = match (true) {
+            $rounds->contains('status', 'new') => 'new',
+            $rounds->contains('status', 'preparing') => 'preparing',
+            default => 'ready',
+        };
+
+        if (! ($next === 'ready' && $this->status === 'served')) {
+            $this->status = $next;
+        }
+
+        // Order-level KPI stamps stay meaningful across rounds: when the kitchen
+        // first picked this bill up, and when the last round left the pass.
+        $this->started_at = $rounds->whereNotNull('started_at')->min('started_at');
+        $this->ready_at = $next === 'ready' ? $rounds->max('ready_at') : null;
+        // The bill shows the cook of the round still in hand, so the floor can
+        // ask the right person; falls back to whoever cooked last.
+        $this->chef_id = $rounds->firstWhere('status', 'preparing')?->chef_id
+            ?? $rounds->whereNotNull('chef_id')->last()?->chef_id;
+
+        $this->save();
     }
 
     /**

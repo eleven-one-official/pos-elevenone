@@ -45,6 +45,130 @@ class OrderController extends Controller
     }
 
     /**
+     * Reconcile the POS cart against what the kitchen has already been told,
+     * and fire only the difference as a fresh round.
+     *
+     * The floor sends the whole cart on every "Send to Kitchen" — it has no
+     * idea which dishes already went out — so the split happens here: dishes
+     * the kitchen has never seen become a new round (its own ticket, its own
+     * cook, its own clock), while dishes it already has are left exactly as
+     * they were, at the price they were taken at. Quantities that shrank are
+     * trimmed off the newest lines first, so a cut lands on food still waiting
+     * rather than food already on the table.
+     *
+     * Quantities are matched per product, not per line, because the POS folds
+     * repeats of a dish into one cart line — matching on the note as well would
+     * read a re-typed note as "one dish cancelled, another ordered".
+     *
+     * @param  array<int, array<string, mixed>>  $lines
+     * @return bool  true when a new round was fired (the kitchen has work)
+     */
+    private function fireItemsIntoRound(Order $order, array $lines, ?Pricelist $pricelist, float $khrRate): bool
+    {
+        // What the floor is asking for, folded per product.
+        $requested = [];
+        foreach ($lines as $line) {
+            $id = (int) $line['menu_item_id'];
+            $requested[$id] ??= ['quantity' => 0, 'note' => null];
+            $requested[$id]['quantity'] += (int) $line['quantity'];
+            $requested[$id]['note'] ??= ($line['note'] ?? null) ?: null;
+        }
+
+        // What the kitchen already has, newest line first so a reduction eats
+        // into the most recently fired round.
+        $rowsByProduct = [];
+        $orphans = [];
+        foreach ($order->items()->orderByDesc('id')->get() as $row) {
+            if ($row->menu_item_id === null) {
+                $orphans[] = $row;
+
+                continue;
+            }
+            $rowsByProduct[(int) $row->menu_item_id][] = $row;
+        }
+
+        $fresh = [];
+        foreach ($requested as $menuItemId => $want) {
+            $rows = $rowsByProduct[$menuItemId] ?? [];
+            $have = array_sum(array_map(fn ($r) => (int) $r->quantity, $rows));
+            $delta = $want['quantity'] - $have;
+
+            if ($delta > 0) {
+                $fresh[] = ['menu_item_id' => $menuItemId, 'quantity' => $delta, 'note' => $want['note']];
+            } elseif ($delta < 0) {
+                $remaining = -$delta;
+                foreach ($rows as $row) {
+                    if ($remaining <= 0) {
+                        break;
+                    }
+                    $take = min($remaining, (int) $row->quantity);
+                    $remaining -= $take;
+                    if ($take >= (int) $row->quantity) {
+                        $row->delete();
+                    } else {
+                        $row->quantity -= $take;
+                        $row->line_total = (float) $row->price * $row->quantity;
+                        $row->save();
+                    }
+                }
+            }
+
+            // A note typed after the dish was fired still has to reach the cook,
+            // so surviving lines pick up the cart's current note.
+            foreach ($rows as $row) {
+                if ($row->exists && $row->note !== $want['note']) {
+                    $row->note = $want['note'];
+                    $row->save();
+                }
+            }
+        }
+
+        // Dishes the cart dropped altogether, plus lines whose product has since
+        // been deleted (the POS can no longer show or re-send those).
+        foreach ($rowsByProduct as $menuItemId => $rows) {
+            if (isset($requested[$menuItemId])) {
+                continue;
+            }
+            foreach ($rows as $row) {
+                $row->delete();
+            }
+        }
+        foreach ($orphans as $row) {
+            $row->delete();
+        }
+
+        // An emptied round would sit on the board as a blank ticket.
+        $order->rounds()->doesntHave('items')->delete();
+
+        if ($fresh === []) {
+            return false;
+        }
+
+        $round = $order->rounds()->create([
+            'round_no' => ((int) $order->rounds()->max('round_no')) + 1,
+            'status' => 'new',
+        ]);
+
+        foreach ($fresh as $line) {
+            $menuItem = MenuItem::findOrFail($line['menu_item_id']);
+            $quantity = (int) $line['quantity'];
+            $price = $pricelist?->priceFor($menuItem, $quantity, $khrRate) ?? (float) $menuItem->price;
+
+            $round->items()->create([
+                'order_id' => $order->id,
+                'menu_item_id' => $menuItem->id,
+                'name' => $menuItem->name,
+                'price' => $price,
+                'quantity' => $quantity,
+                'note' => $line['note'] ?? null,
+                'line_total' => $price * $quantity,
+            ]);
+        }
+
+        return true;
+    }
+
+    /**
      * A discount can wipe a bill down to zero, never past it. Called after
      * totals are recomputed, inside the transaction, so a bad discount rolls
      * everything back with a 422.
@@ -176,20 +300,8 @@ class OrderController extends Controller
                 'note' => $data['note'] ?? null,
             ]);
 
-            foreach ($data['items'] as $line) {
-                $menuItem = MenuItem::findOrFail($line['menu_item_id']);
-                $quantity = (int) $line['quantity'];
-                $price = $pricelist?->priceFor($menuItem, $quantity, $khrRate) ?? (float) $menuItem->price;
-
-                $order->items()->create([
-                    'menu_item_id' => $menuItem->id,
-                    'name' => $menuItem->name,
-                    'price' => $price,
-                    'quantity' => $quantity,
-                    'note' => $line['note'] ?? null,
-                    'line_total' => $price * $quantity,
-                ]);
-            }
+            // Everything on a brand-new bill is round 1.
+            $this->fireItemsIntoRound($order, $data['items'], $pricelist, $khrRate);
 
             $order->recalculateTotals();
             $this->assertDiscountWithinSubtotal($order);
@@ -353,26 +465,24 @@ class OrderController extends Controller
             $order->pricelist_id = $pricelist?->id;
             $order->save();
 
-            if (array_key_exists('items', $data)) {
-                $order->items()->delete();
-                foreach ($data['items'] as $line) {
-                    $menuItem = MenuItem::findOrFail($line['menu_item_id']);
-                    $quantity = (int) $line['quantity'];
-                    $price = $pricelist?->priceFor($menuItem, $quantity, $khrRate) ?? (float) $menuItem->price;
-
-                    $order->items()->create([
-                        'menu_item_id' => $menuItem->id,
-                        'name' => $menuItem->name,
-                        'price' => $price,
-                        'quantity' => $quantity,
-                        'note' => $line['note'] ?? null,
-                        'line_total' => $price * $quantity,
-                    ]);
-                }
+            // A re-send is the table ordering again: only the dishes the kitchen
+            // has never seen are fired, as a round of their own.
+            $reconciled = array_key_exists('items', $data);
+            if ($reconciled) {
+                $this->fireItemsIntoRound($order, $data['items'], $pricelist, $khrRate);
             }
 
             $order->recalculateTotals();
             $this->assertDiscountWithinSubtotal($order);
+
+            // The rounds moved, so the bill follows them: new kitchen work pulls
+            // it back into the queue (a table that ordered again is "new" even if
+            // its earlier rounds were plated), and a round voided away no longer
+            // holds it there. The caller's own status wins when it named one — a
+            // cashier closing up is not making a statement about the kitchen.
+            if ($reconciled && ! array_key_exists('status', $data)) {
+                $order->syncStatusFromRounds();
+            }
 
             // A transfer moved the bill. `tables.status` drives the floor's
             // occupied badge, so it has to follow the order: release the table

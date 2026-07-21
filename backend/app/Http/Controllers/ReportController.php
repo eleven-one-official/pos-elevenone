@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderRound;
 use App\Models\Payment;
 use App\Models\Table;
 use App\Models\User;
@@ -348,9 +349,12 @@ class ReportController extends Controller
             default => null,
         };
 
-        $orders = Order::query()
+        // Measured per round, not per bill: a table that ordered twice is two
+        // separate jobs, often for two different cooks, and averaging them into
+        // one order would smear one cook's time across the other's.
+        $rounds = OrderRound::query()
             ->whereNotNull('chef_id')
-            ->whereNotIn('status', ['cancelled'])
+            ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled']))
             ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
             ->with('chef:id,name')
             ->withSum('items as items_count', 'quantity')
@@ -359,21 +363,22 @@ class ReportController extends Controller
         /** @var array<int, array<string, mixed>> $buckets */
         $buckets = [];
 
-        foreach ($orders as $order) {
-            $chefId = $order->chef_id;
+        foreach ($rounds as $round) {
+            $chefId = $round->chef_id;
             $bucket = $buckets[$chefId] ?? [
                 'chef_id' => $chefId,
-                'chef' => $order->chef?->name ?? 'Unknown',
-                'orders' => 0,
+                'chef' => $round->chef?->name ?? 'Unknown',
+                'order_ids' => [],
                 'items' => 0,
                 'prep_seconds_total' => 0,
                 'prep_count' => 0,
             ];
 
-            $bucket['orders']++;
-            $bucket['items'] += (int) $order->items_count;
-            if ($order->started_at && $order->ready_at) {
-                $bucket['prep_seconds_total'] += abs($order->ready_at->diffInSeconds($order->started_at));
+            // A cook who took both of a table's rounds still worked one order.
+            $bucket['order_ids'][$round->order_id] = true;
+            $bucket['items'] += (int) $round->items_count;
+            if ($round->started_at && $round->ready_at) {
+                $bucket['prep_seconds_total'] += abs($round->ready_at->diffInSeconds($round->started_at));
                 $bucket['prep_count']++;
             }
 
@@ -383,7 +388,7 @@ class ReportController extends Controller
         $rows = array_values(array_map(fn (array $b) => [
             'chef_id' => $b['chef_id'],
             'chef' => $b['chef'],
-            'orders' => $b['orders'],
+            'orders' => count($b['order_ids']),
             'items' => $b['items'],
             // null when no ticket carries both stamps yet — the UI shows a dash.
             'avg_prep_seconds' => $b['prep_count'] > 0

@@ -18,9 +18,9 @@ import { Loader, LoadingState } from '../../components/ui/Loader'
 import { fetchActiveChefs, type Chef } from '../../services/api/chefs'
 import {
   fetchKitchenTickets,
-  markOrderReady,
-  startOrder,
-  type ApiOrder,
+  markTicketReady,
+  startTicket,
+  type ApiKitchenTicket,
 } from '../../services/api/orders'
 import type { Kitchen } from './KitchenLoginDialog'
 
@@ -32,6 +32,11 @@ import type { Kitchen } from './KitchenLoginDialog'
 // highlight announce each new ticket; a per-ticket timer turns amber then red
 // as an order ages so nothing is forgotten. Read-only otherwise: the kitchen
 // never edits items or money.
+//
+// A ticket is a *round*, not a bill. When a table that is already eating orders
+// again, the extra dishes arrive as a second card under the same table number —
+// chiming, timing and plating on their own, instead of slipping unnoticed into
+// a card the cook has already started (or one that left the board hours ago).
 // ---------------------------------------------------------------------------
 
 /** How often the board re-pulls the queue from the backend. */
@@ -39,7 +44,7 @@ const POLL_MS = 5000
 /** A freshly arrived ticket keeps its highlight this long. */
 const NEW_FLASH_MS = 8000
 
-const ORDER_TYPE_LABEL: Record<ApiOrder['order_type'], string> = {
+const ORDER_TYPE_LABEL: Record<ApiKitchenTicket['order']['order_type'], string> = {
   dine_in: 'Dine In',
   take_away: 'Take Away',
   delivery: 'Delivery',
@@ -62,6 +67,14 @@ function elapsedLabel(ms: number): string {
   if (totalMin < 1) return 'just now'
   if (totalMin < 60) return `${totalMin} min`
   return `${Math.floor(totalMin / 60)}h ${totalMin % 60}m`
+}
+
+/**
+ * How a ticket names itself in a message: the bill number, plus the round when
+ * the table has ordered more than once — "#ORD-20260721-0033 · R2".
+ */
+function ticketLabel(ticket: ApiKitchenTicket): string {
+  return `#${ticket.order.order_number}${ticket.round_no > 1 ? ` · R${ticket.round_no}` : ''}`
 }
 
 function clockLabel(d: Date): string {
@@ -140,7 +153,7 @@ export default function KitchenDisplayPage({
   staff: Kitchen
   onLogout: () => void
 }) {
-  const [orders, setOrders] = useState<ApiOrder[] | null>(null)
+  const [tickets, setTickets] = useState<ApiKitchenTicket[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   // Optimistically bumped tickets — hidden the instant "Ready" is tapped so the
   // board feels snappy, before the server confirms and the next poll drops them.
@@ -156,7 +169,7 @@ export default function KitchenDisplayPage({
   // Performance KPI. The roster is managed on the admin side.
   const [chefs, setChefs] = useState<Chef[]>([])
   // The ticket whose chef picker is open (null = closed).
-  const [pickingFor, setPickingFor] = useState<ApiOrder | null>(null)
+  const [pickingFor, setPickingFor] = useState<ApiKitchenTicket | null>(null)
 
   // Ticket ids already on the board, and when each first appeared — drives the
   // "new" highlight and the chime without re-rendering on every poll.
@@ -283,18 +296,19 @@ export default function KitchenDisplayPage({
   const load = useCallback(async () => {
     try {
       const list = await fetchKitchenTickets()
-      const ids = new Set(list.map((o) => o.id))
+      const ids = new Set(list.map((t) => t.id))
 
       // Announce tickets that weren't on the last board — but never the tickets
-      // already waiting when the screen was switched on.
+      // already waiting when the screen was switched on. A table's second round
+      // is a ticket of its own, so it chimes like any other new order.
       const firstLoad = !loadedOnceRef.current
       loadedOnceRef.current = true
-      const fresh = list.filter((o) => !seenRef.current.has(o.id))
+      const fresh = list.filter((t) => !seenRef.current.has(t.id))
       // If audio is still locked the visual highlight carries the news, and the
       // header asks for the tap that unlocks the chime.
       if (!firstLoad && fresh.length > 0 && soundOnRef.current) void announce()
       const nowMs = Date.now()
-      for (const o of fresh) arrivedRef.current.set(o.id, nowMs)
+      for (const t of fresh) arrivedRef.current.set(t.id, nowMs)
       // Forget tickets that have left the board.
       for (const id of arrivedRef.current.keys()) if (!ids.has(id)) arrivedRef.current.delete(id)
       seenRef.current = ids
@@ -305,7 +319,7 @@ export default function KitchenDisplayPage({
         for (const id of prev) if (ids.has(id)) next.add(id)
         return next.size === prev.size ? prev : next
       })
-      setOrders(list)
+      setTickets(list)
       setLoadError(null)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not reach the server.')
@@ -367,17 +381,17 @@ export default function KitchenDisplayPage({
 
   // A cook took the ticket: attribute it to them and move it to "preparing".
   // The card stays on the board (still cooking) but flips to the Ready control.
-  async function startCooking(order: ApiOrder, chef: Chef) {
+  async function startCooking(ticket: ApiKitchenTicket, chef: Chef) {
     setPickingFor(null)
     // Optimistic — show it cooking under this cook's name at once.
-    setOrders((prev) =>
-      prev?.map((o) =>
-        o.id === order.id ? { ...o, status: 'preparing', chef: { id: chef.id, name: chef.name } } : o,
+    setTickets((prev) =>
+      prev?.map((t) =>
+        t.id === ticket.id ? { ...t, status: 'preparing', chef: { id: chef.id, name: chef.name } } : t,
       ) ?? prev,
     )
     try {
-      await startOrder(order.id, chef.id)
-      setToast(`${chef.name} started #${order.order_number}`)
+      await startTicket(ticket.id, chef.id)
+      setToast(`${chef.name} started ${ticketLabel(ticket)}`)
     } catch {
       // Roll back to server truth so the ticket isn't stuck mislabelled.
       setToast('Could not start it — check the connection')
@@ -385,16 +399,16 @@ export default function KitchenDisplayPage({
     }
   }
 
-  async function bump(order: ApiOrder) {
-    setHiddenIds((prev) => new Set(prev).add(order.id))
+  async function bump(ticket: ApiKitchenTicket) {
+    setHiddenIds((prev) => new Set(prev).add(ticket.id))
     try {
-      await markOrderReady(order.id)
-      setToast(`Order #${order.order_number} ready`)
+      await markTicketReady(ticket.id)
+      setToast(`${ticketLabel(ticket)} ready`)
     } catch {
       // Put it back so the cook doesn't lose the ticket.
       setHiddenIds((prev) => {
         const next = new Set(prev)
-        next.delete(order.id)
+        next.delete(ticket.id)
         return next
       })
       setToast('Could not mark it ready — check the connection')
@@ -402,8 +416,8 @@ export default function KitchenDisplayPage({
   }
 
   const visible = useMemo(
-    () => (orders ?? []).filter((o) => !hiddenIds.has(o.id)),
-    [orders, hiddenIds],
+    () => (tickets ?? []).filter((t) => !hiddenIds.has(t.id)),
+    [tickets, hiddenIds],
   )
 
   const initials = staff.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
@@ -489,9 +503,9 @@ export default function KitchenDisplayPage({
 
       {/* Board */}
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        {orders === null && !loadError ? (
+        {tickets === null && !loadError ? (
           <LoadingState label="Loading kitchen tickets…" className="mt-20" />
-        ) : loadError && orders === null ? (
+        ) : loadError && tickets === null ? (
           <div className="mt-24 flex flex-col items-center gap-4 text-center">
             <p className="text-sm text-rose-600">{loadError}</p>
             <button
@@ -513,14 +527,14 @@ export default function KitchenDisplayPage({
           </div>
         ) : (
           <div className="grid content-start gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-            {visible.map((order) => (
+            {visible.map((ticket) => (
               <TicketCard
-                key={order.id}
-                order={order}
+                key={ticket.id}
+                ticket={ticket}
                 now={now}
-                isNew={(now - (arrivedRef.current.get(order.id) ?? 0)) < NEW_FLASH_MS}
-                onStart={() => setPickingFor(order)}
-                onReady={() => void bump(order)}
+                isNew={(now - (arrivedRef.current.get(ticket.id) ?? 0)) < NEW_FLASH_MS}
+                onStart={() => setPickingFor(ticket)}
+                onReady={() => void bump(ticket)}
               />
             ))}
           </div>
@@ -539,8 +553,8 @@ export default function KitchenDisplayPage({
                 <div className="leading-tight">
                   <div className="text-base font-bold text-neutral-900">Who’s cooking?</div>
                   <div className="text-xs text-neutral-500">
-                    {pickingFor.table?.name ? `${pickingFor.table.name} · ` : ''}#
-                    {pickingFor.order_number}
+                    {pickingFor.order.table?.name ? `${pickingFor.order.table.name} · ` : ''}
+                    {ticketLabel(pickingFor)}
                   </div>
                 </div>
               </div>
@@ -607,27 +621,33 @@ export default function KitchenDisplayPage({
 }
 
 function TicketCard({
-  order,
+  ticket,
   now,
   isNew,
   onStart,
   onReady,
 }: {
-  order: ApiOrder
+  ticket: ApiKitchenTicket
   now: number
   isNew: boolean
   onStart: () => void
   onReady: () => void
 }) {
   const [bumping, setBumping] = useState(false)
+  const order = ticket.order
   // A cook has taken this ticket — it's being prepared, so show who's on it and
   // the Ready control. A brand-new ticket instead offers Start (pick a cook).
-  const cooking = order.status === 'preparing'
-  const elapsedMs = Math.max(0, now - new Date(order.created_at).getTime())
+  const cooking = ticket.status === 'preparing'
+  // The round's own clock: dishes added an hour into a meal start at zero, not
+  // at the age of the bill they were added to.
+  const elapsedMs = Math.max(0, now - new Date(ticket.created_at).getTime())
   const minutes = Math.floor(elapsedMs / 60000)
   const tier = tierFor(minutes)
   const tableLabel = order.table?.name ?? (order.order_type === 'take_away' ? 'Take Away' : '—')
-  const items = order.items.filter((i) => i.quantity > 0)
+  // The table has ordered before on this bill — say so, loudly, so the cook
+  // reads this as an extra fire for a table already eating.
+  const isRepeat = ticket.round_no > 1
+  const items = ticket.items.filter((i) => i.quantity > 0)
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0)
 
   return (
@@ -657,6 +677,13 @@ function TicketCard({
             {order.transferred_from && (
               <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
                 from {order.transferred_from.name}
+              </span>
+            )}
+            {/* Same table, second fire — the badge is what stops a cook from
+                reading this as a duplicate of the card next to it. */}
+            {isRepeat && (
+              <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">
+                Added · R{ticket.round_no}
               </span>
             )}
             {!cooking && isNew && (
@@ -719,10 +746,10 @@ function TicketCard({
           <span>
             {totalItems} item{totalItems === 1 ? '' : 's'}
           </span>
-          {cooking && order.chef?.name && (
+          {cooking && ticket.chef?.name && (
             <span className="flex items-center gap-1 font-bold text-emerald-600">
               <LuChefHat className="h-3.5 w-3.5" />
-              {order.chef.name}
+              {ticket.chef.name}
             </span>
           )}
         </div>
