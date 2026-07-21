@@ -156,20 +156,95 @@ export function fetchOrdersAnalysis(
 
 // --- Chef Performance ------------------------------------------------------
 
+/** Where a ticket is made — the two display boards. */
+export type Station = 'kitchen' | 'bar'
+
 /** One cook's KPI row. avg_prep_seconds is null until a ticket carries both a
- *  Start and a Ready stamp (older orders / still-cooking tickets don't). */
+ *  Start and a Ready stamp (older orders / still-cooking tickets don't);
+ *  timed_rounds says how many tickets that average is actually built on. */
 export type ChefPerformanceRow = {
   chef_id: number
   chef: string
   orders: number
+  rounds: number
+  items: number
+  timed_rounds: number
+  avg_prep_seconds: number | null
+}
+
+/** A trend bucket. Only one of date/hour/station is set, per the series. */
+export type ChefBucket = {
+  date?: string
+  hour?: number
+  station?: string
+  rounds: number
   items: number
   avg_prep_seconds: number | null
 }
 
-/** Per-cook productivity over ?period= (empty = all time). Busiest cook first. */
-export function fetchChefPerformance(period: AnalysisPeriod): Promise<ChefPerformanceRow[]> {
-  const params = new URLSearchParams()
-  if (period) params.set('period', period)
-  const qs = params.toString()
-  return api<ChefPerformanceRow[]>(`/reports/chef-performance${qs ? `?${qs}` : ''}`)
+/** One dish on a ticket, as it was fired to the board. */
+export type ChefTicketLine = {
+  name: string
+  quantity: number
+  note: string | null
+}
+
+/** One ticket a cook worked — the row behind every number on the screen. */
+export type ChefTicket = {
+  id: number
+  order_id: number
+  order_number: string | null
+  table: string | null
+  round_no: number
+  station: string | null
+  status: string
+  chef_id: number
+  chef: string
+  items: number
+  started_at: string | null
+  ready_at: string | null
+  created_at: string | null
+  prep_seconds: number | null
+  /** The dishes themselves; `items` is their summed quantity. */
+  lines: ChefTicketLine[]
+  /** How many distinct dishes — the line count, not the units. */
+  dishes: number
+}
+
+export type ChefPerformanceData = {
+  overview: {
+    orders: number
+    rounds: number
+    items: number
+    chefs: number
+    timed_rounds: number
+    avg_prep_seconds: number | null
+    fastest_seconds: number | null
+    slowest_seconds: number | null
+    busiest_chef: string | null
+  }
+  chefs: ChefPerformanceRow[]
+  by_day: ChefBucket[]
+  by_hour: ChefBucket[]
+  by_station: ChefBucket[]
+  /** Newest first, capped by the backend — compare with details_total. */
+  details: ChefTicket[]
+  details_total: number
+}
+
+export type ChefPerformanceFilters = {
+  period: AnalysisPeriod
+  /** One cook, or null for everyone. */
+  chefId?: number | null
+  station?: Station | null
+}
+
+/** Overview + per-cook rows + trends + the ticket list, in one call. Day and
+ *  hour buckets are cut in the browser's timezone (the backend stores UTC). */
+export function fetchChefPerformance(filters: ChefPerformanceFilters): Promise<ChefPerformanceData> {
+  const params = new URLSearchParams({ tz: String(-new Date().getTimezoneOffset()) })
+  if (filters.period) params.set('period', filters.period)
+  if (filters.chefId) params.set('chef_id', String(filters.chefId))
+  if (filters.station) params.set('station', filters.station)
+  return api<ChefPerformanceData>(`/reports/chef-performance?${params}`)
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Chef;
 use App\Models\MenuItem;
 use App\Models\Order;
 use App\Models\Payment;
@@ -142,6 +143,66 @@ class ReportsTest extends TestCase
         $this->assertNotNull($refundRow);
         $this->assertEqualsWithDelta(-4.0, (float) $refundRow['amount'], 0.001);
         $this->assertEqualsWithDelta(6.0, (float) $res->json('total'), 0.001);
+    }
+
+    public function test_chef_performance_aggregates_per_cook_and_filters_to_one_person(): void
+    {
+        $item = MenuItem::factory()->create(['price' => 4]);
+        $bopha = Chef::create(['name' => 'Bopha', 'is_active' => true, 'sort_order' => 1]);
+        $rithy = Chef::create(['name' => 'Rithy', 'is_active' => true, 'sort_order' => 2]);
+
+        $fire = function (Order $order, Chef $chef, string $station, int $qty, ?int $seconds) use ($item) {
+            $round = $order->rounds()->create([
+                'round_no' => 1,
+                'station' => $station,
+                'status' => $seconds === null ? 'preparing' : 'ready',
+                'chef_id' => $chef->id,
+                'started_at' => now()->subHour(),
+                'ready_at' => $seconds === null ? null : now()->subHour()->addSeconds($seconds),
+            ]);
+            $order->items()->create([
+                'order_round_id' => $round->id,
+                'menu_item_id' => $item->id, 'name' => $item->name,
+                'price' => 4, 'quantity' => $qty, 'line_total' => 4 * $qty,
+            ]);
+        };
+
+        $fire(Order::factory()->create(), $bopha, 'kitchen', 2, 60);
+        $fire(Order::factory()->create(), $bopha, 'bar', 1, 120);
+        // Still cooking, so it carries no timing — it counts as work, not speed.
+        $fire(Order::factory()->create(), $rithy, 'kitchen', 5, null);
+        // A voided bill is not somebody's output.
+        $fire(Order::factory()->create(['status' => 'cancelled']), $rithy, 'kitchen', 9, 30);
+
+        Sanctum::actingAs($this->staff('manager'));
+
+        $all = $this->getJson('/api/reports/chef-performance')->assertOk();
+        $this->assertSame(3, $all->json('overview.rounds'));
+        $this->assertSame(3, $all->json('overview.orders'));
+        $this->assertSame(8, $all->json('overview.items'));
+        // Weighted over the two timed tickets only — the third can't drag it.
+        $this->assertSame(90, $all->json('overview.avg_prep_seconds'));
+        $this->assertSame(2, $all->json('overview.timed_rounds'));
+        $this->assertSame('Bopha', $all->json('overview.busiest_chef'));
+        $this->assertCount(3, $all->json('details'));
+        $this->assertNull($all->json('chefs.1.avg_prep_seconds'));
+
+        // Each listed ticket carries the dishes themselves, not just a count.
+        $rithyTicket = collect($all->json('details'))->firstWhere('chef', 'Rithy');
+        $this->assertSame(1, $rithyTicket['dishes']);
+        $this->assertSame(5, $rithyTicket['items']);
+        $this->assertSame($item->name, $rithyTicket['lines'][0]['name']);
+        $this->assertSame(5, $rithyTicket['lines'][0]['quantity']);
+
+        // One person, everything narrows with them.
+        $one = $this->getJson("/api/reports/chef-performance?chef_id={$rithy->id}")->assertOk();
+        $this->assertSame(1, $one->json('overview.rounds'));
+        $this->assertSame(5, $one->json('overview.items'));
+        $this->assertSame('Rithy', $one->json('details.0.chef'));
+
+        $bar = $this->getJson('/api/reports/chef-performance?station=bar')->assertOk();
+        $this->assertSame(1, $bar->json('overview.rounds'));
+        $this->assertSame(120, $bar->json('overview.avg_prep_seconds'));
     }
 
     public function test_dashboard_deducts_partial_refunds(): void

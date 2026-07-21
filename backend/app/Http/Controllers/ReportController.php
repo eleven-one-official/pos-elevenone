@@ -334,14 +334,26 @@ class ReportController extends Controller
         return response()->json($rows);
     }
 
+    /** Ticket-level rows returned with the Chef Performance report. */
+    private const CHEF_DETAIL_LIMIT = 500;
+
     /**
      * Chef Performance KPI — per-cook productivity for the admin report. Every
-     * order a cook picked up at the kitchen display (has a chef_id) counts:
-     * how many orders, how many item units they cooked, and their average cook
-     * time (the gap between tapping Start and Ready, only over tickets that
-     * carry both stamps). Cancelled orders are excluded; a removed cook's
-     * orders fold into "Unknown". Window via ?period= today|week|month|year
-     * (default: all).
+     * ticket a cook picked up at the kitchen display (has a chef_id) counts:
+     * how many orders, how many item units they cooked, and their cook time
+     * (the gap between tapping Start and Ready, only over tickets that carry
+     * both stamps). Cancelled orders are excluded; a removed cook's tickets
+     * fold into "Unknown".
+     *
+     * Returns four views over the same set of tickets so the screen can show an
+     * overview, a per-cook comparison, a trend and the raw list without four
+     * round trips: `overview`, `chefs`, `by_day` / `by_hour` / `by_station`,
+     * and `details` (newest first, capped — `details_total` is the real count).
+     *
+     * Filters: ?period= today|week|month|year (default: all), ?chef_id= to
+     * single out one person, ?station= kitchen|bar. Day and hour buckets are
+     * cut in the caller's timezone via ?tz= (minutes east of UTC, as
+     * `-new Date().getTimezoneOffset()`), since the app itself stores UTC.
      */
     public function chefPerformance(Request $request): JsonResponse
     {
@@ -353,6 +365,12 @@ class ReportController extends Controller
             default => null,
         };
 
+        $chefId = $request->integer('chef_id') ?: null;
+        $station = $request->string('station')->toString();
+        $station = in_array($station, OrderRound::STATIONS, true) ? $station : null;
+        // Clamped to the real UTC offset range so a junk ?tz= can't skew days.
+        $tzMinutes = max(-840, min(840, $request->integer('tz')));
+
         // Measured per round, not per bill: a table that ordered twice is two
         // separate jobs, often for two different cooks, and averaging them into
         // one order would smear one cook's time across the other's.
@@ -360,50 +378,172 @@ class ReportController extends Controller
             ->whereNotNull('chef_id')
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled']))
             ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
-            ->with('chef:id,name')
+            ->when($chefId, fn ($q) => $q->where('chef_id', $chefId))
+            ->when($station, fn ($q) => $q->where('station', $station))
+            ->with(['chef:id,name', 'order:id,order_number,table_id', 'order.table:id,name'])
             ->withSum('items as items_count', 'quantity')
             ->get();
 
-        /** @var array<int, array<string, mixed>> $buckets */
-        $buckets = [];
+        // One bucket bag per dimension, all filled in the same pass.
+        /** @var array<string, array<array-key, array<string, mixed>>> $bags */
+        $bags = ['chef' => [], 'day' => [], 'hour' => [], 'station' => []];
+
+        $orderIds = [];
+        $items = 0;
+        $prepTotal = 0;
+        $prepCount = 0;
+        $fastest = null;
+        $slowest = null;
+
+        $blank = fn (array $seed) => $seed + [
+            'order_ids' => [],
+            'rounds' => 0,
+            'items' => 0,
+            'prep_seconds_total' => 0,
+            'prep_count' => 0,
+        ];
 
         foreach ($rounds as $round) {
-            $chefId = $round->chef_id;
-            $bucket = $buckets[$chefId] ?? [
-                'chef_id' => $chefId,
-                'chef' => $round->chef?->name ?? 'Unknown',
-                'order_ids' => [],
-                'items' => 0,
-                'prep_seconds_total' => 0,
-                'prep_count' => 0,
+            $roundItems = (int) $round->items_count;
+            // A ticket's clock only exists once it has been started and finished.
+            $prep = $round->started_at && $round->ready_at
+                ? (int) abs($round->ready_at->diffInSeconds($round->started_at))
+                : null;
+
+            // The wall clock the venue would recognise, not the stored UTC one.
+            $at = ($round->started_at ?? $round->created_at)->copy()->addMinutes($tzMinutes);
+            $day = $at->format('Y-m-d');
+            $hour = (int) $at->format('G');
+            $roundStation = $round->station ?? OrderRound::STATION_KITCHEN;
+
+            $targets = [
+                'chef' => [$round->chef_id, ['chef_id' => $round->chef_id, 'chef' => $round->chef?->name ?? 'Unknown']],
+                'day' => [$day, ['date' => $day]],
+                'hour' => [$hour, ['hour' => $hour]],
+                'station' => [$roundStation, ['station' => $roundStation]],
             ];
 
-            // A cook who took both of a table's rounds still worked one order.
-            $bucket['order_ids'][$round->order_id] = true;
-            $bucket['items'] += (int) $round->items_count;
-            if ($round->started_at && $round->ready_at) {
-                $bucket['prep_seconds_total'] += abs($round->ready_at->diffInSeconds($round->started_at));
-                $bucket['prep_count']++;
+            foreach ($targets as $dim => [$key, $seed]) {
+                $bucket = $bags[$dim][$key] ?? $blank($seed);
+                // A cook who took both of a table's rounds still worked one order.
+                $bucket['order_ids'][$round->order_id] = true;
+                $bucket['rounds']++;
+                $bucket['items'] += $roundItems;
+                if ($prep !== null) {
+                    $bucket['prep_seconds_total'] += $prep;
+                    $bucket['prep_count']++;
+                }
+                $bags[$dim][$key] = $bucket;
             }
 
-            $buckets[$chefId] = $bucket;
+            $orderIds[$round->order_id] = true;
+            $items += $roundItems;
+            if ($prep !== null) {
+                $prepTotal += $prep;
+                $prepCount++;
+                $fastest = $fastest === null ? $prep : min($fastest, $prep);
+                $slowest = $slowest === null ? $prep : max($slowest, $prep);
+            }
         }
 
-        $rows = array_values(array_map(fn (array $b) => [
+        // null when no ticket in the bucket carries both stamps — the UI dashes it.
+        $avg = fn (array $b) => $b['prep_count'] > 0
+            ? (int) round($b['prep_seconds_total'] / $b['prep_count'])
+            : null;
+
+        $chefRows = array_values(array_map(fn (array $b) => [
             'chef_id' => $b['chef_id'],
             'chef' => $b['chef'],
             'orders' => count($b['order_ids']),
+            'rounds' => $b['rounds'],
             'items' => $b['items'],
-            // null when no ticket carries both stamps yet — the UI shows a dash.
-            'avg_prep_seconds' => $b['prep_count'] > 0
-                ? (int) round($b['prep_seconds_total'] / $b['prep_count'])
-                : null,
-        ], $buckets));
-
+            'timed_rounds' => $b['prep_count'],
+            'avg_prep_seconds' => $avg($b),
+        ], $bags['chef']));
         // Busiest cook first.
-        usort($rows, fn ($a, $b) => $b['orders'] <=> $a['orders']);
+        usort($chefRows, fn ($a, $b) => $b['orders'] <=> $a['orders']);
 
-        return response()->json($rows);
+        $dayRows = array_values(array_map(fn (array $b) => [
+            'date' => $b['date'],
+            'rounds' => $b['rounds'],
+            'items' => $b['items'],
+            'avg_prep_seconds' => $avg($b),
+        ], $bags['day']));
+        usort($dayRows, fn ($a, $b) => strcmp($a['date'], $b['date']));
+
+        $hourRows = array_values(array_map(fn (array $b) => [
+            'hour' => $b['hour'],
+            'rounds' => $b['rounds'],
+            'items' => $b['items'],
+            'avg_prep_seconds' => $avg($b),
+        ], $bags['hour']));
+        usort($hourRows, fn ($a, $b) => $a['hour'] <=> $b['hour']);
+
+        $stationRows = array_values(array_map(fn (array $b) => [
+            'station' => $b['station'],
+            'rounds' => $b['rounds'],
+            'items' => $b['items'],
+            'avg_prep_seconds' => $avg($b),
+        ], $bags['station']));
+        usort($stationRows, fn ($a, $b) => $b['rounds'] <=> $a['rounds']);
+
+        // Newest ticket first, capped — a year of service is thousands of rows
+        // and the list is meant to be read, not paged through.
+        $detailRounds = $rounds
+            ->sortByDesc(fn ($round) => ($round->started_at ?? $round->created_at)->timestamp)
+            ->take(self::CHEF_DETAIL_LIMIT);
+
+        // The dishes themselves, only for the tickets that are actually listed —
+        // the aggregates above already have their quantities from withSum.
+        $detailRounds->load('items:id,order_round_id,name,quantity,note');
+
+        $details = $detailRounds
+            ->map(fn ($round) => [
+                'id' => $round->id,
+                'order_id' => $round->order_id,
+                'order_number' => $round->order?->order_number,
+                'table' => $round->order?->table?->name,
+                'round_no' => $round->round_no,
+                'station' => $round->station,
+                'status' => $round->status,
+                'chef_id' => $round->chef_id,
+                'chef' => $round->chef?->name ?? 'Unknown',
+                'items' => (int) $round->items_count,
+                'started_at' => $round->started_at?->toIso8601String(),
+                'ready_at' => $round->ready_at?->toIso8601String(),
+                'created_at' => $round->created_at?->toIso8601String(),
+                'prep_seconds' => $round->started_at && $round->ready_at
+                    ? (int) abs($round->ready_at->diffInSeconds($round->started_at))
+                    : null,
+                // What the cook actually made, dish by dish.
+                'lines' => $round->items->map(fn ($line) => [
+                    'name' => $line->name,
+                    'quantity' => (int) $line->quantity,
+                    'note' => $line->note,
+                ])->values(),
+                'dishes' => $round->items->count(),
+            ])
+            ->values();
+
+        return response()->json([
+            'overview' => [
+                'orders' => count($orderIds),
+                'rounds' => $rounds->count(),
+                'items' => $items,
+                'chefs' => count($bags['chef']),
+                'timed_rounds' => $prepCount,
+                'avg_prep_seconds' => $prepCount > 0 ? (int) round($prepTotal / $prepCount) : null,
+                'fastest_seconds' => $fastest,
+                'slowest_seconds' => $slowest,
+                'busiest_chef' => $chefRows[0]['chef'] ?? null,
+            ],
+            'chefs' => $chefRows,
+            'by_day' => $dayRows,
+            'by_hour' => $hourRows,
+            'by_station' => $stationRows,
+            'details' => $details,
+            'details_total' => $rounds->count(),
+        ]);
     }
 
     /**

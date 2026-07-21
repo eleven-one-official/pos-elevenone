@@ -21,6 +21,7 @@ import Modal from '../../components/ui/Modal'
 import NumberPadDialog from '../../components/ui/NumberPadDialog'
 import OnScreenKeyboard from '../../components/ui/OnScreenKeyboard'
 import { Loader, LoadingState } from '../../components/ui/Loader'
+import Toast from '../../components/ui/Toast'
 import {
   CATEGORIES,
   NOTE_PRESETS,
@@ -819,14 +820,7 @@ export default function WaiterOrderPage({
       )}
 
       {/* Toast */}
-      {toast && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2">
-          <div className="flex items-center gap-2 rounded-full bg-[#2b2138] px-5 py-3 text-sm font-semibold text-white shadow-lg">
-            <LuCheck className="h-4 w-4 text-emerald-400" />
-            {toast}
-          </div>
-        </div>
-      )}
+      {toast && <Toast message={toast} />}
     </div>
   )
 }
