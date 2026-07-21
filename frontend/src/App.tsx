@@ -17,6 +17,30 @@ import type { Kitchen } from './features/kitchen/KitchenLoginDialog'
 /** The admin session to return to when a register opened from the dashboard exits. */
 type AdminReturn = { staff: Cashier; token: string | null }
 
+// The return ticket is kept in localStorage, not just React state: the kitchen
+// display and the tablets stay open for a whole service and get reloaded (F5,
+// kiosk restart, crash). Without this, a reload rebuilds the session from /me
+// with no admin attached and signing out drops to the login screen instead of
+// the dashboard the station was launched from.
+const ADMIN_RETURN_KEY = 'pos_admin_return'
+
+function readAdminReturn(): AdminReturn | undefined {
+  try {
+    const raw = localStorage.getItem(ADMIN_RETURN_KEY)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as AdminReturn
+    return parsed?.staff?.id ? parsed : undefined
+  } catch {
+    // Corrupted entry — treat it as no return ticket.
+    return undefined
+  }
+}
+
+function writeAdminReturn(admin: AdminReturn | null): void {
+  if (admin) localStorage.setItem(ADMIN_RETURN_KEY, JSON.stringify(admin))
+  else localStorage.removeItem(ADMIN_RETURN_KEY)
+}
+
 // Who is signed in drives which "side" of the app renders: admins get the back
 // office (dashboard / reports / menu management); cashiers get the full POS
 // (order → payment → receipt); waiters get the tablet flow (order → send to
@@ -32,10 +56,16 @@ type Session =
 // /me response. Routing keys off the role *slug* — display names can change.
 function sessionFromUser(user: ApiUser): Session {
   const staff = { id: String(user.id), name: user.name, role: user.role?.name }
-  if (user.role?.slug === 'admin') return { role: 'admin', staff, token: getToken() }
-  if (user.role?.slug === 'waiter') return { role: 'waiter', staff }
-  if (user.role?.slug === 'kitchen') return { role: 'kitchen', staff }
-  return { role: 'cashier', staff }
+  // An admin landing here is the dashboard itself — any stale return ticket is
+  // theirs and would otherwise send a later sign-out back into a dead session.
+  if (user.role?.slug === 'admin') {
+    writeAdminReturn(null)
+    return { role: 'admin', staff, token: getToken() }
+  }
+  const admin = readAdminReturn()
+  if (user.role?.slug === 'waiter') return { role: 'waiter', staff, admin }
+  if (user.role?.slug === 'kitchen') return { role: 'kitchen', staff, admin }
+  return { role: 'cashier', staff, admin }
 }
 
 export default function App() {
@@ -77,6 +107,7 @@ export default function App() {
   // session cleanly rather than leaving every screen stuck on failing retries.
   useEffect(() => {
     setOnUnauthorized(() => {
+      writeAdminReturn(null)
       setTable(null)
       setSession(null)
       setNotice('Your session expired — please sign in again.')
@@ -116,6 +147,7 @@ export default function App() {
   const logout = () => {
     // Revoke the token server-side; the local session ends regardless.
     void apiLogout().catch(() => {})
+    writeAdminReturn(null)
     setTable(null)
     setSession(null)
   }
@@ -126,6 +158,7 @@ export default function App() {
   // staff token even though we swap back right after.
   const returnToDashboard = (admin: AdminReturn) => {
     void api('/logout', { method: 'POST' }).catch(() => {})
+    writeAdminReturn(null)
     setToken(admin.token)
     setTable(null)
     setSession({ role: 'admin', staff: admin.staff, token: admin.token })
@@ -136,6 +169,12 @@ export default function App() {
   function renderSide(active: Session) {
     if (active.role === 'admin') {
       const adminReturn: AdminReturn = { staff: active.staff, token: active.token }
+      // Remember the ticket before handing the app over, so a reload on the
+      // station still knows which dashboard to come back to.
+      const launch = <T,>(handler: (staff: T) => void) => (staff: T) => {
+        writeAdminReturn(adminReturn)
+        handler(staff)
+      }
       return (
         <AdminApp
           admin={active.staff}
@@ -145,15 +184,15 @@ export default function App() {
           // the cashier side (table floor → order → payment). The launching
           // admin rides along so Reload/Lock/Close can land back on the
           // dashboard instead of the login screen.
-          onCashierLogin={(cashier) =>
-            setSession({ role: 'cashier', staff: cashier, admin: adminReturn })
-          }
-          onWaiterLogin={(waiter) =>
-            setSession({ role: 'waiter', staff: waiter, admin: adminReturn })
-          }
-          onKitchenLogin={(kitchen) =>
-            setSession({ role: 'kitchen', staff: kitchen, admin: adminReturn })
-          }
+          onCashierLogin={launch((cashier: Cashier) =>
+            setSession({ role: 'cashier', staff: cashier, admin: adminReturn }),
+          )}
+          onWaiterLogin={launch((waiter: Waiter) =>
+            setSession({ role: 'waiter', staff: waiter, admin: adminReturn }),
+          )}
+          onKitchenLogin={launch((kitchen: Kitchen) =>
+            setSession({ role: 'kitchen', staff: kitchen, admin: adminReturn }),
+          )}
         />
       )
     }
