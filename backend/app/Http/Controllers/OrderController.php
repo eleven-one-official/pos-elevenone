@@ -20,6 +20,9 @@ class OrderController extends Controller
         'payments', 'payments.paymentMethod:id,label',
     ];
 
+    /** An order still in service — it holds its table until it closes. */
+    private const OPEN_STATUSES = ['new', 'preparing', 'ready', 'served'];
+
     /**
      * The pricelist that should price this order: the explicitly requested
      * one, or the venue's default_pricelist_id setting. Null = menu prices.
@@ -128,7 +131,7 @@ class OrderController extends Controller
         // (or a stale screen) where it didn't.
         if ($data['order_type'] === 'dine_in' && ($data['table_id'] ?? null)) {
             $existing = Order::where('table_id', $data['table_id'])
-                ->whereIn('status', ['new', 'preparing', 'ready', 'served'])
+                ->whereIn('status', self::OPEN_STATUSES)
                 ->latest()
                 ->first();
             if ($existing) {
@@ -264,6 +267,26 @@ class OrderController extends Controller
             }
         }
 
+        // A changed table_id is a transfer. The destination has to be free —
+        // otherwise the move would stack two live bills on one table, the very
+        // thing store() refuses when a bill is first opened.
+        $previousTableId = $order->table_id === null ? null : (int) $order->table_id;
+        if (array_key_exists('table_id', $data)) {
+            $targetTableId = $data['table_id'] === null ? null : (int) $data['table_id'];
+            if ($targetTableId !== null && $targetTableId !== $previousTableId) {
+                $taken = Order::where('table_id', $targetTableId)
+                    ->whereKeyNot($order->id)
+                    ->whereIn('status', self::OPEN_STATUSES)
+                    ->latest()
+                    ->first();
+                if ($taken) {
+                    return response()->json([
+                        'message' => "That table already has open order {$taken->order_number} — close it before transferring another bill there.",
+                    ], 422);
+                }
+            }
+        }
+
         // An order keeps the pricelist it was opened with unless the request
         // names another (or explicitly clears it with null); replaced items
         // re-price through the resulting pricelist either way.
@@ -271,7 +294,7 @@ class OrderController extends Controller
         $pricelist = $pricelistId ? Pricelist::with('rules')->find($pricelistId) : null;
         $khrRate = $this->khrRate();
 
-        DB::transaction(function () use ($data, $order, $pricelist, $khrRate) {
+        DB::transaction(function () use ($data, $order, $pricelist, $khrRate, $previousTableId) {
             $order->fill(collect($data)->only(['status', 'order_type', 'table_id', 'chef_id', 'customer_id', 'guest_count', 'discount', 'tax', 'note'])->all());
 
             // Stamp the kitchen-flow timestamps as the ticket advances, for the
@@ -307,6 +330,27 @@ class OrderController extends Controller
 
             $order->recalculateTotals();
             $this->assertDiscountWithinSubtotal($order);
+
+            // A transfer moved the bill. `tables.status` drives the floor's
+            // occupied badge, so it has to follow the order: release the table
+            // the bill left (unless another live bill is still sitting there)
+            // and seat the one it landed on. Without this the old table stays
+            // flagged occupied forever and the new one never lights up.
+            $currentTableId = $order->table_id === null ? null : (int) $order->table_id;
+            if ($currentTableId !== $previousTableId) {
+                if ($previousTableId !== null) {
+                    $stillSeated = Order::where('table_id', $previousTableId)
+                        ->whereKeyNot($order->id)
+                        ->whereIn('status', self::OPEN_STATUSES)
+                        ->exists();
+                    if (! $stillSeated) {
+                        Table::whereKey($previousTableId)->update(['status' => 'available']);
+                    }
+                }
+                if ($currentTableId !== null && in_array($order->status, self::OPEN_STATUSES, true)) {
+                    Table::whereKey($currentTableId)->update(['status' => 'occupied']);
+                }
+            }
 
             // Free the table when the order is closed.
             if (in_array($order->status, ['completed', 'cancelled'], true) && $order->table_id) {

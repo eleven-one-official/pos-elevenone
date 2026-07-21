@@ -36,6 +36,7 @@ import {
   updateOrder,
   type OrderPayload,
 } from '../../services/api/orders'
+import { ApiError } from '../../services/api/client'
 import { useMenu } from '../../hooks/useMenu'
 import { useTables } from '../../hooks/useTables'
 import type { PosTable } from '../pos/TableFloorPage'
@@ -96,13 +97,17 @@ export default function WaiterOrderPage({
   const [toast, setToast] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
+  // Transfer is a server round-trip: block the grid while it flies and keep the
+  // dialog open with the reason when it fails.
+  const [transferring, setTransferring] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
 
   // Internal-note draft lives only while its popup is open.
   const [noteDraft, setNoteDraft] = useState('')
 
   // Menu + floor from the backend (floor is only needed for the Transfer popup).
   const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
-  const { tables } = useTables()
+  const { tables, reload: reloadTables } = useTables()
 
   // Backend order — the table's open order when there is one, otherwise
   // created on the first "Send to Kitchen" and updated after that.
@@ -232,6 +237,12 @@ export default function WaiterOrderPage({
     if (id === 'info' && !selectedLine) return notify('Select an item first')
     if (id === 'note' && !selectedLine) return notify('Select an item first')
     if (id === 'note' && selectedLine) setNoteDraft(selectedLine.note ?? '')
+    if (id === 'transfer') {
+      // The floor is only fetched when this page mounts; refresh it so the
+      // grid doesn't offer a table another terminal has since seated.
+      setTransferError(null)
+      void reloadTables()
+    }
     setDialog(id)
   }
 
@@ -274,16 +285,37 @@ export default function WaiterOrderPage({
     }
   }
 
-  function transferTo(t: PosTable) {
-    setActiveTable(t)
-    closeDialog()
-    notify(`Order moved to ${t.label}`)
-    // Best effort: if the order already exists on the backend, move it there too.
-    if (backendOrderId != null) {
-      void updateOrder(backendOrderId, {
+  // Move the bill to another table. The floor grid and the kitchen board both
+  // read the table off the order row, so a saved order has to land on the
+  // server *before* this screen switches — moving locally on a failed request
+  // would leave every other terminal pointing at the old table.
+  async function transferTo(t: PosTable) {
+    // Nothing fired yet: the table is only bound when the order is created.
+    if (backendOrderId == null) {
+      setActiveTable(t)
+      closeDialog()
+      notify(`Order moved to ${t.label}`)
+      return
+    }
+
+    setTransferring(true)
+    setTransferError(null)
+    try {
+      await updateOrder(backendOrderId, {
         order_type: t.section === 'takeaway' ? 'take_away' : 'dine_in',
         table_id: t.backendId ?? null,
-      }).catch(() => notify('Moved locally, but the server was not updated'))
+      })
+      setActiveTable(t)
+      closeDialog()
+      notify(`Order moved to ${t.label}`)
+    } catch (e) {
+      setTransferError(
+        e instanceof ApiError
+          ? e.message
+          : `Not moved — the order is still on ${activeTable.label}. Check the connection and try again.`,
+      )
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -686,6 +718,8 @@ export default function WaiterOrderPage({
           current={activeTable}
           tables={tables ?? []}
           onTransfer={transferTo}
+          busy={transferring}
+          error={transferError}
           onClose={closeDialog}
         />
       )}
@@ -753,11 +787,15 @@ function TransferDialog({
   current,
   tables,
   onTransfer,
+  busy,
+  error,
   onClose,
 }: {
   current: PosTable
   tables: PosTable[]
   onTransfer: (t: PosTable) => void
+  busy: boolean
+  error: string | null
   onClose: () => void
 }) {
   const targets = tables.filter((t) => t.id !== current.id)
@@ -768,6 +806,11 @@ function TransferDialog({
       onClose={onClose}
       width="max-w-2xl"
     >
+      {error && (
+        <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-600">
+          {error}
+        </p>
+      )}
       <div className="grid grid-cols-5 gap-2.5">
         {targets.map((t) => {
           const occupied = t.orders > 0 || t.guests > 0
@@ -775,12 +818,12 @@ function TransferDialog({
             <button
               key={t.id}
               type="button"
-              disabled={occupied}
+              disabled={occupied || busy}
               onClick={() => onTransfer(t)}
               className={
                 occupied
                   ? 'flex cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-neutral-200 bg-neutral-100 py-4 font-semibold text-neutral-300'
-                  : 'flex flex-col items-center justify-center gap-1 rounded-xl border border-neutral-200 py-4 font-semibold text-neutral-700 transition hover:border-primary hover:bg-primary/[0.04]'
+                  : 'flex flex-col items-center justify-center gap-1 rounded-xl border border-neutral-200 py-4 font-semibold text-neutral-700 transition hover:border-primary hover:bg-primary/[0.04] disabled:opacity-50'
               }
             >
               <span className="text-lg">{t.label}</span>
