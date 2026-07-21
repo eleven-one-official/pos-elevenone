@@ -75,6 +75,11 @@ function fmtPrep(seconds: number | null): string {
   return `${h}h ${m % 60}m`
 }
 
+/** Cook time in minutes, one decimal — the exported column. */
+function prepMinutes(seconds: number | null): string {
+  return seconds === null ? '' : (seconds / 60).toFixed(1)
+}
+
 const num = (n: number) => n.toLocaleString('en-US')
 
 /** "Jul 21, 18:42" — the browser's clock, which is the venue's. */
@@ -877,7 +882,7 @@ function exportPdf(rows: ChefTicket[], periodLabel: string) {
       { header: 'Units', align: 'right' },
       { header: 'Start', align: 'right' },
       { header: 'Ready', align: 'right' },
-      { header: 'Cook time (s)', align: 'right' },
+      { header: 'Cook time (min)', align: 'right' },
     ],
     rows: rows.map((r) => [
       fmtStamp(r.created_at),
@@ -891,7 +896,7 @@ function exportPdf(rows: ChefTicket[], periodLabel: string) {
       r.items,
       fmtClock(r.started_at),
       fmtClock(r.ready_at),
-      r.prep_seconds ?? '',
+      prepMinutes(r.prep_seconds),
     ]),
   })
 }
