@@ -11,6 +11,7 @@ import {
   LuPlay,
   LuRefreshCw,
   LuStickyNote,
+  LuTimer,
   LuUsers,
   LuUtensils,
   LuX,
@@ -125,6 +126,35 @@ function elapsedLabel(ms: number): string {
 }
 
 /**
+ * How long a job took, to the second — "45s", "8m 12s", "1h 04m". Cooking is
+ * measured finer than a ticket's age: a plate that took four and a half minutes
+ * and one that took six are both "4 min" in round minutes, and the cook whose
+ * time this is deserves the real number.
+ */
+function durationLabel(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`
+  return `${s}s`
+}
+
+/**
+ * The maker's own clock: Start → Ready, not the age of the ticket. Null until
+ * someone takes it; while it's being made it runs against `now`, and once it's
+ * plated it freezes on the server's two stamps — the same pair the Chef
+ * Performance KPI reads, so the screen and the report can never disagree.
+ */
+function makeMs(ticket: ApiStationTicket, now: number): number | null {
+  if (!ticket.started_at) return null
+  const started = new Date(ticket.started_at).getTime()
+  const ended = ticket.ready_at ? new Date(ticket.ready_at).getTime() : now
+  return Math.max(0, ended - started)
+}
+
+/**
  * How a ticket names itself in a message: the bill number, plus the round when
  * the table has ordered more than once — "#ORD-20260721-0033 · R2".
  */
@@ -220,7 +250,10 @@ export default function StationDisplayPage({
   // The browser withholds audio until someone touches the screen. Until then we
   // say so in the header rather than letting tickets land in silence.
   const [audioBlocked, setAudioBlocked] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  // A confirmation line, optionally carrying how long the job took — the
+  // headline of the bump, so it gets its own pill rather than being buried in
+  // the sentence.
+  const [toast, setToast] = useState<{ text: string; took?: string } | null>(null)
   const [now, setNow] = useState(() => Date.now())
   // The kitchen signs in on one shared account, so a cook names themselves when
   // they take a ticket — that attribution feeds the Chef Performance KPI. The
@@ -412,10 +445,11 @@ export default function StationDisplayPage({
     return () => window.clearInterval(id)
   }, [])
 
-  // Auto-dismiss the confirmation toast.
+  // Auto-dismiss the confirmation toast — a bump time stays up longer, since
+  // it's a number someone actually reads rather than an acknowledgement.
   useEffect(() => {
     if (!toast) return
-    const t = window.setTimeout(() => setToast(null), 2000)
+    const t = window.setTimeout(() => setToast(null), toast.took ? 4500 : 2000)
     return () => window.clearTimeout(t)
   }, [toast])
 
@@ -443,20 +477,29 @@ export default function StationDisplayPage({
   // (still being made) but flips to the Ready control.
   async function start(ticket: ApiStationTicket, chef?: Chef) {
     setPickingFor(null)
-    // Optimistic — show it under way at once.
+    // Optimistic — show it under way at once, with the maker's clock already
+    // running so the card doesn't sit at nothing until the next poll.
+    const startedAt = new Date().toISOString()
     setTickets((prev) =>
       prev?.map((t) =>
         t.id === ticket.id
-          ? { ...t, status: 'preparing', chef: chef ? { id: chef.id, name: chef.name } : t.chef }
+          ? {
+              ...t,
+              status: 'preparing',
+              started_at: t.started_at ?? startedAt,
+              chef: chef ? { id: chef.id, name: chef.name } : t.chef,
+            }
           : t,
       ) ?? prev,
     )
     try {
       await startTicket(ticket.id, station, chef?.id)
-      setToast(chef ? `${chef.name} started ${ticketLabel(ticket)}` : `Started ${ticketLabel(ticket)}`)
+      setToast({
+        text: chef ? `${chef.name} started ${ticketLabel(ticket)}` : `Started ${ticketLabel(ticket)}`,
+      })
     } catch {
       // Roll back to server truth so the ticket isn't stuck mislabelled.
-      setToast('Could not start it — check the connection')
+      setToast({ text: 'Could not start it — check the connection' })
       void load()
     }
   }
@@ -464,8 +507,16 @@ export default function StationDisplayPage({
   async function bump(ticket: ApiStationTicket) {
     setHiddenIds((prev) => new Set(prev).add(ticket.id))
     try {
-      await markTicketReady(ticket.id, station)
-      setToast(`${ticketLabel(ticket)} ready`)
+      // The card leaves the board here, so the bump is the last chance to say
+      // how long it took — read off the server's own stamps, which the response
+      // carries back, rather than off a screen clock that may have drifted.
+      const done = await markTicketReady(ticket.id, station)
+      const took = makeMs(done, Date.now()) ?? makeMs(ticket, Date.now())
+      const who = done.chef?.name ?? ticket.chef?.name
+      setToast({
+        text: who ? `${who} finished ${ticketLabel(ticket)}` : `${ticketLabel(ticket)} ready`,
+        took: took === null ? undefined : durationLabel(took),
+      })
     } catch {
       // Put it back so whoever is making it doesn't lose the ticket.
       setHiddenIds((prev) => {
@@ -473,7 +524,7 @@ export default function StationDisplayPage({
         next.delete(ticket.id)
         return next
       })
-      setToast('Could not mark it ready — check the connection')
+      setToast({ text: 'Could not mark it ready — check the connection' })
     }
   }
 
@@ -674,9 +725,15 @@ export default function StationDisplayPage({
       {/* Toast */}
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
-          <div className="flex items-center gap-2 rounded-full bg-[#2b2138] px-5 py-3 text-sm font-semibold text-white shadow-lg">
+          <div className="flex items-center gap-2.5 rounded-full bg-[#2b2138] px-5 py-3 text-sm font-semibold text-white shadow-lg">
             <LuCheck className="h-4 w-4 text-emerald-400" />
-            {toast}
+            {toast.text}
+            {toast.took && (
+              <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/20 px-3 py-1 text-base font-bold tabular-nums text-emerald-300">
+                <LuTimer className="h-4 w-4" />
+                {toast.took}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -708,6 +765,10 @@ function TicketCard({
   // at the age of the bill they were added to.
   const elapsedMs = Math.max(0, now - new Date(ticket.created_at).getTime())
   const minutes = Math.floor(elapsedMs / 60000)
+  // The maker's own clock, running from the moment they took the ticket — what
+  // they'll be told they took when they tap Ready, visible while there's still
+  // time to do something about it.
+  const makingMs = active ? makeMs(ticket, now) : null
   const tier = tierFor(minutes)
   const tableLabel = order.table?.name ?? (order.order_type === 'take_away' ? 'Take Away' : '—')
   // The table has ordered before on this bill — say so, loudly, so this reads
@@ -831,6 +892,13 @@ function TicketCard({
           >
             {bumping ? <Loader size="sm" /> : <LuCheck className="h-5 w-5" />}
             Ready
+            {/* The time they're about to be credited with, on the button that
+                stops the clock — no surprise once the card is gone. */}
+            {makingMs !== null && (
+              <span className="tabular-nums font-extrabold text-white/80">
+                · {durationLabel(makingMs)}
+              </span>
+            )}
           </button>
         ) : (
           <button
