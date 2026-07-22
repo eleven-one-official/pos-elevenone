@@ -80,11 +80,6 @@ function fmtPrep(seconds: number | null): string {
   return `${h}h ${m % 60}m`
 }
 
-/** Cook time in minutes, one decimal — the exported column. */
-function prepMinutes(seconds: number | null): string {
-  return seconds === null ? '' : (seconds / 60).toFixed(1)
-}
-
 const num = (n: number) => n.toLocaleString('en-US')
 
 /** "Jul 21, 18:42" — the browser's clock, which is the venue's. */
@@ -1070,7 +1065,9 @@ type Column = { header: string; align?: 'left' | 'right' }
 const excelMinutes = (seconds: number | null): Cell =>
   seconds === null ? '' : Number((seconds / 60).toFixed(1))
 
-const TICKET_COLUMNS: Column[] = [
+// On paper the duration reads as "4m 18s"; the workbook gets plain minutes the
+// reader can average, so the header carries the unit there.
+const ticketColumns = (excel: boolean): Column[] => [
   { header: 'Fired' },
   { header: 'Order' },
   { header: 'Table' },
@@ -1082,7 +1079,7 @@ const TICKET_COLUMNS: Column[] = [
   { header: 'Units', align: 'right' },
   { header: 'Start', align: 'right' },
   { header: 'Ready', align: 'right' },
-  { header: 'Cook time (min)', align: 'right' },
+  { header: excel ? 'Cook time (min)' : 'Cook time', align: 'right' },
 ]
 
 function ticketRow(r: ChefTicket, excel: boolean): Cell[] {
@@ -1098,7 +1095,7 @@ function ticketRow(r: ChefTicket, excel: boolean): Cell[] {
     r.items,
     fmtClock(r.started_at),
     fmtClock(r.ready_at),
-    excel ? excelMinutes(r.prep_seconds) : prepMinutes(r.prep_seconds),
+    excel ? excelMinutes(r.prep_seconds) : fmtPrep(r.prep_seconds),
   ]
 }
 
@@ -1172,7 +1169,7 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
         { name: 'Per Cook', columns: chefColumns, rows: chefRows },
         { name: 'Per Day', columns: dayColumns, rows: dayRows },
         { name: 'Per Dish', columns: dishColumns, rows: dishRows },
-        { name: 'Tickets', columns: TICKET_COLUMNS, rows: ticketRows },
+        { name: 'Tickets', columns: ticketColumns(true), rows: ticketRows },
       ],
     })
   } else {
@@ -1187,7 +1184,7 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
         { sectionTitle: 'Per cook', columns: chefColumns, rows: chefRows },
         { sectionTitle: 'Per day', columns: dayColumns, rows: dayRows },
         { sectionTitle: 'Per dish', columns: dishColumns, rows: dishRows },
-        { sectionTitle: ticketsTitle, columns: TICKET_COLUMNS, rows: ticketRows },
+        { sectionTitle: ticketsTitle, columns: ticketColumns(false), rows: ticketRows },
       ],
     })
   }
@@ -1201,7 +1198,7 @@ function exportDetails(kind: 'pdf' | 'excel', rows: ChefTicket[], subtitleBase: 
       fileName: 'chef-performance-tickets.xlsx',
       title: 'Chef Performance',
       subtitle,
-      sheets: [{ name: 'Tickets', columns: TICKET_COLUMNS, rows: rows.map((r) => ticketRow(r, true)) }],
+      sheets: [{ name: 'Tickets', columns: ticketColumns(true), rows: rows.map((r) => ticketRow(r, true)) }],
     })
   } else {
     void downloadTablePdf({
@@ -1210,7 +1207,7 @@ function exportDetails(kind: 'pdf' | 'excel', rows: ChefTicket[], subtitleBase: 
       subtitle,
       sectionTitle: 'Tickets',
       landscape: true,
-      columns: TICKET_COLUMNS,
+      columns: ticketColumns(false),
       rows: rows.map((r) => ticketRow(r, false)),
     })
   }
