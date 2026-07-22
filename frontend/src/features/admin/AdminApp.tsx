@@ -21,6 +21,7 @@ import ZoomControl from '../../components/ui/ZoomControl'
 import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
+import PosBackup from './PosBackup'
 import PosCategories from './PosCategories'
 import PosChefPerformance from './PosChefPerformance'
 import PosCustomers from './PosCustomers'
@@ -101,6 +102,7 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
       { id: 'settings', label: 'Settings' },
       { id: 'payment-methods', label: 'Payment Methods' },
       { id: 'tables', label: 'Tables' },
+      { id: 'backup', label: 'Data Backup' },
     ],
   },
 ]
@@ -242,6 +244,8 @@ export default function AdminApp({
       <PosPaymentMethods />
     ) : tab.menu === 'Configuration' && tab.item === 'Tables' ? (
       <PosTables />
+    ) : tab.menu === 'Configuration' && tab.item === 'Data Backup' ? (
+      <PosBackup />
     ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
       <PosAuditLog />
     ) : tab.menu === 'Reporting' && tab.item === 'Sales Dashboard' ? (

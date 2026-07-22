@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\CashMovementController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ChefController;
@@ -140,6 +141,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/sales-details', [ReportController::class, 'salesDetails']);
         Route::get('/reports/pos-configs', [ReportController::class, 'posConfigs']);
         Route::get('/reports/chef-performance', [ReportController::class, 'chefPerformance']);
+
+        // CSV exports for the daily archival routine — the same report data the
+        // screens show, streamed as a spreadsheet (UTF-8 BOM so Excel reads
+        // Khmer and the riel sign). ?start=&end= are UTC instants; ?tz= (minutes
+        // east of UTC) shifts the displayed clock back to the venue's day.
+        Route::get('/reports/export/orders', [ReportController::class, 'exportOrders']);
+        Route::get('/reports/export/sales-details', [ReportController::class, 'exportSalesDetails']);
     });
 
     /*
@@ -152,5 +160,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Who-did-what trail. Read-only by design — nothing can edit it.
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
+
+        // Database backups. A dump holds every row (including the encrypted
+        // PIN/password columns), so this is admin-only; the filename is
+        // whitelisted in the controller/service, so {name} can't traverse out
+        // of the backup directory.
+        Route::get('/backups', [BackupController::class, 'index']);
+        Route::post('/backups', [BackupController::class, 'store']);
+        Route::get('/backups/{name}/download', [BackupController::class, 'download']);
+        Route::delete('/backups/{name}', [BackupController::class, 'destroy']);
     });
 });

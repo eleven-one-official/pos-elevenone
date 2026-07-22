@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
@@ -130,6 +131,17 @@ class ReportController extends Controller
      */
     public function salesDetails(Request $request): JsonResponse
     {
+        return response()->json($this->salesDetailsData($request));
+    }
+
+    /**
+     * The Sales Details figures as a plain array, shared by the JSON endpoint
+     * above and the CSV export in exportSalesDetails().
+     *
+     * @return array<string, mixed>
+     */
+    private function salesDetailsData(Request $request): array
+    {
         $request->validate([
             'start' => ['required', 'date'],
             'end' => ['required', 'date', 'after_or_equal:start'],
@@ -244,7 +256,7 @@ class ReportController extends Controller
         $sideFilter($guestsQuery);
         $guests = (int) $guestsQuery->sum('guest_count');
 
-        return response()->json([
+        return [
             'start' => $start->toDateTimeString(),
             'end' => $end->toDateTimeString(),
             'orders_count' => count($orderIds),
@@ -255,7 +267,7 @@ class ReportController extends Controller
                 'amount' => round($p['amount'], 2),
             ], $products)),
             'payments' => $payments,
-        ]);
+        ];
     }
 
     /**
@@ -612,5 +624,125 @@ class ReportController extends Controller
             ->get();
 
         return response()->json($items);
+    }
+
+    /**
+     * CSV of every order in ?start=&end= (UTC instants), one row per bill — the
+     * spreadsheet an admin keeps for the day. ?tz= (minutes east of UTC, as
+     * `-new Date().getTimezoneOffset()`) shifts the printed date/time back to
+     * the venue's wall clock; the date window itself is already absolute.
+     */
+    public function exportOrders(Request $request): StreamedResponse
+    {
+        $request->validate([
+            'start' => ['required', 'date'],
+            'end' => ['required', 'date', 'after_or_equal:start'],
+        ]);
+
+        $start = $request->date('start')->utc();
+        $end = $request->date('end')->utc();
+        $tzMinutes = max(-840, min(840, $request->integer('tz')));
+
+        $typeLabels = ['dine_in' => 'Dine-in', 'take_away' => 'Take-away', 'delivery' => 'Delivery'];
+
+        $orders = Order::query()
+            ->with(['table:id,name', 'user:id,name'])
+            ->withSum('items as item_quantity', 'quantity')
+            ->whereBetween('created_at', [$start, $end])
+            ->orderBy('created_at')
+            ->get();
+
+        // Local dates for the filename, so "orders-20260722.csv" reads as the
+        // venue's day rather than a UTC one.
+        $localStart = $start->copy()->addMinutes($tzMinutes);
+        $localEnd = $end->copy()->addMinutes($tzMinutes);
+        $filename = 'orders-'.$localStart->format('Ymd')
+            .($localStart->format('Ymd') === $localEnd->format('Ymd') ? '' : '-'.$localEnd->format('Ymd'))
+            .'.csv';
+
+        return $this->streamCsv($filename, function ($out) use ($orders, $typeLabels, $tzMinutes) {
+            fputcsv($out, [
+                'Order #', 'Date', 'Time', 'Type', 'Table', 'Staff',
+                'Guests', 'Items', 'Subtotal', 'Discount', 'Total', 'Status',
+            ]);
+
+            foreach ($orders as $order) {
+                $at = $order->created_at?->copy()->addMinutes($tzMinutes);
+                fputcsv($out, [
+                    $order->order_number,
+                    $at?->format('Y-m-d'),
+                    $at?->format('H:i'),
+                    $typeLabels[$order->order_type] ?? $order->order_type,
+                    $order->table?->name ?? '',
+                    $order->user?->name ?? '',
+                    (int) $order->guest_count,
+                    (int) $order->item_quantity,
+                    number_format((float) $order->subtotal, 2, '.', ''),
+                    number_format((float) $order->discount, 2, '.', ''),
+                    number_format((float) $order->total, 2, '.', ''),
+                    $order->status,
+                ]);
+            }
+        });
+    }
+
+    /**
+     * CSV of the Sales Details report — product lines, then the payment
+     * breakdown, then the day's totals. Reuses salesDetailsData() so the
+     * spreadsheet reconciles with the on-screen report exactly.
+     */
+    public function exportSalesDetails(Request $request): StreamedResponse
+    {
+        $data = $this->salesDetailsData($request);
+
+        $tzMinutes = max(-840, min(840, $request->integer('tz')));
+        $localStart = $request->date('start')->utc()->addMinutes($tzMinutes);
+        $localEnd = $request->date('end')->utc()->addMinutes($tzMinutes);
+        $filename = 'sales-details-'.$localStart->format('Ymd')
+            .($localStart->format('Ymd') === $localEnd->format('Ymd') ? '' : '-'.$localEnd->format('Ymd'))
+            .'.csv';
+
+        return $this->streamCsv($filename, function ($out) use ($data) {
+            fputcsv($out, ['Products']);
+            fputcsv($out, ['Product', 'Category', 'Quantity', 'Amount']);
+            foreach ($data['products'] as $product) {
+                fputcsv($out, [
+                    $product['name'],
+                    $product['category'],
+                    $product['quantity'],
+                    number_format((float) $product['amount'], 2, '.', ''),
+                ]);
+            }
+
+            fputcsv($out, []);
+            fputcsv($out, ['Payments']);
+            fputcsv($out, ['Method', 'Count', 'Amount']);
+            foreach ($data['payments'] as $payment) {
+                fputcsv($out, [
+                    $payment['label'],
+                    (int) $payment['count'],
+                    number_format((float) $payment['amount'], 2, '.', ''),
+                ]);
+            }
+
+            fputcsv($out, []);
+            fputcsv($out, ['Orders', $data['orders_count']]);
+            fputcsv($out, ['Guests', $data['guests']]);
+            fputcsv($out, ['Total', number_format((float) $data['total'], 2, '.', '')]);
+        });
+    }
+
+    /**
+     * Stream a CSV download. A UTF-8 BOM leads the file so Excel renders Khmer
+     * item names and the riel sign correctly; $writer receives the open handle.
+     */
+    private function streamCsv(string $filename, callable $writer): StreamedResponse
+    {
+        return response()->streamDownload(function () use ($writer) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");
+            $writer($out);
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 }

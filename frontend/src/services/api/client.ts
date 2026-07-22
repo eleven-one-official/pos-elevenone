@@ -110,3 +110,53 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
+
+/**
+ * Download a file from the API (backups, CSV exports) with the bearer token
+ * attached, then trigger the browser's save dialog. `api<T>()` only handles
+ * JSON, so this is the app's one binary-download path. The server's
+ * Content-Disposition filename wins; `fallbackName` is used if it's absent.
+ * Throws ApiError on non-2xx (and clears a dead token like api()).
+ */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, { headers })
+  } catch {
+    throw new ApiError('Cannot reach the server. Check the connection.', 0)
+  }
+
+  if (!res.ok) {
+    if (res.status === 401 && token) {
+      setToken(null)
+      unauthorizedHandler?.()
+    }
+    let message = `Request failed (${res.status})`
+    try {
+      const data = await res.json()
+      if (typeof data?.message === 'string' && data.message) message = data.message
+    } catch {
+      // Non-JSON error body — keep the generic message.
+    }
+    throw new ApiError(message, res.status)
+  }
+
+  const blob = await res.blob()
+
+  // Prefer the server's filename (e.g. orders-20260722.csv), fall back otherwise.
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
+  const name = match ? decodeURIComponent(match[1]) : fallbackName
+
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}

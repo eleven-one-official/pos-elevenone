@@ -31,7 +31,9 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    // So the frontend's downloadFile() can read the server-set filename on CSV
+    // exports and backup downloads (browsers hide it cross-origin otherwise).
+    'exposed_headers' => ['Content-Disposition'],
 
     'max_age' => 0,
 
