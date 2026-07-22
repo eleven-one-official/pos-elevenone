@@ -82,6 +82,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/kitchen/tickets/{round}', [KitchenController::class, 'update']);
         Route::put('/bar/tickets/{round}', [KitchenController::class, 'update'])
             ->defaults('station', 'bar');
+        // One dish at a time — the kitchen names a cook and starts/stops the
+        // clock per line; the round rolls itself up from its dishes.
+        Route::put('/kitchen/tickets/{round}/items/{item}', [KitchenController::class, 'updateItem']);
+        Route::put('/bar/tickets/{round}/items/{item}', [KitchenController::class, 'updateItem'])
+            ->defaults('station', 'bar');
     });
 
     // Customer directory — cashiers may look up and add customers on the fly.

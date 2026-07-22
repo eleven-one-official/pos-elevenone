@@ -94,4 +94,41 @@ class OrderRound extends Model
     {
         return $this->hasMany(OrderItem::class);
     }
+
+    /**
+     * Roll the ticket up from its dishes. The kitchen now works the card line
+     * by line — each dish is taken (named to a cook) and plated on its own —
+     * so the round no longer has taps of its own there; it follows: preparing
+     * once any dish is started, ready once every dish is, its crew everyone
+     * who cooked a line (the first to start leads), its stamps the first
+     * start and the last plate. Keeps the bill's roll-up in step too.
+     */
+    public function syncFromItems(): void
+    {
+        // Zero-quantity lines are edits' leftovers — nothing to cook, so they
+        // must not hold the ticket open.
+        $items = $this->items()->where('quantity', '>', 0)->get();
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $started = $items->whereNotNull('started_at')->sortBy('started_at');
+        $this->assignChefs($started->pluck('chef_id')->filter()->unique()->values()->all());
+
+        if ($this->started_at === null) {
+            $this->started_at = $started->first()?->started_at;
+        }
+
+        if ($items->whereNull('ready_at')->isEmpty()) {
+            $this->status = 'ready';
+            if ($this->ready_at === null) {
+                $this->ready_at = $items->max('ready_at');
+            }
+        } elseif ($started->isNotEmpty()) {
+            $this->status = 'preparing';
+        }
+
+        $this->save();
+        $this->order?->syncStatusFromRounds();
+    }
 }

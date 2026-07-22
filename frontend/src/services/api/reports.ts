@@ -205,11 +205,15 @@ export type ChefDishRow = {
   avg_prep_seconds: number | null
 }
 
-/** One dish on a ticket, as it was fired to the board. */
+/** One dish on a ticket, as it was fired to the board. Since per-dish
+ *  tracking each line also names its own maker and carries its own cook time
+ *  (null on lines from the whole-card era, or dishes never started). */
 export type ChefTicketLine = {
   name: string
   quantity: number
   note: string | null
+  chef?: string | null
+  prep_seconds?: number | null
 }
 
 /** One ticket a cook worked — the row behind every number on the screen. */

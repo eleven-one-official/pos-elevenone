@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\OrderItem;
 use App\Models\OrderRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class KitchenController extends Controller
     /** Everything a ticket card needs, and nothing about money. */
     private const WITH = [
         'items',
+        'items.chef:id,name',
         'chef:id,name',
         'chefs:id,name',
         'order:id,order_number,order_type,table_id,transferred_from_table_id,user_id,guest_count,status',
@@ -135,6 +137,61 @@ class KitchenController extends Controller
             $round->save();
 
             $round->order?->syncStatusFromRounds();
+        });
+
+        return response()->json($round->load(self::WITH));
+    }
+
+    /**
+     * Move one *dish* along. The kitchen works a card line by line: tapping a
+     * dish names its cook and starts that dish's clock (`preparing`); tapping
+     * Ready on the dish stops it. The round rolls itself up from its lines —
+     * preparing once any dish is under way, ready (and off the board) once
+     * every dish is plated — so the card needs no taps of its own.
+     *
+     * Returns the whole refreshed ticket: the tap changes the round's status
+     * and crew too, and the board wants one truth, not a line to merge.
+     */
+    public function updateItem(Request $request, OrderRound $round, OrderItem $item): JsonResponse
+    {
+        $data = $request->validate([
+            'status' => ['required', 'in:preparing,ready'],
+            'chef_id' => ['nullable', 'exists:chefs,id'],
+        ]);
+
+        // The line must be the round's own, and the round the station's own —
+        // a stale screen can never advance another board's cooking.
+        if ($round->station !== $this->station($request) || $item->order_round_id !== $round->id) {
+            return response()->json([
+                'message' => 'That dish is not on this ticket.',
+            ], 404);
+        }
+
+        if (in_array($round->order?->status, self::DEAD_ORDER_STATUSES, true)) {
+            return response()->json([
+                'message' => 'That bill has been closed — its tickets are no longer on the board.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($data, $item, $round) {
+            if ($data['status'] === 'preparing') {
+                if (! empty($data['chef_id'])) {
+                    $item->chef_id = (int) $data['chef_id'];
+                }
+                // Stamped once — a re-tap (or a second cook taking over) never
+                // restarts a dish's clock.
+                if ($item->started_at === null) {
+                    $item->started_at = now();
+                }
+            } elseif ($item->ready_at === null) {
+                // A dish bumped without ever being started keeps a null
+                // started_at — an untimed plate, not a zero-second one that
+                // would poison the KPI's fastest-dish number.
+                $item->ready_at = now();
+            }
+            $item->save();
+
+            $round->syncFromItems();
         });
 
         return response()->json($round->load(self::WITH));

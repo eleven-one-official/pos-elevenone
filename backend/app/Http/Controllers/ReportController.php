@@ -398,8 +398,9 @@ class ReportController extends Controller
      * Returns five views over the same set of tickets so the screen can show an
      * overview, a per-cook comparison, a trend, a per-dish cut and the raw list
      * without five round trips: `overview`, `chefs`, `by_day` / `by_hour` /
-     * `by_station`, `by_item` (each dish's plates and the average clock of the
-     * tickets it rode on — the board times the ticket, not the plate), and
+     * `by_station`, `by_item` (each dish's plates and its average clock — the
+     * dish's own, now the board times every plate; tickets from the whole-card
+     * era fall back to the ticket's clock), and
      * `details` (newest first, capped — `details_total` is the real count).
      *
      * Filters: ?period= today|week|month|year (default: all), ?chef_id= to
@@ -444,7 +445,11 @@ class ReportController extends Controller
 
         // Every ticket's dish lines ride along — the per-dish cut below needs
         // them all, and the capped details list reuses the same loaded relation.
-        $rounds->load('items:id,order_round_id,name,quantity,note');
+        // Since per-dish tracking, a line carries its own cook and clock.
+        $rounds->load([
+            'items:id,order_round_id,name,quantity,note,chef_id,started_at,ready_at',
+            'items.chef:id,name',
+        ]);
 
         // One bucket bag per dimension, all filled in the same pass.
         /** @var array<string, array<array-key, array<string, mixed>>> $bags */
@@ -465,12 +470,29 @@ class ReportController extends Controller
             'prep_count' => 0,
         ];
 
+        // A clock only exists once its two stamps do — true of a ticket and of
+        // a single dish alike.
+        $clock = fn ($of) => $of->started_at && $of->ready_at
+            ? (int) abs($of->ready_at->diffInSeconds($of->started_at))
+            : null;
+
         foreach ($rounds as $round) {
             $roundItems = (int) $round->items_count;
-            // A ticket's clock only exists once it has been started and finished.
-            $prep = $round->started_at && $round->ready_at
-                ? (int) abs($round->ready_at->diffInSeconds($round->started_at))
-                : null;
+            $prep = $clock($round);
+
+            // Each cook's own stretch of the ticket: from their first dish
+            // started to their last dish plated. Only lines the board timed
+            // count; tickets from the whole-card era have none and fall back
+            // to the ticket's clock below.
+            $chefSpans = [];
+            foreach ($round->items as $line) {
+                if ($line->chef_id && $line->started_at && $line->ready_at) {
+                    $span = $chefSpans[$line->chef_id] ?? ['from' => $line->started_at, 'to' => $line->ready_at];
+                    $span['from'] = $span['from']->min($line->started_at);
+                    $span['to'] = $span['to']->max($line->ready_at);
+                    $chefSpans[$line->chef_id] = $span;
+                }
+            }
 
             // The wall clock the venue would recognise, not the stored UTC one.
             $at = ($round->started_at ?? $round->created_at)->copy()->addMinutes($tzMinutes);
@@ -482,26 +504,34 @@ class ReportController extends Controller
             // so the per-cook rows can add up to more than the board fired —
             // that is the point, and the overview below still counts it once.
             // Rows from before crews existed fall back to their single cook.
+            // A cook's clock is their own span of the card when the board
+            // timed their dishes, the whole ticket's clock when it didn't.
             $chefTargets = $round->chefs->isNotEmpty()
-                ? $round->chefs->map(fn ($chef) => [$chef->id, ['chef_id' => $chef->id, 'chef' => $chef->name]])->all()
-                : [[$round->chef_id, ['chef_id' => $round->chef_id, 'chef' => $round->chef?->name ?? 'Unknown']]];
+                ? $round->chefs->map(fn ($chef) => [
+                    $chef->id,
+                    ['chef_id' => $chef->id, 'chef' => $chef->name],
+                    isset($chefSpans[$chef->id])
+                        ? (int) abs($chefSpans[$chef->id]['to']->diffInSeconds($chefSpans[$chef->id]['from']))
+                        : $prep,
+                ])->all()
+                : [[$round->chef_id, ['chef_id' => $round->chef_id, 'chef' => $round->chef?->name ?? 'Unknown'], $prep]];
 
             $targets = [
                 'chef' => $chefTargets,
-                'day' => [[$day, ['date' => $day]]],
-                'hour' => [[$hour, ['hour' => $hour]]],
-                'station' => [[$roundStation, ['station' => $roundStation]]],
+                'day' => [[$day, ['date' => $day], $prep]],
+                'hour' => [[$hour, ['hour' => $hour], $prep]],
+                'station' => [[$roundStation, ['station' => $roundStation], $prep]],
             ];
 
             foreach ($targets as $dim => $entries) {
-                foreach ($entries as [$key, $seed]) {
+                foreach ($entries as [$key, $seed, $entryPrep]) {
                     $bucket = $bags[$dim][$key] ?? $blank($seed);
                     // A cook who took both of a table's rounds still worked one order.
                     $bucket['order_ids'][$round->order_id] = true;
                     $bucket['rounds']++;
                     $bucket['items'] += $roundItems;
-                    if ($prep !== null) {
-                        $bucket['prep_seconds_total'] += $prep;
+                    if ($entryPrep !== null) {
+                        $bucket['prep_seconds_total'] += $entryPrep;
                         $bucket['prep_count']++;
                     }
                     $bags[$dim][$key] = $bucket;
@@ -511,19 +541,29 @@ class ReportController extends Controller
             // The dish dimension counts each plate, not the whole round —
             // same-name lines (one with a note, one without) fold together
             // first so a ticket counts once per dish, whatever its line count.
+            // A dish the board timed itself keeps its own clock (averaged
+            // across the folded lines); one from the whole-card era rides the
+            // ticket's clock, the only clock it ever had.
             $dishes = [];
             foreach ($round->items as $line) {
                 $key = (string) $line->name;
                 $dishes[$key]['name'] = $line->name;
                 $dishes[$key]['qty'] = ($dishes[$key]['qty'] ?? 0) + (int) $line->quantity;
+                if (($linePrep = $clock($line)) !== null) {
+                    $dishes[$key]['prep_total'] = ($dishes[$key]['prep_total'] ?? 0) + $linePrep;
+                    $dishes[$key]['prep_lines'] = ($dishes[$key]['prep_lines'] ?? 0) + 1;
+                }
             }
             foreach ($dishes as $key => $dish) {
                 $bucket = $bags['item'][$key] ?? $blank(['name' => $dish['name']]);
                 $bucket['order_ids'][$round->order_id] = true;
                 $bucket['rounds']++;
                 $bucket['items'] += $dish['qty'];
-                if ($prep !== null) {
-                    $bucket['prep_seconds_total'] += $prep;
+                $dishPrep = isset($dish['prep_lines'])
+                    ? (int) round($dish['prep_total'] / $dish['prep_lines'])
+                    : $prep;
+                if ($dishPrep !== null) {
+                    $bucket['prep_seconds_total'] += $dishPrep;
                     $bucket['prep_count']++;
                 }
                 $bags['item'][$key] = $bucket;
@@ -621,11 +661,16 @@ class ReportController extends Controller
                 'prep_seconds' => $round->started_at && $round->ready_at
                     ? (int) abs($round->ready_at->diffInSeconds($round->started_at))
                     : null,
-                // What the cook actually made, dish by dish.
+                // What the cook actually made, dish by dish — since per-dish
+                // tracking, each line names its own maker and its own clock.
                 'lines' => $round->items->map(fn ($line) => [
                     'name' => $line->name,
                     'quantity' => (int) $line->quantity,
                     'note' => $line->note,
+                    'chef' => $line->chef?->name,
+                    'prep_seconds' => $line->started_at && $line->ready_at
+                        ? (int) abs($line->ready_at->diffInSeconds($line->started_at))
+                        : null,
                 ])->values(),
                 'dishes' => $round->items->count(),
             ])

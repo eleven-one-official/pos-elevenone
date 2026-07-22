@@ -13,7 +13,7 @@ class TableSeeder extends Seeder
         for ($i = 1; $i <= 16; $i++) {
             Table::updateOrCreate(
                 ['name' => "E{$i}"],
-                ['type' => 'normal', 'capacity' => 4, 'status' => 'available']
+                ['type' => 'normal', 'capacity' => 6, 'status' => 'available']
             );
         }
 

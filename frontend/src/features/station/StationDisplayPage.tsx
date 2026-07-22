@@ -25,8 +25,11 @@ import { fetchActiveChefs, type Chef } from '../../services/api/chefs'
 import {
   fetchStationHistory,
   fetchStationTickets,
+  markTicketItemReady,
   markTicketReady,
   startTicket,
+  startTicketItem,
+  type ApiOrderItem,
   type ApiStationTicket,
   type Station,
 } from '../../services/api/orders'
@@ -34,8 +37,11 @@ import {
 // ---------------------------------------------------------------------------
 // Station Display Screen — replaces the kitchen/bar printer. Every order a
 // waiter or cashier fires lands here as a ticket card, oldest first (a
-// first-in-first-out rail). Whoever makes it reads what to make, then taps
-// "Ready" to bump the ticket off the board. A chime, a spoken Khmer
+// first-in-first-out rail). The kitchen works a card *dish by dish*: a cook
+// taps a dish, names themselves as its maker (starting that dish's own clock)
+// and taps Ready on the dish when it's plated — the card leaves the board on
+// its own once the last dish is done. The bar still takes and bumps a whole
+// ticket, since a round of drinks is one job. A chime, a spoken Khmer
 // announcement and a highlight announce each new ticket; a per-ticket timer
 // turns amber then red as an order ages so nothing is forgotten. Read-only
 // otherwise: a station never edits items or money.
@@ -52,10 +58,10 @@ import {
 //
 // The same board serves two stations. A send is split by the backend — food to
 // the kitchen, drinks to the bar — into two rounds under one round number, so
-// each screen shows only what its own people make. The kitchen names whoever
-// takes a ticket — more than one cook when a card is split between sections,
-// and all of them are credited in the Chef Performance KPI; the bar just starts
-// pouring.
+// each screen shows only what its own people make. In the kitchen every dish
+// names its own maker, so a card split between sections credits each cook with
+// exactly the dishes (and the minutes) that were theirs in the Chef
+// Performance KPI; the bar just starts pouring.
 // ---------------------------------------------------------------------------
 
 /** Who is signed in at a station — one shared, PIN-less account per screen. */
@@ -72,7 +78,10 @@ type StationLook = {
   /** Role caption beside the signed-in name. */
   badge: string
   icon: IconType
-  /** Whether taking a ticket asks who is making it (the kitchen's cook roster). */
+  /**
+   * Whether the board works per dish — each line taken by a named cook (the
+   * kitchen's roster) with its own clock — rather than per ticket (the bar).
+   */
   namesMaker: boolean
   /** Badge on a ticket someone has taken. */
   activeLabel: string
@@ -162,6 +171,16 @@ function makeMs(ticket: ApiStationTicket, now: number): number | null {
   const started = new Date(ticket.started_at).getTime()
   const ended = ticket.ready_at ? new Date(ticket.ready_at).getTime() : now
   return Math.max(0, ended - started)
+}
+
+/**
+ * One dish's own clock — the same Start → Ready pair, at line level. Null
+ * until a cook takes the dish; running while it cooks; frozen once plated.
+ */
+function dishMs(item: ApiOrderItem, now: number): number | null {
+  if (!item.started_at) return null
+  const ended = item.ready_at ? new Date(item.ready_at).getTime() : now
+  return Math.max(0, ended - new Date(item.started_at).getTime())
 }
 
 /**
@@ -295,12 +314,13 @@ export default function StationDisplayPage({
   // when they take a ticket — that attribution feeds the Chef Performance KPI.
   // The roster is managed on the admin side; the bar has none and just starts.
   const [chefs, setChefs] = useState<Chef[]>([])
-  // The ticket whose chef picker is open (null = closed).
-  const [pickingFor, setPickingFor] = useState<ApiStationTicket | null>(null)
-  // Who has been ticked in that picker, in tap order. One card regularly holds
-  // a grill dish and a wok dish that two cooks split between them, so this is a
-  // multiple choice — everyone ticked is credited with the ticket.
-  const [picked, setPicked] = useState<number[]>([])
+  // The dish whose chef picker is open (null = closed). A cook takes one dish
+  // at a time now — a card shared between sections simply has its dishes taken
+  // by different names — so picking is a single tap on a name, no confirm.
+  const [pickingFor, setPickingFor] = useState<{
+    ticket: ApiStationTicket
+    item: ApiOrderItem
+  } | null>(null)
   // The history drawer — today's plated tickets. A bumped card leaves the board
   // for good, so this is the only way back to one. Fetched when the drawer is
   // opened rather than polled: it's a look-up, not a live rail.
@@ -572,61 +592,112 @@ export default function StationDisplayPage({
     window.speechSynthesis?.cancel()
   }
 
-  /** Tick a cook on or off the ticket about to be started. */
-  function togglePicked(id: number) {
-    setPicked((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]))
-  }
-
-  function openPicker(ticket: ApiStationTicket) {
-    setPicked([])
-    setPickingFor(ticket)
+  function openPicker(ticket: ApiStationTicket, item: ApiOrderItem) {
+    setPickingFor({ ticket, item })
   }
 
   function closePicker() {
     setPickingFor(null)
-    setPicked([])
   }
 
-  // The crew in the order it was tapped — the first ticked leads the ticket,
-  // which is the name the bill rolls up to.
-  const pickedChefs = useMemo(
-    () => picked.flatMap((id) => chefs.find((c) => c.id === id) ?? []),
-    [picked, chefs],
-  )
+  /** Swap in the server's refreshed round; the rest of the board stays put. */
+  function replaceTicket(round: ApiStationTicket) {
+    setTickets((prev) => prev?.map((t) => (t.id === round.id ? round : t)) ?? prev)
+  }
 
-  // Someone took the ticket: move it to "preparing" and, in the kitchen,
-  // attribute it to everyone who ticked their name. The card stays on the board
-  // (still being made) but flips to the Ready control.
-  async function start(ticket: ApiStationTicket, crew: Chef[] = []) {
-    setPickingFor(null)
-    setPicked([])
-    // Optimistic — show it under way at once, with the maker's clock already
-    // running so the card doesn't sit at nothing until the next poll.
-    const startedAt = new Date().toISOString()
-    const names = crew.map((c) => ({ id: c.id, name: c.name }))
+  /** Optimistically patch one dish (and, optionally, its round) in place. */
+  function patchDish(
+    ticketId: number,
+    itemId: number,
+    patch: Partial<ApiOrderItem>,
+    roundPatch: Partial<ApiStationTicket> = {},
+  ) {
     setTickets((prev) =>
       prev?.map((t) =>
-        t.id === ticket.id
+        t.id === ticketId
           ? {
               ...t,
-              status: 'preparing',
-              started_at: t.started_at ?? startedAt,
-              // The first ticked leads, the same rule the backend applies.
-              chef: names[0] ?? t.chef,
-              chefs: names.length > 0 ? names : t.chefs,
+              ...roundPatch,
+              items: t.items.map((i) => (i.id === itemId ? { ...i, ...patch } : i)),
             }
           : t,
       ) ?? prev,
     )
+  }
+
+  // The bar takes the whole ticket at once — no roster, no per-dish clocks —
+  // so the card just flips to the Ready control. Optimistic, like everything
+  // on a board: shown under way before the server confirms.
+  async function start(ticket: ApiStationTicket) {
+    const startedAt = new Date().toISOString()
+    setTickets((prev) =>
+      prev?.map((t) =>
+        t.id === ticket.id ? { ...t, status: 'preparing', started_at: t.started_at ?? startedAt } : t,
+      ) ?? prev,
+    )
     try {
-      await startTicket(ticket.id, station, crew.map((c) => c.id))
-      const who = names.map((c) => c.name).join(' + ')
-      setToast({
-        text: who ? `${who} started ${ticketLabel(ticket)}` : `Started ${ticketLabel(ticket)}`,
-      })
+      await startTicket(ticket.id, station)
+      setToast({ text: `Started ${ticketLabel(ticket)}` })
     } catch {
       // Roll back to server truth so the ticket isn't stuck mislabelled.
       setToast({ text: 'Could not start it — check the connection', tone: 'error' })
+      void load()
+    }
+  }
+
+  // A cook takes one dish: name them and start that dish's own clock — the
+  // per-dish time the Chef Performance KPI reads. The row flips to "cooking"
+  // at once, then the whole card is swapped for the server's truth, which
+  // carries the round's rolled-up status and crew back with it.
+  async function startDish(ticket: ApiStationTicket, item: ApiOrderItem, chef: Chef) {
+    closePicker()
+    const startedAt = new Date().toISOString()
+    patchDish(
+      ticket.id,
+      item.id,
+      {
+        chef_id: chef.id,
+        chef: { id: chef.id, name: chef.name },
+        started_at: item.started_at ?? startedAt,
+      },
+      { status: 'preparing', started_at: ticket.started_at ?? startedAt },
+    )
+    try {
+      replaceTicket(await startTicketItem(ticket.id, item.id, station, chef.id))
+      setToast({ text: `${chef.name} started ${item.name}` })
+    } catch {
+      setToast({ text: 'Could not start it — check the connection', tone: 'error' })
+      void load()
+    }
+  }
+
+  // One dish is plated. The backend rolls the ticket up: if this was the last
+  // dish the round comes back `ready` and the card leaves the board crediting
+  // the whole crew; otherwise the row freezes on the dish's own time.
+  async function readyDish(ticket: ApiStationTicket, item: ApiOrderItem) {
+    patchDish(ticket.id, item.id, { ready_at: item.ready_at ?? new Date().toISOString() })
+    try {
+      const round = await markTicketItemReady(ticket.id, item.id, station)
+      if (round.status === 'ready') {
+        setHiddenIds((prev) => new Set(prev).add(ticket.id))
+        const took = makeMs(round, Date.now())
+        const who = crewLabel(round)
+        setToast({
+          text: who ? `${who} finished ${ticketLabel(ticket)}` : `${ticketLabel(ticket)} ready`,
+          took: took === null ? undefined : durationLabel(took),
+        })
+        return
+      }
+      replaceTicket(round)
+      // The dish's time off the server's own stamps, not a screen clock.
+      const line = round.items.find((i) => i.id === item.id)
+      const took = line ? dishMs(line, Date.now()) : null
+      setToast({
+        text: line?.chef?.name ? `${line.chef.name} plated ${item.name}` : `${item.name} ready`,
+        took: took === null ? undefined : durationLabel(took),
+      })
+    } catch {
+      setToast({ text: 'Could not mark it ready — check the connection', tone: 'error' })
       void load()
     }
   }
@@ -798,8 +869,10 @@ export default function StationDisplayPage({
                 look={look}
                 now={now}
                 isNew={(now - (arrivedRef.current.get(ticket.id) ?? 0)) < NEW_FLASH_MS}
-                onStart={() => (look.namesMaker ? openPicker(ticket) : void start(ticket))}
+                onStart={() => void start(ticket)}
                 onReady={() => void bump(ticket)}
+                onStartDish={(item) => openPicker(ticket, item)}
+                onReadyDish={(item) => void readyDish(ticket, item)}
               />
             ))}
           </div>
@@ -885,7 +958,9 @@ export default function StationDisplayPage({
         </div>
       )}
 
-      {/* Chef picker — a cook names themselves when they take a ticket. */}
+      {/* Chef picker — a cook names themselves when they take a dish. One dish,
+          one maker: a single tap on a name starts that dish's clock, so there
+          is no multi-select and no confirm step to slow a busy pass down. */}
       {pickingFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -895,10 +970,14 @@ export default function StationDisplayPage({
                   <LuChefHat className="h-5 w-5" />
                 </span>
                 <div className="leading-tight">
-                  <div className="text-base font-bold text-neutral-900">Who’s cooking?</div>
+                  <div className="text-base font-bold text-neutral-900">
+                    Who’s cooking x{pickingFor.item.quantity} {pickingFor.item.name}?
+                  </div>
                   <div className="text-xs text-neutral-500">
-                    {pickingFor.order.table?.name ? `${pickingFor.order.table.name} · ` : ''}
-                    {ticketLabel(pickingFor)} · tap everyone on it
+                    {pickingFor.ticket.order.table?.name
+                      ? `${pickingFor.ticket.order.table.name} · `
+                      : ''}
+                    {ticketLabel(pickingFor.ticket)} · tap a name to start the dish
                   </div>
                 </div>
               </div>
@@ -929,68 +1008,23 @@ export default function StationDisplayPage({
                 </button>
               </div>
             ) : (
-              <>
-                <div className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-5 sm:grid-cols-3">
-                  {chefs.map((chef) => {
-                    const on = picked.includes(chef.id)
-                    return (
-                      <button
-                        key={chef.id}
-                        type="button"
-                        aria-pressed={on}
-                        onClick={() => togglePicked(chef.id)}
-                        className={`relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center transition active:scale-[0.98] ${
-                          on
-                            ? 'border-primary bg-primary/5 ring-2 ring-primary'
-                            : 'border-neutral-200 bg-white hover:border-primary hover:bg-primary/5'
-                        }`}
-                      >
-                        {/* The tick, not just a colour — across a kitchen, at a
-                            glance, "chosen" has to survive steam on the screen. */}
-                        {on && (
-                          <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
-                            <LuCheck className="h-3.5 w-3.5" />
-                          </span>
-                        )}
-                        <span
-                          className={`flex h-12 w-12 items-center justify-center rounded-full text-base font-bold ${
-                            on ? 'bg-primary text-white' : 'bg-neutral-100 text-neutral-700'
-                          }`}
-                        >
-                          {initialsOf(chef.name)}
-                        </span>
-                        <span className="text-sm font-semibold leading-tight text-neutral-800">
-                          {chef.name}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* Confirm — a multiple choice needs a "done", and it doubles as
-                    the read-back of who is about to be credited. */}
-                <div className="flex items-center justify-between gap-3 border-t border-neutral-200 bg-neutral-50 px-5 py-4">
-                  <span className="min-w-0 truncate text-sm text-neutral-500">
-                    {pickedChefs.length === 0
-                      ? 'Nobody picked yet'
-                      : pickedChefs.map((c) => c.name).join(' + ')}
-                  </span>
+              <div className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-5 sm:grid-cols-3">
+                {chefs.map((chef) => (
                   <button
+                    key={chef.id}
                     type="button"
-                    disabled={pickedChefs.length === 0}
-                    onClick={() => void start(pickingFor, pickedChefs)}
-                    className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-6 py-3 text-base font-bold text-white shadow-sm transition hover:opacity-90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => void startDish(pickingFor.ticket, pickingFor.item, chef)}
+                    className="flex flex-col items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-4 text-center transition hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
                   >
-                    <LuPlay className="h-5 w-5" />
-                    Start
-                    {pickedChefs.length > 1 && (
-                      <span className="tabular-nums font-extrabold text-white/80">
-                        · {pickedChefs.length}
-                      </span>
-                    )}
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 text-base font-bold text-neutral-700">
+                      {initialsOf(chef.name)}
+                    </span>
+                    <span className="text-sm font-semibold leading-tight text-neutral-800">
+                      {chef.name}
+                    </span>
                   </button>
-                </div>
-              </>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -1053,14 +1087,26 @@ function HistoryRow({ ticket }: { ticket: ApiStationTicket }) {
       )}
 
       <ul className="mt-2 space-y-1 px-4 pb-3.5">
-        {items.map((item) => (
-          <li key={item.id} className="flex items-baseline gap-2 text-sm text-neutral-700">
-            <span className="min-w-6 shrink-0 rounded bg-neutral-100 px-1.5 text-center font-bold tabular-nums text-neutral-800">
-              x{item.quantity}
-            </span>
-            <span className="leading-tight">{item.name}</span>
-          </li>
-        ))}
+        {items.map((item) => {
+          // Since per-dish tracking each line carries its own maker and its
+          // own frozen clock — the answer to "who made it, and how long?".
+          const tookMs = item.ready_at ? dishMs(item, new Date(item.ready_at).getTime()) : null
+          return (
+            <li key={item.id} className="flex items-baseline gap-2 text-sm text-neutral-700">
+              <span className="min-w-6 shrink-0 rounded bg-neutral-100 px-1.5 text-center font-bold tabular-nums text-neutral-800">
+                x{item.quantity}
+              </span>
+              <span className="min-w-0 leading-tight">{item.name}</span>
+              {(item.chef?.name || tookMs !== null) && (
+                <span className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums text-neutral-500">
+                  {item.chef?.name}
+                  {item.chef?.name && tookMs !== null && ' · '}
+                  {tookMs !== null && durationLabel(tookMs)}
+                </span>
+              )}
+            </li>
+          )
+        })}
       </ul>
     </li>
   )
@@ -1073,6 +1119,8 @@ function TicketCard({
   isNew,
   onStart,
   onReady,
+  onStartDish,
+  onReadyDish,
 }: {
   ticket: ApiStationTicket
   look: StationLook
@@ -1080,11 +1128,17 @@ function TicketCard({
   isNew: boolean
   onStart: () => void
   onReady: () => void
+  onStartDish: (item: ApiOrderItem) => void
+  onReadyDish: (item: ApiOrderItem) => void
 }) {
   const [bumping, setBumping] = useState(false)
   const order = ticket.order
-  // Someone has taken this ticket — it's being made, so show who's on it and
-  // the Ready control. A brand-new ticket instead offers Start.
+  // The kitchen works the card dish by dish — every line is its own Start →
+  // Ready job with its own cook; the card has no buttons of its own and bumps
+  // itself once the last dish is plated. The bar keeps the whole-ticket flow.
+  const perDish = look.namesMaker
+  // Someone has taken this ticket (or, in the kitchen, any of its dishes) —
+  // it's being made, so show who's on it. A brand-new bar ticket offers Start.
   const active = ticket.status === 'preparing'
   // The round's own clock: items added an hour into a meal start at zero, not
   // at the age of the bill they were added to.
@@ -1101,6 +1155,8 @@ function TicketCard({
   const isRepeat = ticket.round_no > 1
   const items = ticket.items.filter((i) => i.quantity > 0)
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0)
+  // The kitchen's progress line: plated dishes over dishes on the card.
+  const readyDishes = items.filter((i) => i.ready_at).length
 
   return (
     <article
@@ -1172,27 +1228,39 @@ function TicketCard({
         {order.user?.name && <span className="truncate">· {order.user.name}</span>}
       </div>
 
-      {/* Items */}
+      {/* Items — each dish is its own job in the kitchen (tap → name the
+          maker → its clock runs → Ready on the dish); a plain list at the bar. */}
       <ul className="mt-3 flex-1 space-y-2 px-4">
-        {items.map((item) => (
-          <li key={item.id}>
-            <div className="flex items-baseline gap-2.5">
-              <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
-                x{item.quantity}
-              </span>
-              <span className="text-base font-semibold leading-tight text-neutral-800">{item.name}</span>
-            </div>
-            {item.note && (
-              <div className="ml-9 mt-1 flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-700">
-                <LuStickyNote className="h-3.5 w-3.5 shrink-0" />
-                {item.note}
+        {items.map((item) =>
+          perDish ? (
+            <DishRow
+              key={item.id}
+              item={item}
+              now={now}
+              onStart={() => onStartDish(item)}
+              onReady={() => onReadyDish(item)}
+            />
+          ) : (
+            <li key={item.id}>
+              <div className="flex items-baseline gap-2.5">
+                <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
+                  x{item.quantity}
+                </span>
+                <span className="text-base font-semibold leading-tight text-neutral-800">{item.name}</span>
               </div>
-            )}
-          </li>
-        ))}
+              {item.note && (
+                <div className="ml-9 mt-1 flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-700">
+                  <LuStickyNote className="h-3.5 w-3.5 shrink-0" />
+                  {item.note}
+                </div>
+              )}
+            </li>
+          ),
+        )}
       </ul>
 
-      {/* Action — Start (the kitchen picks a cook first), then Ready once made */}
+      {/* Footer — the kitchen reads progress (the card bumps itself when the
+          last dish is plated); the bar keeps Start, then Ready once poured. */}
       <div className="mt-3 px-4 pb-4">
         <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
           <span>
@@ -1207,7 +1275,19 @@ function TicketCard({
             </span>
           )}
         </div>
-        {active ? (
+        {perDish ? (
+          <div className="flex items-center gap-2.5">
+            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-100">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all"
+                style={{ width: `${items.length > 0 ? (readyDishes / items.length) * 100 : 0}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-xs font-bold tabular-nums text-neutral-600">
+              {readyDishes}/{items.length} dish{items.length === 1 ? '' : 'es'} ready
+            </span>
+          </div>
+        ) : active ? (
           <button
             type="button"
             disabled={bumping}
@@ -1239,5 +1319,116 @@ function TicketCard({
         )}
       </div>
     </article>
+  )
+}
+
+/**
+ * One dish on a kitchen card — its own little ticket. Untaken it offers
+ * Start; while it cooks it shows its maker and a live clock beside the Ready
+ * control; plated it freezes on the time the Chef Performance KPI will read.
+ */
+function DishRow({
+  item,
+  now,
+  onStart,
+  onReady,
+}: {
+  item: ApiOrderItem
+  now: number
+  onStart: () => void
+  onReady: () => void
+}) {
+  const ms = dishMs(item, now)
+  const done = !!item.ready_at
+  const cooking = !done && !!item.started_at
+
+  return (
+    <li
+      className={`rounded-xl border px-3 py-2.5 transition ${
+        done
+          ? 'border-emerald-200 bg-emerald-50/70'
+          : cooking
+            ? 'border-emerald-300 bg-white ring-1 ring-emerald-200'
+            : 'border-neutral-200 bg-white'
+      }`}
+    >
+      {done ? (
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+            <LuCheck className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-neutral-500">
+            <span className="font-extrabold tabular-nums">x{item.quantity}</span> {item.name}
+          </span>
+          <span className="flex shrink-0 flex-col items-end leading-tight">
+            {ms !== null && (
+              <span className="flex items-center gap-1 text-xs font-bold tabular-nums text-emerald-600">
+                <LuTimer className="h-3 w-3" />
+                {durationLabel(ms)}
+              </span>
+            )}
+            {item.chef?.name && (
+              <span className="text-[11px] font-semibold text-neutral-500">{item.chef.name}</span>
+            )}
+          </span>
+        </div>
+      ) : cooking ? (
+        <>
+          <div className="flex items-baseline gap-2.5">
+            <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
+              x{item.quantity}
+            </span>
+            <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-neutral-800">
+              {item.name}
+            </span>
+            {/* The dish's own clock, live — what its cook will be credited
+                with the moment they tap Ready. */}
+            {ms !== null && (
+              <span className="flex shrink-0 items-center gap-1 text-sm font-bold tabular-nums text-emerald-600">
+                <LuTimer className="h-3.5 w-3.5" />
+                {durationLabel(ms)}
+              </span>
+            )}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            {item.chef?.name ? (
+              <span className="flex min-w-0 items-center gap-1 text-xs font-bold text-emerald-700">
+                <LuChefHat className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{item.chef.name}</span>
+              </span>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={onReady}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.98]"
+            >
+              <LuCheck className="h-4 w-4" />
+              Ready
+            </button>
+          </div>
+        </>
+      ) : (
+        <button type="button" onClick={onStart} className="flex w-full items-center gap-2.5 text-left">
+          <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
+            x{item.quantity}
+          </span>
+          <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-neutral-800">
+            {item.name}
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-bold text-primary">
+            <LuPlay className="h-4 w-4" />
+            Start
+          </span>
+        </button>
+      )}
+      {item.note && (
+        <div className="ml-9 mt-1 flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-700">
+          <LuStickyNote className="h-3.5 w-3.5 shrink-0" />
+          {item.note}
+        </div>
+      )}
+    </li>
   )
 }

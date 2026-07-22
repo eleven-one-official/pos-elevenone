@@ -305,7 +305,7 @@ function TableForm({
 }) {
   const [name, setName] = useState(table?.name ?? '')
   const [type, setType] = useState<TableType>(table?.type ?? 'normal')
-  const [capacity, setCapacity] = useState(table ? String(table.capacity) : '4')
+  const [capacity, setCapacity] = useState(table ? String(table.capacity) : '6')
   const [status, setStatus] = useState<TableStatus>(table?.status ?? 'available')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)

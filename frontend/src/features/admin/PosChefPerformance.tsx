@@ -377,11 +377,12 @@ export default function PosChefPerformance() {
           )}
 
           <p className="mt-4 text-[12px] italic text-neutral-500">
-            Cook time is the gap between a cook tapping Start and Ready on a display board. A
-            ticket is one round fired to one station, so a table that ordered twice counts twice
-            here but stays one order. A dish&apos;s cook time is the average clock of the tickets
-            it rode on — the board times the ticket as a whole, not each plate. Tickets still
-            cooking, or from before this feature, carry no timing and show a dash.
+            Cook time is the gap between a cook tapping Start and Ready on a display board — since
+            per-dish tracking, on each dish itself, so a dish&apos;s time is its own clock and a
+            cook&apos;s time covers exactly the dishes they made. A ticket is one round fired to
+            one station, so a table that ordered twice counts twice here but stays one order.
+            Tickets from before per-dish tracking are timed as a whole card; ones still cooking,
+            or never started, carry no timing and show a dash.
           </p>
         </div>
       )}
@@ -1027,6 +1028,15 @@ function Details({
                               {l.note && (
                                 <span className="text-[12px] italic text-neutral-500">
                                   — {l.note}
+                                </span>
+                              )}
+                              {/* The dish's own maker and clock, when the board
+                                  timed the plate itself. */}
+                              {(l.chef || l.prep_seconds != null) && (
+                                <span className="ml-auto shrink-0 pl-2 text-[12px] tabular-nums text-neutral-500">
+                                  {l.chef}
+                                  {l.chef && l.prep_seconds != null && ' · '}
+                                  {l.prep_seconds != null && fmtPrep(l.prep_seconds)}
                                 </span>
                               )}
                             </li>

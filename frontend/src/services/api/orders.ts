@@ -35,6 +35,15 @@ export type ApiOrderItem = {
   quantity: number
   note: string | null
   line_total: string
+  /**
+   * Per-dish tracking, written from the kitchen display: who cooks this line
+   * and its own Start→Ready clock. Null until a cook takes the dish; the chef
+   * relation only rides along on the station endpoints.
+   */
+  chef_id?: number | null
+  chef?: { id: number; name: string } | null
+  started_at?: string | null
+  ready_at?: string | null
 }
 
 /** A payment recorded against an order (loaded with the order). */
@@ -283,6 +292,39 @@ export function startTicket(
 /** Bump a ticket off its board — the order is made and on the pass. */
 export function markTicketReady(id: number, station: Station): Promise<ApiStationTicket> {
   return api<ApiStationTicket>(`${STATION_PATH[station]}/${id}`, {
+    method: 'PUT',
+    body: { status: 'ready' },
+  })
+}
+
+/**
+ * A cook takes one *dish*: names its maker and starts that line's own clock —
+ * the per-dish time the Chef Performance KPI reads. Returns the whole
+ * refreshed ticket, since the tap moves the round's status and crew too.
+ */
+export function startTicketItem(
+  roundId: number,
+  itemId: number,
+  station: Station,
+  chefId: number,
+): Promise<ApiStationTicket> {
+  return api<ApiStationTicket>(`${STATION_PATH[station]}/${roundId}/items/${itemId}`, {
+    method: 'PUT',
+    body: { status: 'preparing', chef_id: chefId },
+  })
+}
+
+/**
+ * One dish is plated: stop its clock. The backend rolls the ticket up — once
+ * the last dish is ready the returned round is `ready`, and the card leaves
+ * the board.
+ */
+export function markTicketItemReady(
+  roundId: number,
+  itemId: number,
+  station: Station,
+): Promise<ApiStationTicket> {
+  return api<ApiStationTicket>(`${STATION_PATH[station]}/${roundId}/items/${itemId}`, {
     method: 'PUT',
     body: { status: 'ready' },
   })
