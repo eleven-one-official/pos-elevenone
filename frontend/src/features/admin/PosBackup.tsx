@@ -3,7 +3,7 @@ import {
   LuCircleAlert,
   LuDatabase,
   LuDownload,
-  LuFileSpreadsheet,
+  LuFileText,
   LuPlus,
   LuShieldCheck,
   LuTrash2,
@@ -15,11 +15,11 @@ import {
   createBackup,
   deleteBackup,
   downloadBackup,
-  exportOrdersCsv,
-  exportSalesDetailsCsv,
   fetchBackups,
   type Backup,
 } from '../../services/api/backups'
+import { fetchOrdersList, fetchSalesDetails } from '../../services/api/reports'
+import { downloadReportPdf, downloadTablePdf } from './exportPdf'
 
 // ---------------------------------------------------------------------------
 // Data Backup (admin only). Two jobs on one screen:
@@ -117,7 +117,7 @@ export default function PosBackup() {
       })
   }
 
-  const runExport = (kind: 'orders' | 'sales') => {
+  const runExport = async (kind: 'orders' | 'sales') => {
     if (from > to) {
       setExportError('The "from" date must be on or before the "to" date.')
       return
@@ -126,10 +126,90 @@ export default function PosBackup() {
     setExportError(null)
     const start = dayStartIso(from)
     const end = dayEndIso(to)
-    const call = kind === 'orders' ? exportOrdersCsv(start, end) : exportSalesDetailsCsv(start, end)
-    call
-      .catch((e: unknown) => setExportError(errorMessage(e, 'Export failed.')))
-      .finally(() => setExporting(null))
+    const range = from === to ? from : `${from} — ${to}`
+    const stamp = from === to ? from : `${from}_${to}`
+
+    try {
+      if (kind === 'orders') {
+        const rows = await fetchOrdersList(start, end)
+        await downloadTablePdf({
+          fileName: `orders-${stamp}.pdf`,
+          title: 'Orders',
+          subtitle: `${range} · ${rows.length} order${rows.length === 1 ? '' : 's'}`,
+          landscape: true,
+          columns: [
+            { header: 'Order #' },
+            { header: 'Date' },
+            { header: 'Time' },
+            { header: 'Type' },
+            { header: 'Table' },
+            { header: 'Staff' },
+            { header: 'Guests', align: 'right' },
+            { header: 'Items', align: 'right' },
+            { header: 'Subtotal', align: 'right' },
+            { header: 'Discount', align: 'right' },
+            { header: 'Total', align: 'right' },
+            { header: 'Status' },
+          ],
+          rows: rows.map((o) => [
+            o.order_number,
+            o.date,
+            o.time,
+            o.type,
+            o.table ?? '',
+            o.staff ?? '',
+            o.guests,
+            o.items,
+            o.subtotal.toFixed(2),
+            o.discount.toFixed(2),
+            o.total.toFixed(2),
+            o.status,
+          ]),
+        })
+      } else {
+        const data = await fetchSalesDetails(start, end)
+        await downloadReportPdf({
+          fileName: `sales-details-${stamp}.pdf`,
+          title: 'Sales Details',
+          subtitle: range,
+          sections: [
+            {
+              sectionTitle: 'Products',
+              columns: [
+                { header: 'Product' },
+                { header: 'Category' },
+                { header: 'Quantity', align: 'right' },
+                { header: 'Amount', align: 'right' },
+              ],
+              rows: data.products.map((p) => [p.name, p.category, p.quantity, p.amount.toFixed(2)]),
+            },
+            {
+              sectionTitle: 'Payments',
+              columns: [
+                { header: 'Method' },
+                { header: 'Count', align: 'right' },
+                { header: 'Amount', align: 'right' },
+              ],
+              rows: data.payments.map((p) => [p.label, p.count, Number(p.amount).toFixed(2)]),
+            },
+            {
+              sectionTitle: 'Summary',
+              numbered: false,
+              columns: [{ header: '' }, { header: '', align: 'right' }],
+              rows: [
+                ['Orders', data.orders_count],
+                ['Guests', data.guests],
+                ['Net Total', data.total.toFixed(2)],
+              ],
+            },
+          ],
+        })
+      }
+    } catch (e: unknown) {
+      setExportError(errorMessage(e, 'Export failed.'))
+    } finally {
+      setExporting(null)
+    }
   }
 
   return (
@@ -267,8 +347,8 @@ export default function PosBackup() {
         {/* ---- Daily report export ------------------------------------- */}
         <section>
           <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-neutral-700">
-            <LuFileSpreadsheet className="h-4 w-4 text-neutral-500" />
-            Daily report export (CSV)
+            <LuFileText className="h-4 w-4 text-neutral-500" />
+            Daily report export (PDF)
           </h2>
 
           <div className="rounded-[3px] border border-neutral-200 p-4">
@@ -297,27 +377,27 @@ export default function PosBackup() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => runExport('orders')}
+                  onClick={() => void runExport('orders')}
                   disabled={exporting !== null}
                   className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"
                 >
                   {exporting === 'orders' ? (
                     <Loader size="sm" className="text-neutral-700" />
                   ) : (
-                    <LuDownload className="h-4 w-4" />
+                    <LuFileText className="h-4 w-4" />
                   )}
                   Export Orders
                 </button>
                 <button
                   type="button"
-                  onClick={() => runExport('sales')}
+                  onClick={() => void runExport('sales')}
                   disabled={exporting !== null}
                   className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"
                 >
                   {exporting === 'sales' ? (
                     <Loader size="sm" className="text-neutral-700" />
                   ) : (
-                    <LuDownload className="h-4 w-4" />
+                    <LuFileText className="h-4 w-4" />
                   )}
                   Export Sales Details
                 </button>
@@ -331,8 +411,8 @@ export default function PosBackup() {
               </div>
             )}
             <p className="mt-3 text-[12px] text-neutral-400">
-              Opens in Excel / Google Sheets. “Orders” lists every bill in the range; “Sales Details” is
-              the product + payment breakdown (completed orders only).
+              Downloads a PDF. “Orders” lists every bill in the range; “Sales Details” is the product +
+              payment breakdown (completed orders only).
             </p>
           </div>
         </section>

@@ -31,21 +31,3 @@ export function deleteBackup(name: string): Promise<void> {
 export function downloadBackup(name: string): Promise<void> {
   return downloadFile(`/backups/${encodeURIComponent(name)}/download`, name)
 }
-
-/** Minutes east of UTC for this browser — the backend shifts the printed clock
- *  back to the venue's day with it (matches the reports' tz convention). */
-function tzMinutes(): number {
-  return -new Date().getTimezoneOffset()
-}
-
-/** Export every order in [start, end] (UTC ISO instants) as a CSV download. */
-export function exportOrdersCsv(start: string, end: string): Promise<void> {
-  const params = new URLSearchParams({ start, end, tz: String(tzMinutes()) })
-  return downloadFile(`/reports/export/orders?${params}`, 'orders.csv')
-}
-
-/** Export the Sales Details report for [start, end] as a CSV download. */
-export function exportSalesDetailsCsv(start: string, end: string): Promise<void> {
-  const params = new URLSearchParams({ start, end, tz: String(tzMinutes()) })
-  return downloadFile(`/reports/export/sales-details?${params}`, 'sales-details.csv')
-}

@@ -11,7 +11,6 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
@@ -627,12 +626,12 @@ class ReportController extends Controller
     }
 
     /**
-     * CSV of every order in ?start=&end= (UTC instants), one row per bill — the
-     * spreadsheet an admin keeps for the day. ?tz= (minutes east of UTC, as
-     * `-new Date().getTimezoneOffset()`) shifts the printed date/time back to
+     * Every order in ?start=&end= (UTC instants) as JSON, one row per bill —
+     * the data behind the admin's "Export Orders" PDF. ?tz= (minutes east of
+     * UTC, as `-new Date().getTimezoneOffset()`) shifts the shown date/time to
      * the venue's wall clock; the date window itself is already absolute.
      */
-    public function exportOrders(Request $request): StreamedResponse
+    public function ordersList(Request $request): JsonResponse
     {
         $request->validate([
             'start' => ['required', 'date'],
@@ -652,97 +651,25 @@ class ReportController extends Controller
             ->orderBy('created_at')
             ->get();
 
-        // Local dates for the filename, so "orders-20260722.csv" reads as the
-        // venue's day rather than a UTC one.
-        $localStart = $start->copy()->addMinutes($tzMinutes);
-        $localEnd = $end->copy()->addMinutes($tzMinutes);
-        $filename = 'orders-'.$localStart->format('Ymd')
-            .($localStart->format('Ymd') === $localEnd->format('Ymd') ? '' : '-'.$localEnd->format('Ymd'))
-            .'.csv';
-
-        return $this->streamCsv($filename, function ($out) use ($orders, $typeLabels, $tzMinutes) {
-            fputcsv($out, [
-                'Order #', 'Date', 'Time', 'Type', 'Table', 'Staff',
-                'Guests', 'Items', 'Subtotal', 'Discount', 'Total', 'Status',
-            ]);
-
-            foreach ($orders as $order) {
+        return response()->json(
+            $orders->map(function (Order $order) use ($typeLabels, $tzMinutes) {
                 $at = $order->created_at?->copy()->addMinutes($tzMinutes);
-                fputcsv($out, [
-                    $order->order_number,
-                    $at?->format('Y-m-d'),
-                    $at?->format('H:i'),
-                    $typeLabels[$order->order_type] ?? $order->order_type,
-                    $order->table?->name ?? '',
-                    $order->user?->name ?? '',
-                    (int) $order->guest_count,
-                    (int) $order->item_quantity,
-                    number_format((float) $order->subtotal, 2, '.', ''),
-                    number_format((float) $order->discount, 2, '.', ''),
-                    number_format((float) $order->total, 2, '.', ''),
-                    $order->status,
-                ]);
-            }
-        });
-    }
 
-    /**
-     * CSV of the Sales Details report — product lines, then the payment
-     * breakdown, then the day's totals. Reuses salesDetailsData() so the
-     * spreadsheet reconciles with the on-screen report exactly.
-     */
-    public function exportSalesDetails(Request $request): StreamedResponse
-    {
-        $data = $this->salesDetailsData($request);
-
-        $tzMinutes = max(-840, min(840, $request->integer('tz')));
-        $localStart = $request->date('start')->utc()->addMinutes($tzMinutes);
-        $localEnd = $request->date('end')->utc()->addMinutes($tzMinutes);
-        $filename = 'sales-details-'.$localStart->format('Ymd')
-            .($localStart->format('Ymd') === $localEnd->format('Ymd') ? '' : '-'.$localEnd->format('Ymd'))
-            .'.csv';
-
-        return $this->streamCsv($filename, function ($out) use ($data) {
-            fputcsv($out, ['Products']);
-            fputcsv($out, ['Product', 'Category', 'Quantity', 'Amount']);
-            foreach ($data['products'] as $product) {
-                fputcsv($out, [
-                    $product['name'],
-                    $product['category'],
-                    $product['quantity'],
-                    number_format((float) $product['amount'], 2, '.', ''),
-                ]);
-            }
-
-            fputcsv($out, []);
-            fputcsv($out, ['Payments']);
-            fputcsv($out, ['Method', 'Count', 'Amount']);
-            foreach ($data['payments'] as $payment) {
-                fputcsv($out, [
-                    $payment['label'],
-                    (int) $payment['count'],
-                    number_format((float) $payment['amount'], 2, '.', ''),
-                ]);
-            }
-
-            fputcsv($out, []);
-            fputcsv($out, ['Orders', $data['orders_count']]);
-            fputcsv($out, ['Guests', $data['guests']]);
-            fputcsv($out, ['Total', number_format((float) $data['total'], 2, '.', '')]);
-        });
-    }
-
-    /**
-     * Stream a CSV download. A UTF-8 BOM leads the file so Excel renders Khmer
-     * item names and the riel sign correctly; $writer receives the open handle.
-     */
-    private function streamCsv(string $filename, callable $writer): StreamedResponse
-    {
-        return response()->streamDownload(function () use ($writer) {
-            $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF");
-            $writer($out);
-            fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+                return [
+                    'order_number' => $order->order_number,
+                    'date' => $at?->format('Y-m-d'),
+                    'time' => $at?->format('H:i'),
+                    'type' => $typeLabels[$order->order_type] ?? $order->order_type,
+                    'table' => $order->table?->name,
+                    'staff' => $order->user?->name,
+                    'guests' => (int) $order->guest_count,
+                    'items' => (int) $order->item_quantity,
+                    'subtotal' => (float) $order->subtotal,
+                    'discount' => (float) $order->discount,
+                    'total' => (float) $order->total,
+                    'status' => $order->status,
+                ];
+            })->values()
+        );
     }
 }

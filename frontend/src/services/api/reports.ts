@@ -253,3 +253,31 @@ export function fetchChefPerformance(filters: ChefPerformanceFilters): Promise<C
   if (filters.station) params.set('station', filters.station)
   return api<ChefPerformanceData>(`/reports/chef-performance?${params}`)
 }
+
+// --- Orders list (for the admin's "Export Orders" PDF) ---------------------
+
+/** One bill in the export — date/time already shifted to the browser's day. */
+export type OrderListRow = {
+  order_number: string | null
+  date: string | null
+  time: string | null
+  type: string | null
+  table: string | null
+  staff: string | null
+  guests: number
+  items: number
+  subtotal: number
+  discount: number
+  total: number
+  status: string
+}
+
+/** Every order between two UTC instants, one row per bill (newest last). */
+export function fetchOrdersList(start: string, end: string): Promise<OrderListRow[]> {
+  const params = new URLSearchParams({
+    start,
+    end,
+    tz: String(-new Date().getTimezoneOffset()),
+  })
+  return api<OrderListRow[]>(`/reports/orders-list?${params}`)
+}

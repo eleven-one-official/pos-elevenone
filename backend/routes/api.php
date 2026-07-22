@@ -142,12 +142,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/pos-configs', [ReportController::class, 'posConfigs']);
         Route::get('/reports/chef-performance', [ReportController::class, 'chefPerformance']);
 
-        // CSV exports for the daily archival routine — the same report data the
-        // screens show, streamed as a spreadsheet (UTF-8 BOM so Excel reads
-        // Khmer and the riel sign). ?start=&end= are UTC instants; ?tz= (minutes
-        // east of UTC) shifts the displayed clock back to the venue's day.
-        Route::get('/reports/export/orders', [ReportController::class, 'exportOrders']);
-        Route::get('/reports/export/sales-details', [ReportController::class, 'exportSalesDetails']);
+        // Orders list (JSON) behind the admin's "Export Orders" PDF — one row
+        // per bill. ?start=&end= are UTC instants; ?tz= (minutes east of UTC)
+        // shifts the shown clock to the venue's day. The "Sales Details" PDF
+        // reuses /reports/sales-details above.
+        Route::get('/reports/orders-list', [ReportController::class, 'ordersList']);
     });
 
     /*
