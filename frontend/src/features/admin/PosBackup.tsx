@@ -60,6 +60,7 @@ export default function PosBackup() {
 
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -104,14 +105,16 @@ export default function PosBackup() {
       .finally(() => setDownloading(null))
   }
 
-  const handleDelete = (name: string) => {
-    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return
+  const remove = (name: string) => {
     setDeleting(name)
     setError(null)
     deleteBackup(name)
       .then(() => setBackups((list) => list.filter((b) => b.name !== name)))
       .catch((e: unknown) => setError(errorMessage(e, 'Delete failed.')))
-      .finally(() => setDeleting(null))
+      .finally(() => {
+        setDeleting(null)
+        setConfirmDelete(null)
+      })
   }
 
   const runExport = (kind: 'orders' | 'sales') => {
@@ -237,7 +240,7 @@ export default function PosBackup() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(b.name)}
+                            onClick={() => setConfirmDelete(b.name)}
                             disabled={deleting === b.name}
                             title="Delete"
                             className="inline-flex items-center rounded px-2 py-1 text-red-600 transition hover:bg-red-50 disabled:opacity-50"
@@ -334,6 +337,49 @@ export default function PosBackup() {
           </div>
         </section>
       </div>
+
+      {/* Delete confirmation — Odoo-style popup (matches the rest of the admin). */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => deleting === null && setConfirmDelete(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-[3px] border border-neutral-200 bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-neutral-200 px-5 py-3 text-[15px] font-semibold text-neutral-800">
+              Confirmation
+            </div>
+            <div className="px-5 py-4 text-sm text-neutral-700">
+              <p>
+                Delete this backup? This cannot be undone.
+                <span className="ml-1 text-neutral-400">លុប backup នេះ? មិនអាចត្រឡប់វិញបានទេ។</span>
+              </p>
+              <p className="mt-2 break-all font-mono text-[12px] text-neutral-500">{confirmDelete}</p>
+            </div>
+            <div className="flex gap-1.5 border-t border-neutral-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => remove(confirmDelete)}
+                disabled={deleting !== null}
+                className="inline-flex items-center gap-1.5 rounded-[3px] bg-red-600 px-4 py-1.5 text-sm text-white transition hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting === confirmDelete && <Loader size="sm" className="text-white" />}
+                Delete
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting !== null}
+                className="rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
