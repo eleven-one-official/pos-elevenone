@@ -214,8 +214,13 @@ export async function downloadReportPdf(opts: PdfReportOptions): Promise<void> {
     })
     if (numbered) columnStyles[0] = { halign: 'right', cellWidth: 10 }
 
+    // A section with no header text (e.g. the Summary key/value list) skips the
+    // header row entirely instead of drawing an empty ruled band.
+    const showHead = section.columns.some((c) => c.header !== '')
+
     autoTable(doc, {
       head: [columns.map((c) => c.header)],
+      showHead: showHead ? 'everyPage' : 'never',
       body: body.length > 0 ? body : [[{ content: 'No rows.', colSpan: columns.length }]],
       startY: y,
       // Fixed layout so the widths above are honoured and stacked sections align.
