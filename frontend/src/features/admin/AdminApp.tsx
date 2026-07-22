@@ -3,7 +3,6 @@ import type { IconType } from 'react-icons'
 import {
   LuBoxes,
   LuCalculator,
-  LuClock,
   LuGrip,
   LuLayoutGrid,
   LuLogOut,
@@ -103,14 +102,13 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
       { id: 'settings', label: 'Settings' },
       { id: 'payment-methods', label: 'Payment Methods' },
       { id: 'tables', label: 'Tables' },
-      { id: 'chefs', label: 'Chefs' },
     ],
   },
 ]
 
-// The Employees module is a single screen, but it still gets a top-bar menu so
-// the chrome reads the same as Point of Sale.
-const EMPLOYEE_MENUS: typeof POS_MENUS = [{ label: 'Employees' }]
+// The Employees module carries the staff directory plus the kitchen chef
+// roster (cooks aren't user accounts, but they're staff, so they live here).
+const EMPLOYEE_MENUS: typeof POS_MENUS = [{ label: 'Employees' }, { label: 'Chefs' }]
 
 // Modules with real screens hang their top-bar menus here; the rest render a
 // placeholder with no menus.
@@ -224,7 +222,11 @@ export default function AdminApp({
 
   const content =
     active.key === 'employees' ? (
-      <HrEmployees />
+      tab.menu === 'Chefs' ? (
+        <PosChefs />
+      ) : (
+        <HrEmployees />
+      )
     ) : active.key !== 'pos' ? (
       <ModulePlaceholder icon={active.icon} title={active.label} />
     ) : tab.menu === 'Dashboard' ? (
@@ -245,8 +247,6 @@ export default function AdminApp({
       <PosPaymentMethods />
     ) : tab.menu === 'Configuration' && tab.item === 'Tables' ? (
       <PosTables />
-    ) : tab.menu === 'Configuration' && tab.item === 'Chefs' ? (
-      <PosChefs />
     ) : tab.menu === 'Reporting' && tab.item === 'Audit Log' ? (
       <PosAuditLog />
     ) : tab.menu === 'Reporting' && tab.item === 'Sales Dashboard' ? (
@@ -340,20 +340,6 @@ export default function AdminApp({
 
         <div className="ml-auto flex items-center gap-1">
           <ZoomControl tone="dark" size="sm" className="mr-1" />
-          <button
-            type="button"
-            aria-label="Messages"
-            className="relative rounded p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <LuMessageSquare className="h-4.5 w-4.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Activities"
-            className="rounded p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <LuClock className="h-4.5 w-4.5" />
-          </button>
 
           {/* Company switcher — Odoo-style multi-company dropdown */}
           <div className="relative">
