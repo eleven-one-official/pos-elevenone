@@ -488,7 +488,9 @@ export default function PosOrdersAnalysis() {
       : null
     return m && MEASURE_DEFS[m] ? m : 'Total Price'
   })
-  const [pivotMeasures, setPivotMeasures] = useState<Set<string>>(new Set(['Total Price']))
+  const [pivotMeasures, setPivotMeasures] = useState<Set<string>>(
+    new Set(['Product Quantity', 'Total Price']),
+  )
   // Chart type — dev builds can preselect with `?chart=line|pie`.
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(() => {
     const c = import.meta.env.DEV
