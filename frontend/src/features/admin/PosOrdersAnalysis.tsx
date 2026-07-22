@@ -575,7 +575,7 @@ export default function PosOrdersAnalysis() {
   // The chart plots the first group-by dimension (deeper levels only show in
   // the facet chip, like Odoo's graph view flattens them). The dimension and
   // the widest checked time filter query the backend.
-  const groupDim = groups[0] ?? 'Product Category'
+  const groupDim = groups[0] ?? 'Product'
   const timeChecked = TIME_FILTERS.filter((f) => checkedFilters.has(f))
   const period: AnalysisPeriod =
     timeChecked.length === 0
