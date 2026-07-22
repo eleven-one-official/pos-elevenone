@@ -206,7 +206,7 @@ export default function PosSalesDashboard() {
                     {top.map((t) => (
                       <tr key={t.menu_item_id} className="border-b border-neutral-100 text-neutral-700">
                         <td className="py-2 pr-4 text-neutral-800">{t.name}</td>
-                        <td className="py-2 pr-4 text-right">{Number(t.total_quantity)}</td>
+                        <td className="py-2 pr-4 text-right">x{Number(t.total_quantity)}</td>
                         <td className="py-2 text-right">{usd(t.total_sales)}</td>
                       </tr>
                     ))}

@@ -1021,7 +1021,7 @@ function Details({
                           r.lines.map((l, i) => (
                             <li key={`${l.name}-${i}`} className="flex items-baseline gap-2">
                               <span className="w-8 shrink-0 text-right font-semibold tabular-nums text-neutral-800">
-                                {l.quantity}×
+                                x{l.quantity}
                               </span>
                               <span className="text-neutral-800">{l.name}</span>
                               {l.note && (
@@ -1045,9 +1045,9 @@ function Details({
   )
 }
 
-/** "2× Fish Amok · 1× Lok Lak" — the ticket in one line. */
+/** "x2 Fish Amok · x1 Lok Lak" — the ticket in one line. */
 function dishList(r: ChefTicket): string {
-  return r.lines.map((l) => `${l.quantity}× ${l.name}`).join(' · ')
+  return r.lines.map((l) => `x${l.quantity} ${l.name}`).join(' · ')
 }
 
 // --- Export — the same rows, as a PDF or an Excel workbook ------------------

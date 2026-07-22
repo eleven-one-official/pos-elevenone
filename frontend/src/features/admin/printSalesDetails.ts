@@ -63,7 +63,7 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
     (l) => `
       <tr>
         <td>${escapeHtml(l.name)}</td>
-        <td class="num">${l.quantity}</td>
+        <td class="num">x${l.quantity}</td>
         <td class="num">${money(l.price)}</td>
         <td class="num">${money(l.amount)}</td>
       </tr>`,
@@ -74,7 +74,7 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
       (c) => `
       <tr>
         <td>${escapeHtml(c.name)}</td>
-        <td class="num">${c.qty}</td>
+        <td class="num">x${c.qty}</td>
         <td class="num">${money(c.amount)}</td>
       </tr>`,
     )

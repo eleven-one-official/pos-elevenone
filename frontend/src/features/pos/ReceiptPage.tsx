@@ -300,7 +300,7 @@ export default function ReceiptPage({
                     ) : null}
                     {line.note ? <div className="text-xs italic text-neutral-400">{line.note}</div> : null}
                   </td>
-                  <td className="py-1.5 text-center text-neutral-600">{line.qty}</td>
+                  <td className="py-1.5 text-center text-neutral-600">x{line.qty}</td>
                   <td className="py-1.5 text-right text-neutral-600">{money(line.price)}</td>
                   <td className="py-1.5 text-right font-medium text-neutral-800">
                     {money(line.qty * line.price)}

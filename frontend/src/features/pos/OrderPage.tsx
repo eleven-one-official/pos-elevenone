@@ -1276,7 +1276,7 @@ function BillDialog({
           <div key={l.id} className="flex items-start justify-between py-2 text-sm">
             <span className="text-neutral-800">
               {l.name}
-              <span className="ml-1 text-neutral-400">×{l.qty}</span>
+              <span className="ml-1 text-neutral-400">x{l.qty}</span>
               {l.discount ? <span className="ml-1 text-rose-500">−{l.discount}%</span> : null}
             </span>
             <span className="font-medium text-neutral-800">{money(lineNet(l))}</span>
@@ -1452,7 +1452,7 @@ function SplitDialog({
                     >
                       <LuMinus className="h-4 w-4" />
                     </button>
-                    <span className="w-6 text-center font-semibold text-neutral-700">×{l.qty}</span>
+                    <span className="w-6 text-center font-semibold text-neutral-700">x{l.qty}</span>
                     <span className="w-16 text-right font-semibold text-emerald-700">{money(lineNet(l))}</span>
                   </span>
                 </div>

@@ -539,7 +539,7 @@ export default function WaiterOrderPage({
 
                     {/* Quantity (edited via the numpad) */}
                     <span className="w-8 shrink-0 text-center text-base font-bold tabular-nums text-neutral-800">
-                      {line.qty}
+                      x{line.qty}
                     </span>
 
                     <span className="w-16 shrink-0 text-right font-semibold text-neutral-800">

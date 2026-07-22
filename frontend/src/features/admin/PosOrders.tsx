@@ -474,7 +474,7 @@ function OrderDetail({
                   <tr key={line.id} className="border-b border-neutral-100 text-neutral-700">
                     <td className="py-2 pr-4 text-neutral-800">{line.name}</td>
                     <td className="py-2 pr-4 text-right">{money(line.price)}</td>
-                    <td className="py-2 pr-4 text-right">{line.quantity}</td>
+                    <td className="py-2 pr-4 text-right">x{line.quantity}</td>
                     <td className="py-2 pr-4">{line.note ?? ''}</td>
                     <td className="py-2 text-right">{money(line.line_total)}</td>
                   </tr>

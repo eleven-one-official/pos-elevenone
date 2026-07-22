@@ -1056,7 +1056,7 @@ function HistoryRow({ ticket }: { ticket: ApiStationTicket }) {
         {items.map((item) => (
           <li key={item.id} className="flex items-baseline gap-2 text-sm text-neutral-700">
             <span className="min-w-6 shrink-0 rounded bg-neutral-100 px-1.5 text-center font-bold tabular-nums text-neutral-800">
-              {item.quantity}
+              x{item.quantity}
             </span>
             <span className="leading-tight">{item.name}</span>
           </li>
@@ -1178,7 +1178,7 @@ function TicketCard({
           <li key={item.id}>
             <div className="flex items-baseline gap-2.5">
               <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
-                {item.quantity}
+                x{item.quantity}
               </span>
               <span className="text-base font-semibold leading-tight text-neutral-800">{item.name}</span>
             </div>
