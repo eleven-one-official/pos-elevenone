@@ -172,30 +172,36 @@ export default function PosBackup() {
           fileName: `sales-details-${stamp}.pdf`,
           title: 'Sales Details',
           subtitle: range,
+          // Fixed widths so the numeric columns line up across all three
+          // sections (No 10 + section columns = 182mm content width). Quantity
+          // and Count share a width/position, and every Amount aligns.
           sections: [
             {
               sectionTitle: 'Products',
               columns: [
-                { header: 'Product' },
-                { header: 'Category' },
-                { header: 'Quantity', align: 'right' },
-                { header: 'Amount', align: 'right' },
+                { header: 'Product', width: 76 },
+                { header: 'Category', width: 40 },
+                { header: 'Quantity', align: 'right', width: 26 },
+                { header: 'Amount', align: 'right', width: 30 },
               ],
               rows: data.products.map((p) => [p.name, p.category, p.quantity, p.amount.toFixed(2)]),
             },
             {
               sectionTitle: 'Payments',
               columns: [
-                { header: 'Method' },
-                { header: 'Count', align: 'right' },
-                { header: 'Amount', align: 'right' },
+                { header: 'Method', width: 116 },
+                { header: 'Count', align: 'right', width: 26 },
+                { header: 'Amount', align: 'right', width: 30 },
               ],
               rows: data.payments.map((p) => [p.label, p.count, Number(p.amount).toFixed(2)]),
             },
             {
               sectionTitle: 'Summary',
               numbered: false,
-              columns: [{ header: '' }, { header: '', align: 'right' }],
+              columns: [
+                { header: '', width: 152 },
+                { header: '', align: 'right', width: 30 },
+              ],
               rows: [
                 ['Orders', data.orders_count],
                 ['Guests', data.guests],

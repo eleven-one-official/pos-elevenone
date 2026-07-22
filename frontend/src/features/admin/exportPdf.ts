@@ -18,6 +18,9 @@ export type PdfColumn = {
   header: string
   /** Numeric columns read better flushed right. */
   align?: 'left' | 'right'
+  /** Fixed column width in mm. Set it on the same-meaning columns of stacked
+   *  sections so they line up vertically (see downloadReportPdf). */
+  width?: number
 }
 
 export type PdfTableOptions = {
@@ -202,9 +205,12 @@ export async function downloadReportPdf(opts: PdfReportOptions): Promise<void> {
       y += 4
     }
 
-    const columnStyles: Record<number, { halign: 'right'; cellWidth?: number }> = {}
+    const columnStyles: Record<number, { halign?: 'right'; cellWidth?: number }> = {}
     columns.forEach((c, i) => {
-      if (c.align === 'right') columnStyles[i] = { halign: 'right' }
+      const style: { halign?: 'right'; cellWidth?: number } = {}
+      if (c.align === 'right') style.halign = 'right'
+      if (c.width != null) style.cellWidth = c.width
+      if (style.halign || style.cellWidth != null) columnStyles[i] = style
     })
     if (numbered) columnStyles[0] = { halign: 'right', cellWidth: 10 }
 
@@ -212,6 +218,8 @@ export async function downloadReportPdf(opts: PdfReportOptions): Promise<void> {
       head: [columns.map((c) => c.header)],
       body: body.length > 0 ? body : [[{ content: 'No rows.', colSpan: columns.length }]],
       startY: y,
+      // Fixed layout so the widths above are honoured and stacked sections align.
+      tableWidth: pageWidth - 28,
       margin: { top: 22, left: 14, right: 14, bottom: 16 },
       theme: 'plain',
       styles: {
