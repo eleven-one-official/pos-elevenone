@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LuX } from 'react-icons/lu'
+import { DateTimeField, formatDateTime } from '../../components/ui/DateTimeField'
 import { Loader } from '../../components/ui/Loader'
 import { fetchSalesDetails, type SalesDetailsData } from '../../services/api/reports'
 import { buildSalesDetailsHtml, printSalesDetails } from './printSalesDetails'
@@ -22,27 +23,9 @@ const ALL_CONFIGS = [
 
 const REPORT_TYPES: SalesReportType[] = ['Product', 'Category', 'Both']
 
-const pad = (n: number) => String(n).padStart(2, '0')
-
-/** datetime-local value, e.g. "2026-07-18T07:22". */
-function toLocalInput(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-/** datetime-local values are naive wall-clock, but the backend stores and reads
- *  UTC — send the absolute instant so the range means what the user picked. */
-function toUtcIso(value: string): string {
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toISOString()
-}
-
-/** Odoo-style datetime label for the printed header, e.g. "18-Jul-2026 07:22". */
-function fmtDateTime(value: string): string {
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  const month = d.toLocaleString('en-GB', { month: 'short' })
-  return `${pad(d.getDate())}-${month}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+/** The picker holds a wall-clock Date; the backend stores and reads UTC, so
+ *  send the absolute instant to keep the range meaning what the user picked. */
+const toUtcIso = (d: Date): string => d.toISOString()
 
 /** The wizard defaults to "today's business day so far": the shop opens at
  *  07:00, so the start defaults to 7 AM today, through now. */
@@ -50,7 +33,8 @@ function defaultDates() {
   const now = new Date()
   const start = new Date(now)
   start.setHours(7, 0, 0, 0)
-  return { start: toLocalInput(start), end: toLocalInput(now) }
+  now.setSeconds(0, 0)
+  return { start, end: now }
 }
 
 const DATE_INPUT =
@@ -76,14 +60,14 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
 
   useEffect(() => {
     if (preview === null) return
-    const start = preview || initial.start
+    const start = preview ? new Date(preview) : initial.start
     fetchSalesDetails(toUtcIso(start), toUtcIso(initial.end))
       .then((data) =>
         setPreviewHtml(
           buildSalesDetailsHtml(
             {
-              startDate: fmtDateTime(start),
-              endDate: fmtDateTime(initial.end),
+              startDate: formatDateTime(start),
+              endDate: formatDateTime(initial.end),
               reportType: 'Both',
               configs: ALL_CONFIGS,
             },
@@ -105,8 +89,8 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
   }
 
   const params: SalesDetailsParams = {
-    startDate: fmtDateTime(startDate),
-    endDate: fmtDateTime(endDate),
+    startDate: formatDateTime(startDate),
+    endDate: formatDateTime(endDate),
     reportType,
     configs,
   }
@@ -115,8 +99,8 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
 
   const print = async () => {
     if (printing) return
-    if (!startDate || !endDate) {
-      setError('Pick a start and end date.')
+    if (startDate > endDate) {
+      setError('The start date must be before the end date.')
       return
     }
     if (configs.length === 0) {
@@ -184,22 +168,20 @@ export default function SalesDetailsDialog({ onClose }: { onClose: () => void })
             <label className="text-[13px] font-semibold text-neutral-800" htmlFor="sd-start">
               Start Date
             </label>
-            <input
+            <DateTimeField
               id="sd-start"
-              type="datetime-local"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={setStartDate}
               className={DATE_INPUT}
             />
 
             <label className="text-[13px] font-semibold text-neutral-800" htmlFor="sd-end">
               End Date
             </label>
-            <input
+            <DateTimeField
               id="sd-end"
-              type="datetime-local"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={setEndDate}
               className={DATE_INPUT}
             />
 
