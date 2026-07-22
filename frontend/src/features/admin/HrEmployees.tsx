@@ -25,25 +25,54 @@ import {
   type AdminUser,
   type UserInput,
 } from '../../services/api/users'
+import { deleteChef, fetchChefs, type Chef } from '../../services/api/chefs'
 import { ApiError } from '../../services/api/client'
+import ChefForm from './ChefForm'
 import FacetChip, { type Facet } from './FacetChip'
 import { BLUE_SELECT, FIELD_BG, FieldGroup, LABEL, TEXT_INPUT } from './formKit'
 import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 
 // ---------------------------------------------------------------------------
-// Employees module — the staff directory over the admin-only /users CRUD.
-// Rebuilt as an Odoo-style employee kanban: colored-avatar cards by default,
-// the same Filters / Group By / Favorites search panel the other back-office
-// screens use, a COMPANY side panel, and the old editable table kept as the
-// "list" view (that's where PINs get revealed and staff get bulk-deleted).
-// This is where cashier PINs get set/reset; waiters tap in with no PIN, so
-// their accounts simply leave PIN login off.
+// Employees module — the staff directory. Real login accounts come from the
+// admin-only /users CRUD; kitchen chefs come from the lighter /chefs roster and
+// are folded into the same list (role "Chef"). Rebuilt as an Odoo-style
+// employee kanban: colored-avatar cards by default, the same Filters / Group By
+// / Favorites search panel the other back-office screens use, a COMPANY side
+// panel, and the old editable table kept as the "list" view (that's where PINs
+// get revealed and staff get bulk-deleted). This is where cashier PINs get
+// set/reset; waiters tap in with no PIN, so their accounts simply leave PIN
+// login off. Chefs have no login at all — they only name themselves on the KDS.
 // ---------------------------------------------------------------------------
 
 // One venue for now — the top-bar company switcher is placeholder chrome, so
 // the side panel mirrors it rather than modelling real branches.
 const COMPANY = 'ElevenOne TTP'
 const PAGE_SIZE = 80
+
+// Chefs share the list with real employees but live in their own table with an
+// independent id space. We display each chef as an employee-shaped row so the
+// existing kanban/filter/group machinery works unchanged; the offset keeps
+// selection ids from colliding with real user ids, and the carried `chef` marks
+// which API a row edits/deletes through.
+const CHEF_ID_OFFSET = 1_000_000
+type StaffUser = AdminUser & { chef?: Chef }
+
+function chefAsStaff(c: Chef): StaffUser {
+  return {
+    id: CHEF_ID_OFFSET + c.id,
+    name: c.name,
+    username: '',
+    email: null,
+    phone: null,
+    is_active: c.is_active,
+    role: { id: -1, name: 'Chef', slug: 'chef' },
+    password: null,
+    has_password: false,
+    pin: null,
+    has_pin: false,
+    chef: c,
+  }
+}
 
 // Search-panel menu contents, Odoo style. Filters render in divided sections;
 // filters inside a section OR together, sections AND together.
@@ -136,6 +165,7 @@ function errorText(e: unknown): string {
 
 export default function HrEmployees() {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const [chefs, setChefs] = useState<Chef[]>([])
   const [roles, setRoles] = useState<AdminRole[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -163,14 +193,17 @@ export default function HrEmployees() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [selected, setSelected] = useState<AdminUser | null>(null)
+  // What the Create dropdown opens next: a login employee or a kitchen chef.
+  const [creating, setCreating] = useState<'employee' | 'chef' | null>(null)
+  const [createMenuOpen, setCreateMenuOpen] = useState(false)
+  const [selected, setSelected] = useState<StaffUser | null>(null)
   // Row ids whose PIN is revealed — hidden again on reload for shoulder safety.
   const [shownPins, setShownPins] = useState<Set<number>>(new Set())
 
   const load = useCallback(async () => {
-    const [u, r] = await Promise.all([fetchUsers(), fetchRoles()])
+    const [u, c, r] = await Promise.all([fetchUsers(), fetchChefs(), fetchRoles()])
     setUsers(u)
+    setChefs(c)
     setRoles(r)
     setChecked(new Set())
   }, [])
@@ -261,9 +294,12 @@ export default function HrEmployees() {
     }
   }
 
+  // Real login accounts plus the kitchen chef roster, as one staff list.
+  const allStaff: StaffUser[] = users === null ? [] : [...users, ...chefs.map(chefAsStaff)]
+
   // Odoo search semantics. Archived records stay hidden unless Archived is on.
   const q = query.trim().toLowerCase()
-  const visible = (users ?? []).filter((u) => {
+  const visible = allStaff.filter((u) => {
     const haystack = `${u.name} ${u.username} ${u.email ?? ''} ${u.phone ?? ''} ${
       u.role?.name ?? ''
     }`.toLowerCase()
@@ -281,10 +317,10 @@ export default function HrEmployees() {
   const pageIndex = Math.min(page, pageCount - 1)
   const pageItems = visible.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE)
 
-  const grouped: Array<[string, AdminUser[]]> | null =
+  const grouped: Array<[string, StaffUser[]]> | null =
     groups.length > 0
       ? (() => {
-          const buckets = new Map<string, AdminUser[]>()
+          const buckets = new Map<string, StaffUser[]>()
           for (const u of pageItems) {
             const key = groups.map((g) => GROUP_VALUE[g]?.(u) ?? 'None').join(' / ')
             const bucket = buckets.get(key)
@@ -347,7 +383,10 @@ export default function HrEmployees() {
     setBusy(true)
     setActionError(null)
     try {
-      for (const id of checked) await deleteUser(id)
+      for (const id of checked) {
+        if (id >= CHEF_ID_OFFSET) await deleteChef(id - CHEF_ID_OFFSET)
+        else await deleteUser(id)
+      }
       await load()
     } catch (e: unknown) {
       setActionError(errorText(e))
@@ -361,7 +400,7 @@ export default function HrEmployees() {
 
   // --- Render pieces -------------------------------------------------------
 
-  const employeeCard = (u: AdminUser) => (
+  const employeeCard = (u: StaffUser) => (
     <article
       key={u.id}
       onClick={() => setSelected(u)}
@@ -406,7 +445,7 @@ export default function HrEmployees() {
     </article>
   )
 
-  const employeeRow = (u: AdminUser) => (
+  const employeeRow = (u: StaffUser) => (
     <tr
       key={u.id}
       onClick={() => setSelected(u)}
@@ -425,7 +464,7 @@ export default function HrEmployees() {
         <LuChevronsUpDown className="h-3.5 w-3.5" />
       </td>
       <td className="py-2 pr-4 text-neutral-800">{u.name}</td>
-      <td className="py-2 pr-4">{u.username}</td>
+      <td className="py-2 pr-4">{u.username || '—'}</td>
       <td className="py-2 pr-4">{u.role?.name ?? '—'}</td>
       <td className="py-2 pr-4">{u.phone ?? '—'}</td>
       <td className="py-2 pr-4" onClick={(e) => e.stopPropagation()}>
@@ -504,21 +543,18 @@ export default function HrEmployees() {
   }
 
   if (creating || selected) {
-    return (
-      <EmployeeForm
-        user={selected ?? undefined}
-        roles={roles}
-        onBack={() => {
-          setCreating(false)
-          setSelected(null)
-        }}
-        onSaved={async () => {
-          await load()
-          setCreating(false)
-          setSelected(null)
-        }}
-      />
-    )
+    const close = () => {
+      setCreating(null)
+      setSelected(null)
+    }
+    const saved = async () => {
+      await load()
+      close()
+    }
+    if (creating === 'chef' || selected?.chef) {
+      return <ChefForm chef={selected?.chef} onBack={close} onSaved={saved} />
+    }
+    return <EmployeeForm user={selected ?? undefined} roles={roles} onBack={close} onSaved={saved} />
   }
 
   const allPageChecked = pageItems.length > 0 && pageItems.every((u) => checked.has(u.id))
@@ -572,13 +608,48 @@ export default function HrEmployees() {
           <div>
             <h1 className="text-xl text-neutral-700">Employees</h1>
             <div className="mt-2 flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                className="rounded-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
-              >
-                Create
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setCreateMenuOpen((v) => !v)}
+                  className="flex items-center gap-1.5 rounded-[3px] bg-[#57779a] px-3 py-1.5 text-sm text-white transition hover:bg-[#4c6b8d]"
+                >
+                  Create
+                  <LuChevronDown className="h-3.5 w-3.5" />
+                </button>
+                {createMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close menu"
+                      onClick={() => setCreateMenuOpen(false)}
+                      className="fixed inset-0 z-10 cursor-default"
+                    />
+                    <div className="absolute left-0 top-full z-20 mt-1 min-w-40 border border-neutral-200/70 bg-white py-1 text-neutral-700 shadow-md">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreating('employee')
+                          setCreateMenuOpen(false)
+                        }}
+                        className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                      >
+                        Employee
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreating('chef')
+                          setCreateMenuOpen(false)
+                        }}
+                        className="block w-full px-4 py-1.5 text-left text-[13px] transition hover:bg-neutral-100"
+                      >
+                        Chef
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
               {checked.size > 0 && (
                 <button
                   type="button"
@@ -722,15 +793,15 @@ export default function HrEmployees() {
             }`}
           >
             <span className="truncate">{COMPANY}</span>
-            <span className="ml-2 shrink-0 text-neutral-400">{users.length}</span>
+            <span className="ml-2 shrink-0 text-neutral-400">{allStaff.length}</span>
           </button>
         </aside>
 
         <div className="min-w-0 flex-1 overflow-y-auto">
           {visible.length === 0 ? (
             <div className="p-10 text-center text-sm text-neutral-500">
-              {users.length === 0
-                ? 'No employees yet — hit Create to add the first one.'
+              {allStaff.length === 0
+                ? 'No staff yet — hit Create to add the first one.'
                 : query.trim()
                   ? `No employee matches "${query}".`
                   : 'No employee matches the current filters.'}
@@ -769,8 +840,9 @@ export default function HrEmployees() {
             </div>
             <p className="px-5 py-4 text-sm text-neutral-700">
               Are you sure you want to delete{' '}
-              {checked.size === 1 ? 'this employee' : `these ${checked.size} employees`}? They lose
-              all access immediately. Past orders and payments keep their history.
+              {checked.size === 1 ? 'this staff member' : `these ${checked.size} staff members`}?
+              Login accounts lose access immediately; chefs stop appearing in the kitchen display.
+              Past orders and payments keep their history.
             </p>
             <div className="flex gap-1.5 border-t border-neutral-200 px-5 py-3">
               <button

@@ -23,7 +23,6 @@ import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
 import PosCategories from './PosCategories'
 import PosChefPerformance from './PosChefPerformance'
-import PosChefs from './PosChefs'
 import PosCustomers from './PosCustomers'
 import PosDashboard from './PosDashboard'
 import PosOrders from './PosOrders'
@@ -106,9 +105,9 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
   },
 ]
 
-// The Employees module carries the staff directory plus the kitchen chef
-// roster (cooks aren't user accounts, but they're staff, so they live here).
-const EMPLOYEE_MENUS: typeof POS_MENUS = [{ label: 'Employees' }, { label: 'Chefs' }]
+// The Employees module is a single screen — the staff directory, which folds
+// the kitchen chef roster in alongside real login accounts.
+const EMPLOYEE_MENUS: typeof POS_MENUS = [{ label: 'Employees' }]
 
 // Modules with real screens hang their top-bar menus here; the rest render a
 // placeholder with no menus.
@@ -222,11 +221,7 @@ export default function AdminApp({
 
   const content =
     active.key === 'employees' ? (
-      tab.menu === 'Chefs' ? (
-        <PosChefs />
-      ) : (
-        <HrEmployees />
-      )
+      <HrEmployees />
     ) : active.key !== 'pos' ? (
       <ModulePlaceholder icon={active.icon} title={active.label} />
     ) : tab.menu === 'Dashboard' ? (
