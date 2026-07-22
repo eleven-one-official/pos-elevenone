@@ -678,6 +678,13 @@ export default function StationDisplayPage({
           {visible.length} active
         </span>
 
+        {/* The wall clock sits beside the active count — the two things a
+            station glances at together: how much is on, and what time it is. */}
+        <span className="hidden items-center gap-1.5 rounded-lg bg-neutral-100 px-3 py-2 text-sm font-semibold tabular-nums text-neutral-700 md:flex">
+          <LuClock className="h-4 w-4 text-neutral-400" />
+          {clockLabel(new Date(now))}
+        </span>
+
         {loadError && (
           <span className="hidden items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-600 sm:flex">
             <LuRefreshCw className="h-3.5 w-3.5" />
@@ -696,12 +703,7 @@ export default function StationDisplayPage({
           </button>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
-          <span className="hidden items-center gap-1.5 rounded-lg bg-neutral-100 px-3 py-2 text-sm font-semibold tabular-nums text-neutral-700 md:flex">
-            <LuClock className="h-4 w-4 text-neutral-400" />
-            {clockLabel(new Date(now))}
-          </span>
-
+        <div className="ml-auto flex items-center gap-3">
           <ZoomControl />
 
           <button
@@ -720,13 +722,18 @@ export default function StationDisplayPage({
             onClick={openHistory}
             aria-label="Sent out today"
             title="Sent out today"
-            className={`flex h-10 w-10 items-center justify-center rounded-lg transition ${
+            className={`flex h-10 flex-col items-center justify-center gap-0.5 rounded-lg px-3 transition ${
               historyOpen
                 ? 'bg-primary/10 text-primary'
                 : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900'
             }`}
           >
-            <LuHistory className="h-5 w-5" />
+            <LuHistory className="h-4 w-4" />
+            {/* A caption under the icon so a station knows this is where
+                already-sent tickets go, without hovering for the tooltip. */}
+            <span className="text-[9px] font-semibold uppercase leading-none tracking-wide">
+              History
+            </span>
           </button>
 
           <button
