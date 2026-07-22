@@ -1,11 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-// ---------------------------------------------------------------------------
-// App-wide error boundary — a render crash anywhere below shows a recoverable
-// screen instead of a white page mid-shift. Reload restores the session from
-// the stored token, so the cashier lands back where they can keep working.
-// ---------------------------------------------------------------------------
-
 type State = { error: Error | null }
 
 export default class ErrorBoundary extends Component<{ children: ReactNode }, State> {
