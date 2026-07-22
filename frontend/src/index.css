@@ -150,13 +150,15 @@ html {
 }
 
 /* ---------------------------------------------------------------------------
- * Kitchen ticket "a cook is on it" frame — once someone taps Start, a band of
- * colour keeps travelling around that card. Motion is what carries across a hot
- * line: from two metres away it separates the tickets somebody already owns
- * from the ones still waiting to be picked up, without anyone reading a word.
+ * Kitchen "a cook is on it" frame — once someone taps Start on a dish, a band
+ * of colour keeps travelling around that dish row (the kitchen works dish by
+ * dish, so the whole-ticket frame said less than the row it belongs to).
+ * Motion is what carries across a hot line: from two metres away it separates
+ * the dishes somebody already owns from the ones still waiting to be picked
+ * up, without anyone reading a word.
  *
  * The border is a conic gradient clipped to the border box (the white
- * padding-box layer on top is the card's own fill), and what animates is the
+ * padding-box layer on top is the row's own fill), and what animates is the
  * gradient's start angle — @property is what makes a custom property a real
  * animatable <angle>. Browsers without it hold a still gradient frame, which
  * still reads as "different from the rest".
@@ -167,9 +169,9 @@ html {
   inherits: false;
 }
 
-.kds-cooking {
-  /* Thick enough to be the first thing you see on a wall-mounted screen. */
-  border: 5px solid transparent;
+.kds-dish-cooking {
+  /* Sized for a dish row, not a whole ticket. */
+  border: 3px solid transparent;
   background:
     linear-gradient(#fff, #fff) padding-box,
     conic-gradient(
@@ -181,12 +183,13 @@ html {
         #fed7aa 360deg
       )
       border-box;
-  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.25), 0 6px 20px -6px rgba(249, 115, 22, 0.45);
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.2), 0 4px 12px -4px rgba(249, 115, 22, 0.4);
   animation: kds-cook-run 1.5s linear infinite;
 }
 
-/* The bar board runs the same frame in its own colour, so a glance at a screen
-   across the room says which station it is before any word is read. */
+/* The bar makes its ticket as one job, so its frame still runs around the
+   whole card — in the bar's own colour, so a glance at a screen across the
+   room says which station it is before any word is read. */
 .kds-pouring {
   border: 5px solid transparent;
   background:
@@ -211,7 +214,7 @@ html {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kds-cooking,
+  .kds-dish-cooking,
   .kds-pouring {
     animation: none;
   }

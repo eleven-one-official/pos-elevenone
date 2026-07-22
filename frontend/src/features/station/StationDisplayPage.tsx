@@ -98,7 +98,10 @@ const LOOKS: Record<Station, StationLook> = {
     icon: LuUtensils,
     namesMaker: true,
     activeLabel: 'Cooking',
-    activeFrame: 'kds-cooking',
+    // The kitchen card itself stays plain — its running colour sits on each
+    // dish being cooked instead (.kds-dish-cooking in DishRow), because the
+    // kitchen owns dishes, not tickets.
+    activeFrame: '',
     emptyHint: "New orders appear here the moment they're sent.",
     loadingLabel: 'Loading kitchen tickets…',
   },
@@ -1161,10 +1164,13 @@ function TicketCard({
   return (
     <article
       className={`flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition ${
-        // Someone has this one: a colour runs around the frame for as long as
-        // it's on the pass, so an owned ticket is obvious from across the room.
+        // The bar makes a ticket as one job, so its colour runs around the
+        // whole frame while someone pours. The kitchen's runs around each dish
+        // being cooked instead (see DishRow), so its card stays plain.
         active
-          ? look.activeFrame
+          ? perDish
+            ? 'border-neutral-200'
+            : look.activeFrame
           : isNew
             ? 'border-sky-400 ring-2 ring-sky-300'
             : 'border-neutral-200'
@@ -1344,12 +1350,14 @@ function DishRow({
 
   return (
     <li
-      className={`rounded-xl border px-3 py-2.5 transition ${
+      className={`rounded-xl px-3 py-2.5 transition ${
         done
-          ? 'border-emerald-200 bg-emerald-50/70'
+          ? 'border border-emerald-200 bg-emerald-50/70'
           : cooking
-            ? 'border-emerald-300 bg-white ring-1 ring-emerald-200'
-            : 'border-neutral-200 bg-white'
+            ? // A cook owns this dish — the colour runs around its row until
+              // they tap Ready (the class brings its own border and fill).
+              'kds-dish-cooking'
+            : 'border border-neutral-200 bg-white'
       }`}
     >
       {done ? (
