@@ -83,8 +83,9 @@ class ReportController extends Controller
      * Stats behind the dashboard's register cards. There is no session model;
      * the registers are the two "sides" (cashier POS vs waiter tablets), told
      * apart by the role of the user who fired the order. "Last closing" is the
-     * most recent day with a completed order; its cash balance sums that day's
-     * paid cash payments (only cashiers record payments).
+     * most recent finished day with a completed order — today is still trading,
+     * so it never counts as a closing; its cash balance sums that day's paid
+     * cash payments (only cashiers record payments).
      */
     public function posConfigs(): JsonResponse
     {
@@ -94,7 +95,11 @@ class ReportController extends Controller
             $open = (clone $ordersQuery)
                 ->whereIn('status', ['new', 'preparing', 'ready', 'served'])
                 ->count();
-            $lastCompleted = (clone $ordersQuery)->where('status', 'completed')->latest()->first();
+            $lastCompleted = (clone $ordersQuery)
+                ->where('status', 'completed')
+                ->whereDate('created_at', '<', today())
+                ->latest()
+                ->first();
 
             $cash = null;
             if ($withCash && $lastCompleted) {
@@ -193,15 +198,20 @@ class ReportController extends Controller
             $discountShare = $subtotal > 0 ? (float) $order->discount * $gross / $subtotal : 0.0;
             $net = $gross - $discountShare;
 
-            $row = $products[$line->name] ?? [
+            // One line per product AND unit price (Odoo-style), so a price
+            // change mid-period shows as two lines instead of a blended total.
+            // The zero-padded key keeps ksort ordering by name, then price.
+            $key = sprintf('%s|%012.2f', $line->name, (float) $line->price);
+            $row = $products[$key] ?? [
                 'name' => $line->name,
                 'category' => $line->menuItem?->category?->name ?? 'None',
+                'price' => round((float) $line->price, 2),
                 'quantity' => 0,
                 'amount' => 0.0,
             ];
             $row['quantity'] += $line->quantity;
             $row['amount'] += $net;
-            $products[$line->name] = $row;
+            $products[$key] = $row;
 
             $orderIds[$order->id] = true;
             $total += $net;

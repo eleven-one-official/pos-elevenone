@@ -99,6 +99,33 @@ class ReportsTest extends TestCase
         $this->assertSame(3, $cashierOnly->json('products.0.quantity'));
     }
 
+    public function test_sales_details_splits_a_product_line_per_unit_price(): void
+    {
+        $item = MenuItem::factory()->create(['name' => 'Iced Latte']);
+
+        // Same product sold at two unit prices (price changed mid-period) —
+        // one report line per price, cheapest first, not a blended total.
+        foreach ([[5, 1], [4, 2]] as [$price, $qty]) {
+            $order = Order::factory()->completed()->create([
+                'subtotal' => $price * $qty, 'total' => $price * $qty,
+            ]);
+            $order->items()->create([
+                'menu_item_id' => $item->id, 'name' => $item->name,
+                'price' => $price, 'quantity' => $qty, 'line_total' => $price * $qty,
+            ]);
+        }
+
+        Sanctum::actingAs($this->staff('manager'));
+        $range = 'start='.now()->startOfDay()->toDateTimeString().'&end='.now()->endOfDay()->toDateTimeString();
+
+        $products = $this->getJson("/api/reports/sales-details?{$range}")->assertOk()->json('products');
+
+        $this->assertCount(2, $products);
+        $this->assertSame([4.0, 5.0], array_map(fn ($p) => (float) $p['price'], $products));
+        $this->assertSame([2, 1], array_column($products, 'quantity'));
+        $this->assertSame([8.0, 5.0], array_map(fn ($p) => (float) $p['amount'], $products));
+    }
+
     public function test_sales_details_range_honours_the_clients_utc_offset(): void
     {
         // The admin dialog sends the picked wall-clock as an absolute instant.

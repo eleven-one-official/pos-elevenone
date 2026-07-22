@@ -69,8 +69,9 @@ export function fetchTopItems(limit = 10): Promise<TopItem[]> {
 
 // --- Dashboard register cards ----------------------------------------------
 
-/** Stats for one register card. last_closing_* is the most recent day with a
- *  completed order; cash is that day's paid cash total (cashier side only). */
+/** Stats for one register card. last_closing_* is the most recent finished day
+ *  (before today) with a completed order; cash is that day's paid cash total
+ *  (cashier side only). */
 export type PosConfigStats = {
   open_orders: number
   last_closing_date: string | null
@@ -86,6 +87,8 @@ export function fetchPosConfigs(): Promise<{ cashier: PosConfigStats; waiter: Po
 export type SalesDetailsProduct = {
   name: string
   category: string
+  /** Unit price — a product sold at two prices in the period gets two lines. */
+  price: number
   quantity: number
   amount: number
 }

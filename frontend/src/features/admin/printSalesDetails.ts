@@ -64,6 +64,7 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
       <tr>
         <td>${escapeHtml(l.name)}</td>
         <td class="num">${l.quantity}</td>
+        <td class="num">${money(l.price)}</td>
         <td class="num">${money(l.amount)}</td>
       </tr>`,
   ).join('')
@@ -86,11 +87,11 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
   <h2>Products</h2>
   <table>
     <thead>
-      <tr><th>Product</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
+      <tr><th>Product</th><th class="num">Quantity</th><th class="num">Price Unit</th><th class="num">Subtotal</th></tr>
     </thead>
-    <tbody>${productRows || emptyRow(3)}</tbody>
+    <tbody>${productRows || emptyRow(4)}</tbody>
     <tfoot>
-      <tr><td>Total</td><td></td><td class="num">${money(data.total)}</td></tr>
+      <tr><td>Total</td><td></td><td></td><td class="num">${money(data.total)}</td></tr>
     </tfoot>
   </table>`
 

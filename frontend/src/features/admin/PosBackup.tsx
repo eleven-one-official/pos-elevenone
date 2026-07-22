@@ -173,18 +173,26 @@ export default function PosBackup() {
           title: 'Sales Details',
           subtitle: range,
           // Fixed widths so the numeric columns line up across all three
-          // sections (No 10 + section columns = 182mm content width). Quantity
-          // and Count share a width/position, and every Amount aligns.
+          // sections (No 10 + section columns = 182mm content width). Price
+          // sits ahead of Quantity so Quantity and Count still share a
+          // width/position, and every Amount aligns.
           sections: [
             {
               sectionTitle: 'Products',
               columns: [
-                { header: 'Product', width: 76 },
-                { header: 'Category', width: 40 },
+                { header: 'Product', width: 68 },
+                { header: 'Category', width: 28 },
+                { header: 'Price', align: 'right', width: 20 },
                 { header: 'Quantity', align: 'right', width: 26 },
                 { header: 'Amount', align: 'right', width: 30 },
               ],
-              rows: data.products.map((p) => [p.name, p.category, p.quantity, p.amount.toFixed(2)]),
+              rows: data.products.map((p) => [
+                p.name,
+                p.category,
+                p.price.toFixed(2),
+                p.quantity,
+                p.amount.toFixed(2),
+              ]),
             },
             {
               sectionTitle: 'Payments',
