@@ -159,6 +159,41 @@ class ReportsTest extends TestCase
         $this->assertSame(10, $res->json('guests'));
     }
 
+    public function test_sales_details_payments_reconcile_with_the_orders_in_range(): void
+    {
+        $item = MenuItem::factory()->create();
+        $mk = function (array $attrs) use ($item) {
+            $order = Order::factory()->completed()->create(['subtotal' => 10, 'total' => 10, ...$attrs]);
+            $order->items()->create([
+                'menu_item_id' => $item->id, 'name' => $item->name,
+                'price' => 10, 'quantity' => 1, 'line_total' => 10,
+            ]);
+
+            return $order;
+        };
+
+        $today = $mk([]);
+        Payment::factory()->create(['order_id' => $today->id, 'amount' => 10, 'method' => 'cash']);
+
+        // Paid TODAY, but the order belongs to yesterday's report — a table
+        // opened before midnight must not inflate today's payments column.
+        $late = $mk(['created_at' => now()->subDay()]);
+        Payment::factory()->create(['order_id' => $late->id, 'amount' => 10, 'method' => 'khqr']);
+
+        // A voided order's stray payment is not money the report reconciles.
+        $void = Order::factory()->create(['status' => 'cancelled', 'subtotal' => 10, 'total' => 10]);
+        Payment::factory()->create(['order_id' => $void->id, 'amount' => 10, 'method' => 'card']);
+
+        Sanctum::actingAs($this->staff('manager'));
+        $range = 'start='.now()->startOfDay()->toDateTimeString().'&end='.now()->endOfDay()->toDateTimeString();
+
+        $res = $this->getJson("/api/reports/sales-details?{$range}")->assertOk();
+
+        $paid = collect($res->json('payments'));
+        $this->assertEqualsWithDelta((float) $res->json('total'), (float) $paid->sum('amount'), 0.001);
+        $this->assertSame(['cash'], $paid->pluck('method')->all());
+    }
+
     public function test_sales_details_shows_partial_refunds_as_a_negative_line(): void
     {
         $item = MenuItem::factory()->create();

@@ -213,9 +213,14 @@ class ReportController extends Controller
         // not by the raw channel — so the report names exactly which tender took
         // the money instead of lumping every cash journal into one "Cash" line.
         // Older payments that carry no journal fall back to their channel code.
+        // Anchored on the ORDER's window and status — not payments.created_at —
+        // so this section covers exactly the orders the product lines cover and
+        // the two columns reconcile to the same net total.
         $payments = Payment::where('payments.status', 'paid')
-            ->whereBetween('payments.created_at', [$start, $end])
-            ->whereHas('order', $sideFilter)
+            ->whereHas('order', function ($q) use ($start, $end, $sideFilter) {
+                $q->where('status', 'completed')->whereBetween('created_at', [$start, $end]);
+                $sideFilter($q);
+            })
             ->leftJoin('payment_methods', 'payments.payment_method_id', '=', 'payment_methods.id')
             ->select(
                 'payments.payment_method_id',

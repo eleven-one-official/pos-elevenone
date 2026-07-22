@@ -12,7 +12,7 @@
 // Latin today; if Khmer names ever land in a report, a shaped Khmer font has
 // to be embedded here (jsPDF does no complex-script shaping on its own).
 
-export const PDF_COMPANY = 'ElevenOne TTP'
+export const PDF_COMPANY = 'Eleven One Kitchen'
 
 export type PdfColumn = {
   header: string
