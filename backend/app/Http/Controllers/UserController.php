@@ -18,7 +18,13 @@ class UserController extends Controller
         abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can manage staff.');
     }
 
-    /** Shape one user for the admin table — never exposes the password. */
+    /**
+     * Shape one user for the admin screen. The password and PIN are exposed in
+     * clear here by design — this controller is admin-only, and both are stored
+     * recoverably so admins can read credentials back. The password is a copy;
+     * login still checks the one-way hash. It's null for accounts whose
+     * password was set before recoverable copies existed (bcrypt is one-way).
+     */
     private function present(User $user): array
     {
         $user->loadMissing('role:id,name,slug');
@@ -35,6 +41,8 @@ class UserController extends Controller
                 'name' => $user->role->name,
                 'slug' => $user->role->slug,
             ] : null,
+            'password' => $user->password_plain,
+            'has_password' => ! is_null($user->password_plain),
             // The PIN is admin-viewable by design (encrypted cast, admin-only
             // controller): admins hand PINs to staff and look them up here.
             'pin' => $user->pin,
@@ -73,6 +81,7 @@ class UserController extends Controller
             'phone' => $data['phone'] ?? null,
             'role_id' => $data['role_id'] ?? null,
             'password' => Hash::make($data['password']),
+            'password_plain' => $data['password'],
             'pin' => $data['pin'] ?? null,
             'is_active' => $data['is_active'] ?? true,
         ]);
@@ -123,6 +132,7 @@ class UserController extends Controller
 
         if (! empty($data['password'])) {
             $user->password = Hash::make($data['password']);
+            $user->password_plain = $data['password'];
         }
         if (array_key_exists('pin', $data)) {
             // Empty string clears PIN login; a value sets it; absent leaves it as-is.

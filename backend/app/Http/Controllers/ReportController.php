@@ -198,12 +198,23 @@ class ReportController extends Controller
 
         ksort($products);
 
+        // Grouped by journal (Cash USD, Cash KHR, ABA PAY, Grab Merchant, …),
+        // not by the raw channel — so the report names exactly which tender took
+        // the money instead of lumping every cash journal into one "Cash" line.
+        // Older payments that carry no journal fall back to their channel code.
         $payments = Payment::where('payments.status', 'paid')
             ->whereBetween('payments.created_at', [$start, $end])
             ->whereHas('order', $sideFilter)
-            ->select('method', DB::raw('SUM(amount) as amount'), DB::raw('COUNT(*) as count'))
-            ->groupBy('method')
-            ->orderBy('method')
+            ->leftJoin('payment_methods', 'payments.payment_method_id', '=', 'payment_methods.id')
+            ->select(
+                'payments.payment_method_id',
+                'payments.method',
+                DB::raw('COALESCE(payment_methods.label, payments.method) as label'),
+                DB::raw('SUM(payments.amount) as amount'),
+                DB::raw('COUNT(*) as count'),
+            )
+            ->groupBy('payments.payment_method_id', 'payments.method', 'payment_methods.label')
+            ->orderByDesc(DB::raw('SUM(payments.amount)'))
             ->get();
 
         // Money handed back on partially refunded orders in the range shows as
@@ -219,16 +230,25 @@ class ReportController extends Controller
         if ((int) $refunds->count > 0) {
             $payments->push([
                 'method' => 'refunds',
+                'label' => 'Refunds',
                 'amount' => -(float) $refunds->amount,
                 'count' => (int) $refunds->count,
             ]);
             $total -= (float) $refunds->amount;
         }
 
+        // Seated guests over the same completed orders (0 for take-away) — the
+        // report's "Guests" line, summed with the same side filter.
+        $guestsQuery = Order::where('status', 'completed')
+            ->whereBetween('created_at', [$start, $end]);
+        $sideFilter($guestsQuery);
+        $guests = (int) $guestsQuery->sum('guest_count');
+
         return response()->json([
             'start' => $start->toDateTimeString(),
             'end' => $end->toDateTimeString(),
             'orders_count' => count($orderIds),
+            'guests' => $guests,
             'total' => round($total, 2),
             'products' => array_values(array_map(fn (array $p) => [
                 ...$p,

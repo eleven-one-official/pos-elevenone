@@ -26,6 +26,7 @@ class User extends Authenticatable
         'username',
         'email',
         'password',
+        'password_plain',
         'pin',
         'role_id',
         'phone',
@@ -39,6 +40,7 @@ class User extends Authenticatable
      */
     protected $hidden = [
         'password',
+        'password_plain',
         'pin',
         'remember_token',
     ];
@@ -53,6 +55,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            // A recoverable copy of the password (the hashed `password` still
+            // drives login) so admins can read it back on the Employees screen.
+            'password_plain' => 'encrypted',
             // Encrypted (not hashed) so admins can view/hand out PINs from the
             // Employees screen. Still hidden from every serialized response.
             'pin' => 'encrypted',

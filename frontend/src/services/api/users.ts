@@ -15,6 +15,11 @@ export type AdminUser = {
   phone: string | null
   is_active: boolean
   role: AdminRole | null
+  /** The password in clear (a recoverable copy — login still checks the hash).
+   *  Admin-only endpoint. Null for accounts whose password predates this copy. */
+  password: string | null
+  /** Whether a recoverable password copy exists to show. */
+  has_password: boolean
   /** The staff PIN in clear — this endpoint is admin-only. Null = PIN login off. */
   pin: string | null
   /** Whether PIN login is enabled. */

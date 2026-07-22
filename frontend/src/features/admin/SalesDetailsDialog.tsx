@@ -44,11 +44,12 @@ function fmtDateTime(value: string): string {
   return `${pad(d.getDate())}-${month}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** The wizard defaults to "today so far": midnight through now. */
+/** The wizard defaults to "today's business day so far": the shop opens at
+ *  07:00, so the start defaults to 7 AM today, through now. */
 function defaultDates() {
   const now = new Date()
   const start = new Date(now)
-  start.setHours(0, 0, 0, 0)
+  start.setHours(7, 0, 0, 0)
   return { start: toLocalInput(start), end: toLocalInput(now) }
 }
 

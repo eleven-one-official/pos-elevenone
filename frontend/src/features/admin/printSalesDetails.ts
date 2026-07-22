@@ -2,8 +2,10 @@
 // button. Follows the kitchen-ticket pattern: the report is written into a
 // hidden <iframe> and printed from there (works with Chrome --kiosk-printing,
 // no popup blockers). The dialog fetches the real summary from
-// /reports/sales-details and hands it over; the venue charges no tax, so the
-// report shows products, payments and totals only.
+// /reports/sales-details and hands it over. Payments are broken out by journal
+// (Cash USD, ABA PAY, Grab Merchant, …) so it's clear which tender took the
+// money; the venue charges no tax, so the Taxes block is a single "No Taxes"
+// line and the footer prints the guest count and tax-excluded total.
 
 import type { SalesDetailsData } from '../../services/api/reports'
 
@@ -49,7 +51,8 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
-const money = (v: number) => `$ ${v.toFixed(2)}`
+const money = (v: number) =>
+  `$ ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDetailsData): string {
   const paid = data.payments.reduce((sum, p) => sum + Number(p.amount), 0)
@@ -106,7 +109,7 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
   const paymentRows = data.payments.map(
     (p) => `
       <tr>
-        <td>${escapeHtml(METHOD_LABELS[p.method] ?? p.method)}</td>
+        <td>${escapeHtml(METHOD_LABELS[p.label] ?? p.label)}</td>
         <td class="num">${money(Number(p.amount))}</td>
       </tr>`,
   ).join('')
@@ -143,12 +146,8 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
   .num { text-align: right; white-space: nowrap; }
   .empty { color: #888; font-style: italic; }
   tfoot td { font-weight: 700; border-top: 2px solid #1a1a1a; border-bottom: none; }
-  .total-line {
-    margin-top: 18px;
-    text-align: right;
-    font-size: 17px;
-    font-weight: 700;
-  }
+  .summary { margin-top: 22px; line-height: 1.9; font-size: 14px; }
+  .summary b { font-weight: 700; color: #111; }
   .foot { margin-top: 26px; font-size: 11px; color: #777; }
 </style>
 </head>
@@ -171,15 +170,33 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
   <h2>Payments</h2>
   <table>
     <thead>
-      <tr><th>Payment Method</th><th class="num">Amount</th></tr>
+      <tr><th>Name</th><th class="num">Total</th></tr>
     </thead>
     <tbody>${paymentRows || emptyRow(2)}</tbody>
     <tfoot>
-      <tr><td>Total Paid</td><td class="num">${money(paid)}</td></tr>
+      <tr><td class="num">Total:</td><td class="num">${money(paid)}</td></tr>
     </tfoot>
   </table>
 
-  <div class="total-line">Total: ${money(data.total)}</div>
+  <h2>Taxes</h2>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Tax Amount</th><th>Base Amount</th><th>Total</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>No Taxes</td>
+        <td>${money(0)}</td>
+        <td>${money(data.total)}</td>
+        <td>${money(0)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="summary">
+    <div><b>Guests:</b> ${data.guests}</div>
+    <div><b>(Total Tax excluded: ${money(data.total)})</b></div>
+  </div>
 
   <div class="foot">Printed ${printedAt}</div>
 </body>

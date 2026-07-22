@@ -20,6 +20,7 @@ trait Auditable
     /** Never persisted into old_values/new_values. */
     private static array $auditAlwaysExclude = [
         'password',
+        'password_plain',
         'pin',
         'remember_token',
         'created_at',

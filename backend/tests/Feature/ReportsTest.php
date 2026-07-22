@@ -6,6 +6,7 @@ use App\Models\Chef;
 use App\Models\MenuItem;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\CreatesStaff;
@@ -121,6 +122,41 @@ class ReportsTest extends TestCase
         $yesterday = $this->getJson('/api/reports/sales-details?start=2026-07-20T00:00:00%2B02:00&end=2026-07-20T23:59:00%2B02:00')
             ->assertOk();
         $this->assertSame(0, $yesterday->json('orders_count'));
+    }
+
+    public function test_sales_details_splits_payments_by_journal_and_counts_guests(): void
+    {
+        $item = MenuItem::factory()->create();
+        // Two journals on the SAME "cash" channel — the report must name each
+        // one ("Cash USD" vs "Cash KHR"), not collapse them into one "Cash".
+        $cashUsd = PaymentMethod::create(['label' => 'Cash USD', 'channel' => 'cash', 'sort_order' => 1]);
+        $cashKhr = PaymentMethod::create(['label' => 'Cash KHR', 'channel' => 'cash', 'sort_order' => 2]);
+
+        $mk = function (int $guests) use ($item) {
+            $order = Order::factory()->completed()->create([
+                'guest_count' => $guests, 'subtotal' => 20, 'total' => 20,
+            ]);
+            $order->items()->create([
+                'menu_item_id' => $item->id, 'name' => $item->name,
+                'price' => 20, 'quantity' => 1, 'line_total' => 20,
+            ]);
+
+            return $order;
+        };
+        $a = $mk(4);
+        $b = $mk(6);
+        Payment::factory()->create(['order_id' => $a->id, 'amount' => 20, 'method' => 'cash', 'payment_method_id' => $cashUsd->id]);
+        Payment::factory()->create(['order_id' => $b->id, 'amount' => 20, 'method' => 'cash', 'payment_method_id' => $cashKhr->id]);
+
+        Sanctum::actingAs($this->staff('manager'));
+        $range = 'start='.now()->startOfDay()->toDateTimeString().'&end='.now()->endOfDay()->toDateTimeString();
+
+        $res = $this->getJson("/api/reports/sales-details?{$range}")->assertOk();
+
+        $byLabel = collect($res->json('payments'))->keyBy('label');
+        $this->assertEqualsWithDelta(20.0, (float) $byLabel['Cash USD']['amount'], 0.001);
+        $this->assertEqualsWithDelta(20.0, (float) $byLabel['Cash KHR']['amount'], 0.001);
+        $this->assertSame(10, $res->json('guests'));
     }
 
     public function test_sales_details_shows_partial_refunds_as_a_negative_line(): void

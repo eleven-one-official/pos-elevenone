@@ -397,16 +397,18 @@ export default function SearchMenus({
               Save current search
               <LuChevronRight className="h-3.5 w-3.5 text-neutral-400" />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                onImportRecords?.()
-                closeMenus()
-              }}
-              className="mt-0.5 block w-full px-3 py-1.5 text-left transition hover:bg-neutral-100"
-            >
-              Import records
-            </button>
+            {onImportRecords && (
+              <button
+                type="button"
+                onClick={() => {
+                  onImportRecords()
+                  closeMenus()
+                }}
+                className="mt-0.5 block w-full px-3 py-1.5 text-left transition hover:bg-neutral-100"
+              >
+                Import records
+              </button>
+            )}
 
             {subOpen && (
               <div className="absolute left-full top-0 z-30 ml-1 w-60 border border-neutral-200/80 bg-white p-3 shadow-lg">

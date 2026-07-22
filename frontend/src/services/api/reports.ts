@@ -92,6 +92,9 @@ export type SalesDetailsProduct = {
 
 export type SalesDetailsPayment = {
   method: string
+  /** Journal name (Cash USD, ABA PAY, Grab Merchant, …); the channel code for
+   *  older payments that carry no journal. */
+  label: string
   amount: string | number // SUM() can serialize as a string
   count: number
 }
@@ -102,6 +105,8 @@ export type SalesDetailsData = {
   start: string
   end: string
   orders_count: number
+  /** Seated guests across the completed orders (0 for take-away). */
+  guests: number
   total: number
   products: SalesDetailsProduct[]
   payments: SalesDetailsPayment[]
