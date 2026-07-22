@@ -90,9 +90,9 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
       <tr><th>Product</th><th class="num">Quantity</th><th class="num">Price Unit</th><th class="num">Subtotal</th></tr>
     </thead>
     <tbody>${productRows || emptyRow(4)}</tbody>
-    <tfoot>
+    <tbody class="total">
       <tr><td>Total</td><td></td><td></td><td class="num">${money(data.total)}</td></tr>
-    </tfoot>
+    </tbody>
   </table>`
 
   const categoriesSection = `
@@ -102,9 +102,9 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
       <tr><th>Category</th><th class="num">Quantity</th><th class="num">Subtotal</th></tr>
     </thead>
     <tbody>${categoryRows || emptyRow(3)}</tbody>
-    <tfoot>
+    <tbody class="total">
       <tr><td>Total</td><td></td><td class="num">${money(data.total)}</td></tr>
-    </tfoot>
+    </tbody>
   </table>`
 
   const paymentRows = data.payments.map(
@@ -146,7 +146,10 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
   th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: #555; }
   .num { text-align: right; white-space: nowrap; }
   .empty { color: #888; font-style: italic; }
-  tfoot td { font-weight: 700; border-top: 2px solid #1a1a1a; border-bottom: none; }
+  /* Total rows live in a second <tbody>, not <tfoot> — Chrome repeats <tfoot>
+     on every printed page, which duplicated the total when a table spanned pages. */
+  .total td { font-weight: 700; border-top: 2px solid #1a1a1a; border-bottom: none; }
+  .total tr { break-inside: avoid; page-break-inside: avoid; }
   .summary { margin-top: 22px; line-height: 1.9; font-size: 14px; }
   .summary b { font-weight: 700; color: #111; }
   .foot { margin-top: 26px; font-size: 11px; color: #777; }
@@ -174,9 +177,9 @@ export function buildSalesDetailsHtml(params: SalesDetailsParams, data: SalesDet
       <tr><th>Name</th><th class="num">Total</th></tr>
     </thead>
     <tbody>${paymentRows || emptyRow(2)}</tbody>
-    <tfoot>
+    <tbody class="total">
       <tr><td class="num">Total:</td><td class="num">${money(paid)}</td></tr>
-    </tfoot>
+    </tbody>
   </table>
 
   <h2>Taxes</h2>
