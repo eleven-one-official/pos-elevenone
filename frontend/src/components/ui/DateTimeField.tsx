@@ -45,10 +45,13 @@ function Spinner({
   value,
   max,
   onChange,
+  onOpen,
 }: {
   value: number
   max: number
   onChange: (v: number) => void
+  /** Tapping the number opens the grid picker for this unit (Odoo behaviour). */
+  onOpen: () => void
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
@@ -60,9 +63,13 @@ function Spinner({
       >
         <LuChevronUp className="h-5 w-5" />
       </button>
-      <span className="w-9 text-center text-xl font-semibold text-neutral-800 tabular-nums">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-9 rounded text-center text-xl font-semibold text-neutral-800 tabular-nums transition hover:bg-neutral-100"
+      >
         {pad(value)}
-      </span>
+      </button>
       <button
         type="button"
         aria-label="Decrement"
@@ -71,6 +78,41 @@ function Spinner({
       >
         <LuChevronDown className="h-5 w-5" />
       </button>
+    </div>
+  )
+}
+
+/** Odoo's hour/minute/second grid — tap a value to set it directly. Hours show
+ *  00–23; minutes and seconds step by 5, with the spinner left for exact tweaks. */
+function TimeGrid({
+  count,
+  step,
+  value,
+  onPick,
+}: {
+  count: number
+  step: number
+  value: number
+  onPick: (v: number) => void
+}) {
+  const items: number[] = []
+  for (let i = 0; i < count; i += step) items.push(i)
+  return (
+    <div className="grid grid-cols-4 gap-1 p-1">
+      {items.map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onPick(n)}
+          className={`rounded py-2 text-center text-[13px] tabular-nums transition ${
+            n === value
+              ? 'bg-sky-600 font-semibold text-white'
+              : 'text-neutral-700 hover:bg-neutral-100'
+          }`}
+        >
+          {pad(n)}
+        </button>
+      ))}
     </div>
   )
 }
@@ -88,6 +130,8 @@ export function DateTimeField({
 }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'date' | 'time'>('date')
+  // Within the time view: the spinner clock, or a grid picking one unit.
+  const [timeView, setTimeView] = useState<'clock' | 'hours' | 'minutes' | 'seconds'>('clock')
   // The calendar can be paged month-to-month without touching the selection.
   const [viewYear, setViewYear] = useState(value.getFullYear())
   const [viewMonth, setViewMonth] = useState(value.getMonth())
@@ -97,6 +141,7 @@ export function DateTimeField({
   useEffect(() => {
     if (!open) return
     setMode('date')
+    setTimeView('clock')
     setViewYear(value.getFullYear())
     setViewMonth(value.getMonth())
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -137,6 +182,7 @@ export function DateTimeField({
 
   const pickDay = (day: Date) => {
     onChange(withField(withField(withField(value, 'y', day.getFullYear()), 'm', day.getMonth()), 'd', day.getDate()))
+    setTimeView('clock')
     setMode('time')
   }
 
@@ -158,7 +204,10 @@ export function DateTimeField({
             <button
               type="button"
               aria-label="Pick date"
-              onClick={() => setMode('date')}
+              onClick={() => {
+                setTimeView('clock')
+                setMode('date')
+              }}
               className={`rounded p-1.5 transition hover:bg-neutral-100 ${
                 mode === 'date' ? 'text-sky-700' : 'text-neutral-500'
               }`}
@@ -229,26 +278,46 @@ export function DateTimeField({
                 })}
               </div>
             </div>
-          ) : (
+          ) : timeView === 'clock' ? (
             <div className="flex items-center justify-center gap-1 py-3">
               <Spinner
                 value={value.getHours()}
                 max={24}
                 onChange={(h) => onChange(withField(value, 'h', h))}
+                onOpen={() => setTimeView('hours')}
               />
               <span className="pb-0.5 text-xl font-semibold text-neutral-400">:</span>
               <Spinner
                 value={value.getMinutes()}
                 max={60}
                 onChange={(m) => onChange(withField(value, 'min', m))}
+                onOpen={() => setTimeView('minutes')}
               />
               <span className="pb-0.5 text-xl font-semibold text-neutral-400">:</span>
               <Spinner
                 value={value.getSeconds()}
                 max={60}
                 onChange={(s) => onChange(withField(value, 's', s))}
+                onOpen={() => setTimeView('seconds')}
               />
             </div>
+          ) : (
+            <TimeGrid
+              count={timeView === 'hours' ? 24 : 60}
+              step={timeView === 'hours' ? 1 : 5}
+              value={
+                timeView === 'hours'
+                  ? value.getHours()
+                  : timeView === 'minutes'
+                    ? value.getMinutes()
+                    : value.getSeconds()
+              }
+              onPick={(n) => {
+                const field = timeView === 'hours' ? 'h' : timeView === 'minutes' ? 'min' : 's'
+                onChange(withField(value, field, n))
+                setTimeView('clock')
+              }}
+            />
           )}
         </div>
       )}
