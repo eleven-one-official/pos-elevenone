@@ -190,6 +190,21 @@ export type ChefBucket = {
   avg_prep_seconds: number | null
 }
 
+/** One dish's tally over the filtered tickets — how many plates went out and
+ *  how fast the tickets carrying it ran. The board times the whole ticket,
+ *  not each plate, so avg_prep_seconds is the average clock of the tickets the
+ *  dish appeared on; null until at least one of them carries both stamps. */
+export type ChefDishRow = {
+  name: string
+  /** Plates — line quantities added up. */
+  units: number
+  /** Tickets the dish appeared on. */
+  rounds: number
+  orders: number
+  timed_rounds: number
+  avg_prep_seconds: number | null
+}
+
 /** One dish on a ticket, as it was fired to the board. */
 export type ChefTicketLine = {
   name: string
@@ -235,6 +250,8 @@ export type ChefPerformanceData = {
   by_day: ChefBucket[]
   by_hour: ChefBucket[]
   by_station: ChefBucket[]
+  /** Most-cooked dish first. */
+  by_item: ChefDishRow[]
   /** Newest first, capped by the backend — compare with details_total. */
   details: ChefTicket[]
   details_total: number

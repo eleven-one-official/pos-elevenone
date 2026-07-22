@@ -263,21 +263,35 @@ class ReportsTest extends TestCase
                 'menu_item_id' => $item->id, 'name' => $item->name,
                 'price' => 4, 'quantity' => $qty, 'line_total' => 4 * $qty,
             ]);
+
+            return $round;
         };
 
-        $fire(Order::factory()->create(), $bopha, 'kitchen', 2, 60);
+        $first = $fire(Order::factory()->create(), $bopha, 'kitchen', 2, 60);
         $fire(Order::factory()->create(), $bopha, 'bar', 1, 120);
         // Still cooking, so it carries no timing — it counts as work, not speed.
         $fire(Order::factory()->create(), $rithy, 'kitchen', 5, null);
         // A voided bill is not somebody's output.
         $fire(Order::factory()->create(['status' => 'cancelled']), $rithy, 'kitchen', 9, 30);
 
+        // A second dish rides on Bopha's first ticket, split over two lines
+        // (say, one plate with a note) — the per-dish cut folds them back into
+        // one dish that was on one ticket.
+        $soup = MenuItem::factory()->create(['price' => 3]);
+        foreach ([2, 1] as $qty) {
+            $first->order->items()->create([
+                'order_round_id' => $first->id,
+                'menu_item_id' => $soup->id, 'name' => $soup->name,
+                'price' => 3, 'quantity' => $qty, 'line_total' => 3 * $qty,
+            ]);
+        }
+
         Sanctum::actingAs($this->staff('manager'));
 
         $all = $this->getJson('/api/reports/chef-performance')->assertOk();
         $this->assertSame(3, $all->json('overview.rounds'));
         $this->assertSame(3, $all->json('overview.orders'));
-        $this->assertSame(8, $all->json('overview.items'));
+        $this->assertSame(11, $all->json('overview.items'));
         // Weighted over the two timed tickets only — the third can't drag it.
         $this->assertSame(90, $all->json('overview.avg_prep_seconds'));
         $this->assertSame(2, $all->json('overview.timed_rounds'));
@@ -291,6 +305,21 @@ class ReportsTest extends TestCase
         $this->assertSame(5, $rithyTicket['items']);
         $this->assertSame($item->name, $rithyTicket['lines'][0]['name']);
         $this->assertSame(5, $rithyTicket['lines'][0]['quantity']);
+
+        // Per dish, most-cooked first: the main dish rode three live tickets
+        // (8 plates, clocked over the two timed ones), the soup rode one —
+        // its two lines folded into a single dish row.
+        $dishes = collect($all->json('by_item'));
+        $this->assertSame([$item->name, $soup->name], $dishes->pluck('name')->all());
+        $main = $dishes->firstWhere('name', $item->name);
+        $this->assertSame(8, $main['units']);
+        $this->assertSame(3, $main['rounds']);
+        $this->assertSame(2, $main['timed_rounds']);
+        $this->assertSame(90, $main['avg_prep_seconds']);
+        $soupRow = $dishes->firstWhere('name', $soup->name);
+        $this->assertSame(3, $soupRow['units']);
+        $this->assertSame(1, $soupRow['rounds']);
+        $this->assertSame(60, $soupRow['avg_prep_seconds']);
 
         // One person, everything narrows with them.
         $one = $this->getJson("/api/reports/chef-performance?chef_id={$rithy->id}")->assertOk();

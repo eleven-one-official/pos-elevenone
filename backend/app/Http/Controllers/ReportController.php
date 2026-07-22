@@ -395,10 +395,12 @@ class ReportController extends Controller
      * full for each of them, so the per-cook rows deliberately add up to more
      * than the `overview`, which counts every ticket once.
      *
-     * Returns four views over the same set of tickets so the screen can show an
-     * overview, a per-cook comparison, a trend and the raw list without four
-     * round trips: `overview`, `chefs`, `by_day` / `by_hour` / `by_station`,
-     * and `details` (newest first, capped — `details_total` is the real count).
+     * Returns five views over the same set of tickets so the screen can show an
+     * overview, a per-cook comparison, a trend, a per-dish cut and the raw list
+     * without five round trips: `overview`, `chefs`, `by_day` / `by_hour` /
+     * `by_station`, `by_item` (each dish's plates and the average clock of the
+     * tickets it rode on — the board times the ticket, not the plate), and
+     * `details` (newest first, capped — `details_total` is the real count).
      *
      * Filters: ?period= today|week|month|year (default: all), ?chef_id= to
      * single out one person, ?station= kitchen|bar. Day and hour buckets are
@@ -440,9 +442,13 @@ class ReportController extends Controller
             ->withSum('items as items_count', 'quantity')
             ->get();
 
+        // Every ticket's dish lines ride along — the per-dish cut below needs
+        // them all, and the capped details list reuses the same loaded relation.
+        $rounds->load('items:id,order_round_id,name,quantity,note');
+
         // One bucket bag per dimension, all filled in the same pass.
         /** @var array<string, array<array-key, array<string, mixed>>> $bags */
-        $bags = ['chef' => [], 'day' => [], 'hour' => [], 'station' => []];
+        $bags = ['chef' => [], 'day' => [], 'hour' => [], 'station' => [], 'item' => []];
 
         $orderIds = [];
         $items = 0;
@@ -502,6 +508,27 @@ class ReportController extends Controller
                 }
             }
 
+            // The dish dimension counts each plate, not the whole round —
+            // same-name lines (one with a note, one without) fold together
+            // first so a ticket counts once per dish, whatever its line count.
+            $dishes = [];
+            foreach ($round->items as $line) {
+                $key = (string) $line->name;
+                $dishes[$key]['name'] = $line->name;
+                $dishes[$key]['qty'] = ($dishes[$key]['qty'] ?? 0) + (int) $line->quantity;
+            }
+            foreach ($dishes as $key => $dish) {
+                $bucket = $bags['item'][$key] ?? $blank(['name' => $dish['name']]);
+                $bucket['order_ids'][$round->order_id] = true;
+                $bucket['rounds']++;
+                $bucket['items'] += $dish['qty'];
+                if ($prep !== null) {
+                    $bucket['prep_seconds_total'] += $prep;
+                    $bucket['prep_count']++;
+                }
+                $bags['item'][$key] = $bucket;
+            }
+
             $orderIds[$round->order_id] = true;
             $items += $roundItems;
             if ($prep !== null) {
@@ -553,15 +580,24 @@ class ReportController extends Controller
         ], $bags['station']));
         usort($stationRows, fn ($a, $b) => $b['rounds'] <=> $a['rounds']);
 
+        // A dish's clock is the average of the tickets it appeared on — the
+        // closest the board can get to "how long does this dish take".
+        $itemRows = array_values(array_map(fn (array $b) => [
+            'name' => $b['name'],
+            'units' => $b['items'],
+            'rounds' => $b['rounds'],
+            'orders' => count($b['order_ids']),
+            'timed_rounds' => $b['prep_count'],
+            'avg_prep_seconds' => $avg($b),
+        ], $bags['item']));
+        // Most-cooked dish first.
+        usort($itemRows, fn ($a, $b) => $b['units'] <=> $a['units']);
+
         // Newest ticket first, capped — a year of service is thousands of rows
         // and the list is meant to be read, not paged through.
         $detailRounds = $rounds
             ->sortByDesc(fn ($round) => ($round->started_at ?? $round->created_at)->timestamp)
             ->take(self::CHEF_DETAIL_LIMIT);
-
-        // The dishes themselves, only for the tickets that are actually listed —
-        // the aggregates above already have their quantities from withSum.
-        $detailRounds->load('items:id,order_round_id,name,quantity,note');
 
         $details = $detailRounds
             ->map(fn ($round) => [
@@ -611,6 +647,7 @@ class ReportController extends Controller
             'by_day' => $dayRows,
             'by_hour' => $hourRows,
             'by_station' => $stationRows,
+            'by_item' => $itemRows,
             'details' => $details,
             'details_total' => $rounds->count(),
         ]);
