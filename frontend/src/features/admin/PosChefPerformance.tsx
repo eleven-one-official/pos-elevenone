@@ -1108,10 +1108,9 @@ function Details({
         <thead>
           <tr className="border-b border-neutral-200 text-left text-neutral-800">
             <th className="w-6 py-2.5" />
-            <th className="py-2.5 pr-4 font-bold">Fired</th>
+            <th className="py-2.5 pr-4 font-bold">Date and time</th>
             <th className="py-2.5 pr-4 font-bold">Order</th>
             <th className="py-2.5 pr-4 font-bold">Table</th>
-            <th className="py-2.5 pr-4 font-bold">Round</th>
             <th className="py-2.5 pr-4 font-bold">Station</th>
             <th className="py-2.5 pr-4 font-bold">Chef</th>
             <th className="py-2.5 pr-4 font-bold">Dishes</th>
@@ -1129,7 +1128,7 @@ function Details({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={13} className="py-4 text-[13px] italic text-neutral-500">
+              <td colSpan={12} className="py-4 text-[13px] italic text-neutral-500">
                 No ticket matches this search.
               </td>
             </tr>
@@ -1156,7 +1155,6 @@ function Details({
                     {r.order_number ?? `#${r.order_id}`}
                   </td>
                   <td className="py-2.5 pr-4">{r.table ?? '—'}</td>
-                  <td className="py-2.5 pr-4 tabular-nums">R{r.round_no}</td>
                   <td className="py-2.5 pr-4">{titleCase(r.station ?? '')}</td>
                   <td className="py-2.5 pr-4 font-medium text-neutral-800">{r.chef}</td>
                   <td className="max-w-[22rem] truncate py-2.5 pr-4" title={dishList(r)}>
@@ -1171,7 +1169,7 @@ function Details({
                 expanded && (
                   <tr key={`${r.id}-lines`} className="border-b border-neutral-100 bg-neutral-50">
                     <td />
-                    <td colSpan={12} className="py-3 pr-4">
+                    <td colSpan={11} className="py-3 pr-4">
                       <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">
                         Dishes on this ticket
                       </div>
@@ -1265,10 +1263,9 @@ const excelMinutes = (seconds: number | null): Cell =>
   seconds === null ? '' : Number((seconds / 60).toFixed(1))
 
 const ticketColumns: Column[] = [
-  { header: 'Fired' },
+  { header: 'Date and time' },
   { header: 'Order' },
   { header: 'Table' },
-  { header: 'Round' },
   { header: 'Station' },
   { header: 'Chef' },
   { header: 'Dishes' },
@@ -1284,7 +1281,6 @@ function ticketRow(r: ChefTicket): Cell[] {
     fmtStamp(r.created_at),
     r.order_number ?? `#${r.order_id}`,
     r.table ?? '',
-    `R${r.round_no}`,
     titleCase(r.station ?? ''),
     r.chef,
     dishList(r, true),
