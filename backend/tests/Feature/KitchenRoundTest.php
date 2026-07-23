@@ -245,6 +245,58 @@ class KitchenRoundTest extends TestCase
             ->assertJsonPath('overview.rounds', 1);
     }
 
+    public function test_two_cooks_share_one_dish_and_both_are_credited(): void
+    {
+        $table = Table::create(['name' => 'E9', 'seats' => 4, 'type' => 'normal', 'status' => 'available']);
+        $fish = MenuItem::factory()->create(['price' => 12]);
+        $bopha = Chef::create(['name' => 'Bopha', 'is_active' => true, 'sort_order' => 1]);
+        $rithy = Chef::create(['name' => 'Rithy', 'is_active' => true, 'sort_order' => 2]);
+
+        Sanctum::actingAs($this->staff('waiter'));
+        $this->postJson('/api/orders', $this->dineIn($table, [
+            ['menu_item_id' => $fish->id, 'quantity' => 1],
+        ]))->assertCreated();
+
+        // One plate through two sections — both names ticked on the dish itself.
+        Sanctum::actingAs($this->staff('kitchen'));
+        $ticket = $this->getJson('/api/kitchen/tickets')->assertOk()->json('0');
+        $this->putJson("/api/kitchen/tickets/{$ticket['id']}/items/{$ticket['items'][0]['id']}", [
+            'status' => 'preparing',
+            'chef_ids' => [$bopha->id, $rithy->id],
+        ])
+            ->assertOk()
+            ->assertJsonCount(2, 'items.0.chefs')
+            // The first ticked leads the dish…
+            ->assertJsonPath('items.0.chef.id', $bopha->id)
+            // …and the ticket's crew rolls up from its dishes.
+            ->assertJsonCount(2, 'chefs')
+            ->assertJsonPath('chef.id', $bopha->id)
+            ->assertJsonPath('status', 'preparing');
+
+        // Plating names nobody — the crew must survive the Ready tap.
+        $this->putJson("/api/kitchen/tickets/{$ticket['id']}/items/{$ticket['items'][0]['id']}", [
+            'status' => 'ready',
+        ])
+            ->assertOk()
+            ->assertJsonPath('status', 'ready')
+            ->assertJsonCount(2, 'items.0.chefs');
+
+        // The KPI credits the shared dish in full to each of them — on the
+        // leaderboard, in the per-cook per-dish cut and on the detail line.
+        Sanctum::actingAs($this->staff('admin'));
+        $report = $this->getJson('/api/reports/chef-performance')->assertOk()->json();
+        $this->assertSame(2, $report['overview']['chefs']);
+        $this->assertSame(
+            ['Bopha' => 1, 'Rithy' => 1],
+            collect($report['chefs'])->pluck('rounds', 'chef')->all(),
+        );
+        $this->assertSame(
+            ['Bopha', 'Rithy'],
+            collect($report['by_chef_item'])->pluck('chef')->sort()->values()->all(),
+        );
+        $this->assertSame('Bopha + Rithy', $report['details'][0]['lines'][0]['chef']);
+    }
+
     public function test_the_board_is_readable_by_staff_but_closed_bills_are_off_it(): void
     {
         $table = Table::create(['name' => 'E6', 'seats' => 4, 'type' => 'normal', 'status' => 'available']);

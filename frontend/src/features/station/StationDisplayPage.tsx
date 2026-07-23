@@ -38,9 +38,10 @@ import {
 // Station Display Screen — replaces the kitchen/bar printer. Every order a
 // waiter or cashier fires lands here as a ticket card, oldest first (a
 // first-in-first-out rail). The kitchen works a card *dish by dish*: a cook
-// taps a dish, names themselves as its maker (starting that dish's own clock)
-// and taps Ready on the dish when it's plated — the card leaves the board on
-// its own once the last dish is done. The bar still takes and bumps a whole
+// taps a dish, names its makers — one, or several when a plate is shared
+// between sections — starting that dish's own clock, and taps Ready on the
+// dish when it's plated — the card leaves the board on its own once the last
+// dish is done. The bar still takes and bumps a whole
 // ticket, since a round of drinks is one job. A chime, a spoken Khmer
 // announcement and a highlight announce each new ticket; a per-ticket timer
 // turns amber then red as an order ages so nothing is forgotten. Read-only
@@ -202,6 +203,21 @@ function crewLabel(ticket: ApiStationTicket): string | null {
   return crew.length > 0 ? crew.map((c) => c.name).join(' + ') : null
 }
 
+/**
+ * Everyone cooking one dish, in the order they were ticked (the first leads).
+ * Lines from the single-cook era carry only `chef`, so fall back to that.
+ */
+function dishCrewOf(item: ApiOrderItem): { id: number; name: string }[] {
+  if (item.chefs?.length) return item.chefs
+  return item.chef ? [item.chef] : []
+}
+
+/** The crew on one dish — "Bopha + Rithy" — or null when nobody has taken it. */
+function dishCrewLabel(item: ApiOrderItem): string | null {
+  const crew = dishCrewOf(item)
+  return crew.length > 0 ? crew.map((c) => c.name).join(' + ') : null
+}
+
 function initialsOf(name: string): string {
   return name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 }
@@ -317,13 +333,15 @@ export default function StationDisplayPage({
   // when they take a ticket — that attribution feeds the Chef Performance KPI.
   // The roster is managed on the admin side; the bar has none and just starts.
   const [chefs, setChefs] = useState<Chef[]>([])
-  // The dish whose chef picker is open (null = closed). A cook takes one dish
-  // at a time now — a card shared between sections simply has its dishes taken
-  // by different names — so picking is a single tap on a name, no confirm.
+  // The dish whose chef picker is open (null = closed). One plate can be
+  // shared — fried by one cook, finished by another — so the picker is a
+  // multi-select: tap the names, then Start. The first ticked leads.
   const [pickingFor, setPickingFor] = useState<{
     ticket: ApiStationTicket
     item: ApiOrderItem
   } | null>(null)
+  // The names ticked so far, in tap order — order matters, the first leads.
+  const [picked, setPicked] = useState<Chef[]>([])
   // The history drawer — today's plated tickets. A bumped card leaves the board
   // for good, so this is the only way back to one. Fetched when the drawer is
   // opened rather than polled: it's a look-up, not a live rail.
@@ -596,10 +614,19 @@ export default function StationDisplayPage({
 
   function openPicker(ticket: ApiStationTicket, item: ApiOrderItem) {
     setPickingFor({ ticket, item })
+    setPicked([])
   }
 
   function closePicker() {
     setPickingFor(null)
+    setPicked([])
+  }
+
+  /** Tick a name on or off. Ticking keeps tap order — the first ticked leads. */
+  function togglePicked(chef: Chef) {
+    setPicked((prev) =>
+      prev.some((c) => c.id === chef.id) ? prev.filter((c) => c.id !== chef.id) : [...prev, chef],
+    )
   }
 
   /** Swap in the server's refreshed round; the rest of the board stays put. */
@@ -647,26 +674,32 @@ export default function StationDisplayPage({
     }
   }
 
-  // A cook takes one dish: name them and start that dish's own clock — the
-  // per-dish time the Chef Performance KPI reads. The row flips to "cooking"
-  // at once, then the whole card is swapped for the server's truth, which
-  // carries the round's rolled-up status and crew back with it.
-  async function startDish(ticket: ApiStationTicket, item: ApiOrderItem, chef: Chef) {
+  // Cooks take one dish: name them all and start that dish's own clock — the
+  // per-dish time the Chef Performance KPI reads. A plate that passes through
+  // two sections is shared, so the crew is a list; the first ticked leads.
+  // The row flips to "cooking" at once, then the whole card is swapped for
+  // the server's truth, which carries the round's rolled-up status and crew.
+  async function startDish(ticket: ApiStationTicket, item: ApiOrderItem, crew: Chef[]) {
+    if (crew.length === 0) return
     closePicker()
     const startedAt = new Date().toISOString()
+    const names = crew.map((c) => c.name).join(' + ')
     patchDish(
       ticket.id,
       item.id,
       {
-        chef_id: chef.id,
-        chef: { id: chef.id, name: chef.name },
+        chef_id: crew[0].id,
+        chef: { id: crew[0].id, name: crew[0].name },
+        chefs: crew.map((c) => ({ id: c.id, name: c.name })),
         started_at: item.started_at ?? startedAt,
       },
       { status: 'preparing', started_at: ticket.started_at ?? startedAt },
     )
     try {
-      replaceTicket(await startTicketItem(ticket.id, item.id, station, chef.id))
-      setToast({ text: `${chef.name} started ${item.name}` })
+      replaceTicket(
+        await startTicketItem(ticket.id, item.id, station, crew.map((c) => c.id)),
+      )
+      setToast({ text: `${names} started ${item.name}` })
     } catch {
       setToast({ text: 'Could not start it — check the connection', tone: 'error' })
       void load()
@@ -694,8 +727,9 @@ export default function StationDisplayPage({
       // The dish's time off the server's own stamps, not a screen clock.
       const line = round.items.find((i) => i.id === item.id)
       const took = line ? dishMs(line, Date.now()) : null
+      const who = line ? dishCrewLabel(line) : null
       setToast({
-        text: line?.chef?.name ? `${line.chef.name} plated ${item.name}` : `${item.name} ready`,
+        text: who ? `${who} plated ${item.name}` : `${item.name} ready`,
         took: took === null ? undefined : durationLabel(took),
       })
     } catch {
@@ -960,9 +994,9 @@ export default function StationDisplayPage({
         </div>
       )}
 
-      {/* Chef picker — a cook names themselves when they take a dish. One dish,
-          one maker: a single tap on a name starts that dish's clock, so there
-          is no multi-select and no confirm step to slow a busy pass down. */}
+      {/* Chef picker — the cooks name themselves when they take a dish. One
+          plate can pass through two sections, so more than one name can be
+          ticked: tap the names, then Start. The first ticked leads. */}
       {pickingFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -979,7 +1013,7 @@ export default function StationDisplayPage({
                     {pickingFor.ticket.order.table?.name
                       ? `${pickingFor.ticket.order.table.name} · `
                       : ''}
-                    {ticketLabel(pickingFor.ticket)} · tap a name to start the dish
+                    {ticketLabel(pickingFor.ticket)} · tap one or more names, then Start
                   </div>
                 </div>
               </div>
@@ -1010,23 +1044,61 @@ export default function StationDisplayPage({
                 </button>
               </div>
             ) : (
-              <div className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-5 sm:grid-cols-3">
-                {chefs.map((chef) => (
+              <>
+                <div className="grid max-h-[55vh] grid-cols-2 gap-3 overflow-y-auto p-5 sm:grid-cols-3">
+                  {chefs.map((chef) => {
+                    const pickIndex = picked.findIndex((c) => c.id === chef.id)
+                    const isPicked = pickIndex >= 0
+                    return (
+                      <button
+                        key={chef.id}
+                        type="button"
+                        aria-pressed={isPicked}
+                        onClick={() => togglePicked(chef)}
+                        className={`relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center transition active:scale-[0.98] ${
+                          isPicked
+                            ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
+                            : 'border-neutral-200 bg-white hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {/* Tap order, so the crew can see who will lead (1). */}
+                        {isPicked && (
+                          <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
+                            {picked.length > 1 ? pickIndex + 1 : <LuCheck className="h-4 w-4" />}
+                          </span>
+                        )}
+                        <span
+                          className={`flex h-12 w-12 items-center justify-center rounded-full text-base font-bold ${
+                            isPicked ? 'bg-primary text-white' : 'bg-neutral-100 text-neutral-700'
+                          }`}
+                        >
+                          {initialsOf(chef.name)}
+                        </span>
+                        <span className="text-sm font-semibold leading-tight text-neutral-800">
+                          {chef.name}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-neutral-200 px-5 py-4">
+                  <span className="min-w-0 truncate text-xs font-semibold text-neutral-500">
+                    {picked.length > 0
+                      ? picked.map((c) => c.name).join(' + ')
+                      : 'Tap at least one name'}
+                  </span>
                   <button
-                    key={chef.id}
                     type="button"
-                    onClick={() => void startDish(pickingFor.ticket, pickingFor.item, chef)}
-                    className="flex flex-col items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-4 text-center transition hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
+                    disabled={picked.length === 0}
+                    onClick={() => void startDish(pickingFor.ticket, pickingFor.item, picked)}
+                    className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 text-base font-bold text-neutral-700">
-                      {initialsOf(chef.name)}
-                    </span>
-                    <span className="text-sm font-semibold leading-tight text-neutral-800">
-                      {chef.name}
-                    </span>
+                    <LuPlay className="h-4 w-4" />
+                    Start
+                    {picked.length > 1 && <span className="tabular-nums">· {picked.length}</span>}
                   </button>
-                ))}
-              </div>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -1090,19 +1162,20 @@ function HistoryRow({ ticket }: { ticket: ApiStationTicket }) {
 
       <ul className="mt-2 space-y-1 px-4 pb-3.5">
         {items.map((item) => {
-          // Since per-dish tracking each line carries its own maker and its
+          // Since per-dish tracking each line carries its own makers and its
           // own frozen clock — the answer to "who made it, and how long?".
           const tookMs = item.ready_at ? dishMs(item, new Date(item.ready_at).getTime()) : null
+          const crew = dishCrewLabel(item)
           return (
             <li key={item.id} className="flex items-baseline gap-2 text-sm text-neutral-700">
               <span className="min-w-6 shrink-0 rounded bg-neutral-100 px-1.5 text-center font-bold tabular-nums text-neutral-800">
                 x{item.quantity}
               </span>
               <span className="min-w-0 leading-tight">{item.name}</span>
-              {(item.chef?.name || tookMs !== null) && (
+              {(crew || tookMs !== null) && (
                 <span className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums text-neutral-500">
-                  {item.chef?.name}
-                  {item.chef?.name && tookMs !== null && ' · '}
+                  {crew}
+                  {crew && tookMs !== null && ' · '}
                   {tookMs !== null && durationLabel(tookMs)}
                 </span>
               )}
@@ -1346,6 +1419,8 @@ function DishRow({
   const ms = dishMs(item, now)
   const done = !!item.ready_at
   const cooking = !done && !!item.started_at
+  // Everyone on the plate — "Bopha + Rithy" when a dish is shared.
+  const crew = dishCrewLabel(item)
 
   return (
     <li
@@ -1374,8 +1449,8 @@ function DishRow({
                 {durationLabel(ms)}
               </span>
             )}
-            {item.chef?.name && (
-              <span className="text-[11px] font-semibold text-neutral-500">{item.chef.name}</span>
+            {crew && (
+              <span className="text-[11px] font-semibold text-neutral-500">{crew}</span>
             )}
           </span>
         </div>
@@ -1398,10 +1473,10 @@ function DishRow({
             )}
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
-            {item.chef?.name ? (
+            {crew ? (
               <span className="flex min-w-0 items-center gap-1 text-xs font-bold text-emerald-700">
                 <LuChefHat className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{item.chef.name}</span>
+                <span className="truncate">{crew}</span>
               </span>
             ) : (
               <span />

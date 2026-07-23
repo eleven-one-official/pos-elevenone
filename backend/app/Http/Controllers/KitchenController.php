@@ -25,6 +25,7 @@ class KitchenController extends Controller
     private const WITH = [
         'items',
         'items.chef:id,name',
+        'items.chefs:id,name',
         'chef:id,name',
         'chefs:id,name',
         'order:id,order_number,order_type,table_id,transferred_from_table_id,user_id,guest_count,status',
@@ -144,10 +145,15 @@ class KitchenController extends Controller
 
     /**
      * Move one *dish* along. The kitchen works a card line by line: tapping a
-     * dish names its cook and starts that dish's clock (`preparing`); tapping
+     * dish names its cooks and starts that dish's clock (`preparing`); tapping
      * Ready on the dish stops it. The round rolls itself up from its lines —
      * preparing once any dish is under way, ready (and off the board) once
      * every dish is plated — so the card needs no taps of its own.
+     *
+     * A dish can be shared — fried by one cook, finished by another — so the
+     * crew arrives as `chef_ids` and every one of them is credited with the
+     * dish. The older single `chef_id` still works and simply names a crew of
+     * one; either way the first cook given leads.
      *
      * Returns the whole refreshed ticket: the tap changes the round's status
      * and crew too, and the board wants one truth, not a line to merge.
@@ -157,6 +163,8 @@ class KitchenController extends Controller
         $data = $request->validate([
             'status' => ['required', 'in:preparing,ready'],
             'chef_id' => ['nullable', 'exists:chefs,id'],
+            'chef_ids' => ['nullable', 'array'],
+            'chef_ids.*' => ['integer', 'exists:chefs,id'],
         ]);
 
         // The line must be the round's own, and the round the station's own —
@@ -173,11 +181,17 @@ class KitchenController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($data, $item, $round) {
+        // Both spellings fold into one crew, first-picked first — an empty list
+        // leaves whoever is already on the dish alone, so the "Ready" tap
+        // (which names nobody) can never wipe the attribution.
+        $crew = array_merge(
+            $data['chef_ids'] ?? [],
+            isset($data['chef_id']) && $data['chef_id'] !== null ? [(int) $data['chef_id']] : [],
+        );
+
+        DB::transaction(function () use ($crew, $data, $item, $round) {
             if ($data['status'] === 'preparing') {
-                if (! empty($data['chef_id'])) {
-                    $item->chef_id = (int) $data['chef_id'];
-                }
+                $item->assignChefs($crew);
                 // Stamped once — a re-tap (or a second cook taking over) never
                 // restarts a dish's clock.
                 if ($item->started_at === null) {

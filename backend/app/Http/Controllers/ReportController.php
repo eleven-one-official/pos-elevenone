@@ -465,6 +465,7 @@ class ReportController extends Controller
         $rounds->load([
             'items:id,order_round_id,name,quantity,note,chef_id,started_at,ready_at',
             'items.chef:id,name',
+            'items.chefs:id,name',
         ]);
 
         // One bucket bag per dimension, all filled in the same pass.
@@ -496,17 +497,28 @@ class ReportController extends Controller
             $roundItems = (int) $round->items_count;
             $prep = $clock($round);
 
+            // Who worked one line. A dish can be shared now, so a line carries
+            // a crew; lines from the single-cook era fall back to their one
+            // `chef_id`. Each entry is [id, name].
+            $lineCrew = fn ($line) => $line->chefs->isNotEmpty()
+                ? $line->chefs->map(fn ($chef) => [$chef->id, $chef->name])->all()
+                : ($line->chef_id ? [[$line->chef_id, $line->chef?->name ?? 'Unknown']] : []);
+
             // Each cook's own stretch of the ticket: from their first dish
-            // started to their last dish plated. Only lines the board timed
-            // count; tickets from the whole-card era have none and fall back
-            // to the ticket's clock below.
+            // started to their last dish plated. A shared dish stretches every
+            // one of its cooks' spans. Only lines the board timed count;
+            // tickets from the whole-card era have none and fall back to the
+            // ticket's clock below.
             $chefSpans = [];
             foreach ($round->items as $line) {
-                if ($line->chef_id && $line->started_at && $line->ready_at) {
-                    $span = $chefSpans[$line->chef_id] ?? ['from' => $line->started_at, 'to' => $line->ready_at];
+                if (! $line->started_at || ! $line->ready_at) {
+                    continue;
+                }
+                foreach ($lineCrew($line) as [$crewChefId]) {
+                    $span = $chefSpans[$crewChefId] ?? ['from' => $line->started_at, 'to' => $line->ready_at];
                     $span['from'] = $span['from']->min($line->started_at);
                     $span['to'] = $span['to']->max($line->ready_at);
-                    $chefSpans[$line->chef_id] = $span;
+                    $chefSpans[$crewChefId] = $span;
                 }
             }
 
@@ -585,15 +597,17 @@ class ReportController extends Controller
                 $bags['item'][$key] = $bucket;
             }
 
-            // Who made what: a line the board tracked credits only its real
-            // maker, with the line's own clock; a whole-card-era line credits
-            // the ticket's whole crew (each in full, like the leaderboard)
-            // with each cook's span of the card. Folded per (cook, dish)
-            // within the round first, so a ticket counts once per pairing.
+            // Who made what: a line the board tracked credits its real makers —
+            // every cook on the dish, each in full, with the line's own clock;
+            // a whole-card-era line credits the ticket's whole crew (each in
+            // full, like the leaderboard) with each cook's span of the card.
+            // Folded per (cook, dish) within the round first, so a ticket
+            // counts once per pairing.
             $chefDishes = [];
             foreach ($round->items as $line) {
-                $credits = $line->chef_id
-                    ? [[$line->chef_id, $line->chef?->name ?? 'Unknown', $clock($line) ?? $prep]]
+                $crew = $lineCrew($line);
+                $credits = $crew !== []
+                    ? array_map(fn ($c) => [$c[0], $c[1], $clock($line) ?? $prep], $crew)
                     : array_map(fn ($t) => [$t[1]['chef_id'], $t[1]['chef'], $t[2]], $chefTargets);
                 foreach ($credits as [$creditId, $creditName, $linePrep]) {
                     $pairKey = $creditId.'|'.$line->name;
@@ -745,7 +759,11 @@ class ReportController extends Controller
                     'name' => $line->name,
                     'quantity' => (int) $line->quantity,
                     'note' => $line->note,
-                    'chef' => $line->chef?->name,
+                    // The dish's whole crew on one line — "Bopha + Rithy" — so
+                    // a shared plate doesn't read as one person's work.
+                    'chef' => $line->chefs->isNotEmpty()
+                        ? $line->chefs->pluck('name')->join(' + ')
+                        : $line->chef?->name,
                     'started_at' => $line->started_at?->toIso8601String(),
                     'ready_at' => $line->ready_at?->toIso8601String(),
                     'prep_seconds' => $line->started_at && $line->ready_at

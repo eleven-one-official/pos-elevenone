@@ -38,10 +38,13 @@ export type ApiOrderItem = {
   /**
    * Per-dish tracking, written from the kitchen display: who cooks this line
    * and its own Start→Ready clock. Null until a cook takes the dish; the chef
-   * relation only rides along on the station endpoints.
+   * relations only ride along on the station endpoints. `chef` is the lead
+   * (first picked); `chefs` is the whole crew — one plate can pass through
+   * two sections, so a dish can be shared like a ticket can.
    */
   chef_id?: number | null
   chef?: { id: number; name: string } | null
+  chefs?: { id: number; name: string }[]
   started_at?: string | null
   ready_at?: string | null
 }
@@ -298,19 +301,20 @@ export function markTicketReady(id: number, station: Station): Promise<ApiStatio
 }
 
 /**
- * A cook takes one *dish*: names its maker and starts that line's own clock —
- * the per-dish time the Chef Performance KPI reads. Returns the whole
- * refreshed ticket, since the tap moves the round's status and crew too.
+ * Cooks take one *dish*: name its makers and start that line's own clock —
+ * the per-dish time the Chef Performance KPI reads. One plate can be shared
+ * between sections, so the crew is a list; the first id leads. Returns the
+ * whole refreshed ticket, since the tap moves the round's status and crew too.
  */
 export function startTicketItem(
   roundId: number,
   itemId: number,
   station: Station,
-  chefId: number,
+  chefIds: number[],
 ): Promise<ApiStationTicket> {
   return api<ApiStationTicket>(`${STATION_PATH[station]}/${roundId}/items/${itemId}`, {
     method: 'PUT',
-    body: { status: 'preparing', chef_id: chefId },
+    body: { status: 'preparing', chef_ids: chefIds },
   })
 }
 
