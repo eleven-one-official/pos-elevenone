@@ -15,8 +15,6 @@ import { fetchChefs, type Chef } from '../../services/api/chefs'
 import {
   fetchChefPerformance,
   type AnalysisPeriod,
-  type ChefDishDetailRow,
-  type ChefDishRow,
   type ChefPerformanceData,
   type ChefTicket,
   type Station,
@@ -29,12 +27,11 @@ import { downloadReportExcel } from './exportExcel'
 // bar display (tapped Start, naming themselves) counts toward their orders,
 // the item units they made, and their cook time (Start → Ready).
 //
-// Four views over the same filtered set of tickets: Overview (the headline
+// Three views over the same filtered set of tickets: Overview (the headline
 // numbers + the leaderboard), Analysis (how the work and the clock move over
-// days, hours and people), Dishes (each dish's plates and how long its tickets
-// ran) and Details (the raw ticket list behind it all). The period, the cook
-// and the station filter all four at once, and the whole report exports to
-// Excel from the header.
+// days, hours and people) and Details (the raw ticket list behind it all). The
+// period, the cook and the station filter all three at once, and the whole
+// report exports to Excel from the header.
 // ---------------------------------------------------------------------------
 
 const PERIODS: { label: string; value: AnalysisPeriod }[] = [
@@ -45,7 +42,7 @@ const PERIODS: { label: string; value: AnalysisPeriod }[] = [
   { label: 'All Time', value: '' },
 ]
 
-const TABS = ['Overview', 'Analysis', 'Dishes', 'By Chef', 'Details'] as const
+const TABS = ['Overview', 'Analysis', 'Details'] as const
 type Tab = (typeof TABS)[number]
 
 const STATIONS: { label: string; value: Station | '' }[] = [
@@ -408,16 +405,6 @@ export default function PosChefPerformance() {
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {tab === 'Overview' && <Overview data={data} />}
           {tab === 'Analysis' && <Analysis data={data} />}
-          {tab === 'Dishes' && <Dishes rows={data.by_item} />}
-          {tab === 'By Chef' && (
-            <ByChef
-              rows={
-                chefId === null
-                  ? (data.by_chef_item ?? [])
-                  : (data.by_chef_item ?? []).filter((r) => r.chef_id === chefId)
-              }
-            />
-          )}
           {tab === 'Details' && (
             <Details
               rows={details}
@@ -779,244 +766,6 @@ function Chart({
         {xLabel}
       </text>
     </svg>
-  )
-}
-
-// --- Dishes -----------------------------------------------------------------
-
-/** Per-dish output over the filtered tickets: how many plates of each dish
- *  went out, and how long the tickets carrying it took. With the cook filter
- *  on, this is one person's menu — their plates, their clock. */
-function Dishes({ rows }: { rows: ChefDishRow[] }) {
-  const [search, setSearch] = useState('')
-  const q = search.trim().toLowerCase()
-  const shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows
-  const maxUnits = rows.reduce((max, r) => Math.max(max, r.units), 0)
-  const totalUnits = rows.reduce((sum, r) => sum + r.units, 0)
-
-  return (
-    <Panel
-      title="Dishes"
-      subtitle={`${num(rows.length)} dish${rows.length === 1 ? '' : 'es'} cooked in this window — most plates first`}
-      action={
-        <div className="relative">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find a dish…"
-            className="w-56 rounded-[3px] border border-neutral-300 px-3 py-1.5 pr-9 text-sm outline-none transition focus:border-sky-600"
-          />
-          <LuSearch className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-        </div>
-      }
-    >
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="border-b border-neutral-200 text-left text-neutral-800">
-            <th className="py-2.5 pr-4 font-bold">Dish</th>
-            <th className="w-[28%] py-2.5 pr-4 font-bold" title="Total plates — quantities added up">
-              Plates
-            </th>
-            <th className="w-[9%] py-2.5 pr-4 text-right font-bold">Share</th>
-            <th className="w-[10%] py-2.5 pr-4 text-right font-bold" title="Tickets the dish appeared on">
-              Tickets
-            </th>
-            <th className="w-[10%] py-2.5 pr-4 text-right font-bold" title="Tickets carrying both a Start and a Ready stamp">
-              Timed
-            </th>
-            <th className="w-[14%] py-2.5 pr-4 text-right font-bold" title="Average clock of the tickets the dish rode on">
-              Avg cook time
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="py-4 text-[13px] italic text-neutral-500">
-                No dish matches this search.
-              </td>
-            </tr>
-          ) : (
-            shown.map((r) => (
-              <tr key={r.name} className="border-b border-neutral-100 text-neutral-700">
-                <td className="py-2.5 pr-4 font-medium text-neutral-800">{r.name}</td>
-                <td className="py-2.5 pr-4">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100">
-                      <div
-                        className="h-full rounded-full bg-[#57779a]"
-                        style={{ width: `${maxUnits > 0 ? (r.units / maxUnits) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <span className="w-10 shrink-0 text-right tabular-nums">{num(r.units)}</span>
-                  </div>
-                </td>
-                <td className="py-2.5 pr-4 text-right tabular-nums">
-                  {totalUnits > 0 ? `${Math.round((r.units / totalUnits) * 100)}%` : '—'}
-                </td>
-                <td className="py-2.5 pr-4 text-right tabular-nums">{num(r.rounds)}</td>
-                <td className="py-2.5 pr-4 text-right tabular-nums">{num(r.timed_rounds)}</td>
-                <td className="py-2.5 pr-4 text-right tabular-nums">{fmtPrep(r.avg_prep_seconds)}</td>
-              </tr>
-            ))
-          )}
-          {!q && rows.length > 0 && (
-            <tr className="bg-neutral-50/70 font-bold text-neutral-800">
-              <td className="py-2.5 pr-4">Total</td>
-              <td className="py-2.5 pr-4 text-right tabular-nums">{num(totalUnits)}</td>
-              <td className="py-2.5 pr-4 text-right tabular-nums">100%</td>
-              {/* A ticket with two dishes sits on two rows, so ticket columns
-                  don't add up to anything honest — leave them out. */}
-              <td className="py-2.5 pr-4" />
-              <td className="py-2.5 pr-4" />
-              <td className="py-2.5 pr-4" />
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </Panel>
-  )
-}
-
-// --- By Chef ----------------------------------------------------------------
-
-/** Each cook's own menu, one card per person: every dish they made in the
- *  window, how many plates of it, and their own clock on it. Lines the board
- *  tracked credit only their real maker; whole-card-era lines credit the
- *  ticket's whole crew, so old shared cards still show under both cooks. */
-function ByChef({ rows }: { rows: ChefDishDetailRow[] }) {
-  const [search, setSearch] = useState('')
-  const q = search.trim().toLowerCase()
-
-  // Rows arrive grouped — leaderboard order, biggest dish first — so one pass
-  // cuts them back into a block per cook.
-  const groups = useMemo(() => {
-    const out: { chef_id: number; chef: string; dishes: ChefDishDetailRow[] }[] = []
-    for (const r of rows) {
-      const last = out[out.length - 1]
-      if (last && last.chef_id === r.chef_id) last.dishes.push(r)
-      else out.push({ chef_id: r.chef_id, chef: r.chef, dishes: [r] })
-    }
-    return out
-  }, [rows])
-
-  // A cook's name keeps their whole card; a dish name trims every card down
-  // to the cooks who actually made it.
-  const shown = q
-    ? groups
-        .map((g) =>
-          g.chef.toLowerCase().includes(q)
-            ? g
-            : { ...g, dishes: g.dishes.filter((d) => d.name.toLowerCase().includes(q)) },
-        )
-        .filter((g) => g.dishes.length > 0)
-    : groups
-
-  if (rows.length === 0) {
-    return <Blank>No cooked dish carries a cook&apos;s name in this window yet.</Blank>
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex justify-end">
-        <div className="relative">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find a cook or a dish…"
-            className="w-64 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 pr-9 text-sm outline-none transition focus:border-sky-600"
-          />
-          <LuSearch className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-        </div>
-      </div>
-
-      {shown.length === 0 ? (
-        <Blank>No cook or dish matches this search.</Blank>
-      ) : (
-        shown.map((g) => <ChefCard key={g.chef_id} chef={g.chef} dishes={g.dishes} />)
-      )}
-    </div>
-  )
-}
-
-/** One cook's card: their headline numbers and their dish-by-dish table. */
-function ChefCard({ chef, dishes }: { chef: string; dishes: ChefDishDetailRow[] }) {
-  const plates = dishes.reduce((sum, d) => sum + d.units, 0)
-  const maxUnits = dishes.reduce((max, d) => Math.max(max, d.units), 0)
-  // The cook's overall pace, rebuilt from the same rows the table shows —
-  // each dish's clock weighted by how many timed tickets stand behind it.
-  const timed = dishes.reduce((sum, d) => sum + d.timed_rounds, 0)
-  const avg =
-    timed > 0
-      ? Math.round(
-          dishes.reduce((sum, d) => sum + (d.avg_prep_seconds ?? 0) * d.timed_rounds, 0) / timed,
-        )
-      : null
-
-  return (
-    <Panel
-      title={chef}
-      subtitle={`${num(plates)} plate${plates === 1 ? '' : 's'} across ${num(dishes.length)} dish${
-        dishes.length === 1 ? '' : 'es'
-      }${avg !== null ? ` — ${fmtPrep(avg)} per dish on average` : ''}`}
-    >
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="border-b border-neutral-200 text-left text-neutral-800">
-            <th className="py-2.5 pr-4 font-bold">Dish</th>
-            <th className="w-[28%] py-2.5 pr-4 font-bold" title="Plates of this dish the cook made">
-              Plates
-            </th>
-            <th className="w-[9%] py-2.5 pr-4 text-right font-bold" title="Of the cook's own plates">
-              Share
-            </th>
-            <th className="w-[10%] py-2.5 pr-4 text-right font-bold" title="Tickets where the cook made this dish">
-              Tickets
-            </th>
-            <th className="w-[10%] py-2.5 pr-4 text-right font-bold" title="Tickets carrying both a Start and a Ready stamp">
-              Timed
-            </th>
-            <th className="w-[14%] py-2.5 pr-4 text-right font-bold" title="The cook's own average clock on this dish">
-              Avg cook time
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {dishes.map((d) => (
-            <tr key={d.name} className="border-b border-neutral-100 text-neutral-700">
-              <td className="py-2.5 pr-4 font-medium text-neutral-800">{d.name}</td>
-              <td className="py-2.5 pr-4">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100">
-                    <div
-                      className="h-full rounded-full bg-[#57779a]"
-                      style={{ width: `${maxUnits > 0 ? (d.units / maxUnits) * 100 : 0}%` }}
-                    />
-                  </div>
-                  <span className="w-10 shrink-0 text-right tabular-nums">{num(d.units)}</span>
-                </div>
-              </td>
-              <td className="py-2.5 pr-4 text-right tabular-nums">
-                {plates > 0 ? `${Math.round((d.units / plates) * 100)}%` : '—'}
-              </td>
-              <td className="py-2.5 pr-4 text-right tabular-nums">{num(d.rounds)}</td>
-              <td className="py-2.5 pr-4 text-right tabular-nums">{num(d.timed_rounds)}</td>
-              <td className="py-2.5 pr-4 text-right tabular-nums">{fmtPrep(d.avg_prep_seconds)}</td>
-            </tr>
-          ))}
-          <tr className="bg-neutral-50/70 font-bold text-neutral-800">
-            <td className="py-2.5 pr-4">Total</td>
-            <td className="py-2.5 pr-4 text-right tabular-nums">{num(plates)}</td>
-            <td className="py-2.5 pr-4 text-right tabular-nums">100%</td>
-            {/* A ticket with two of the cook's dishes sits on two rows, so the
-                ticket columns don't add up to anything honest — left out. */}
-            <td className="py-2.5 pr-4" />
-            <td className="py-2.5 pr-4" />
-            <td className="py-2.5 pr-4 text-right tabular-nums">{fmtPrep(avg)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </Panel>
   )
 }
 
