@@ -571,7 +571,7 @@ export default function StationDisplayPage({
   // it's a number someone actually reads rather than an acknowledgement.
   useEffect(() => {
     if (!toast) return
-    const t = window.setTimeout(() => setToast(null), toast.took ? 4500 : 2000)
+    const t = window.setTimeout(() => setToast(null), toast.took ? 4500 : 300)
     return () => window.clearTimeout(t)
   }, [toast])
 
