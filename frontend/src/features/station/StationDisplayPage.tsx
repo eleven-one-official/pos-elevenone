@@ -567,11 +567,10 @@ export default function StationDisplayPage({
     return () => window.clearInterval(id)
   }, [])
 
-  // Auto-dismiss the confirmation toast — a bump time stays up longer, since
-  // it's a number someone actually reads rather than an acknowledgement.
+  // Auto-dismiss the confirmation toast.
   useEffect(() => {
     if (!toast) return
-    const t = window.setTimeout(() => setToast(null), toast.took ? 4500 : 400)
+    const t = window.setTimeout(() => setToast(null), 400)
     return () => window.clearTimeout(t)
   }, [toast])
 

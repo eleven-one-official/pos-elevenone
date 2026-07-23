@@ -146,7 +146,7 @@ export default function WaiterOrderPage({
   // Auto-dismiss the confirmation toast.
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(null), 2200)
+    const t = setTimeout(() => setToast(null), 400)
     return () => clearTimeout(t)
   }, [toast])
 

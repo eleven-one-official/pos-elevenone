@@ -5,7 +5,6 @@ import {
   LuChevronDown,
   LuChevronRight,
   LuClock,
-  LuDownload,
   LuFileSpreadsheet,
   LuLayers,
   LuSearch,
@@ -22,7 +21,6 @@ import {
   type ChefTicket,
   type Station,
 } from '../../services/api/reports'
-import { downloadReportPdf, downloadTablePdf } from './exportPdf'
 import { downloadReportExcel } from './exportExcel'
 
 // ---------------------------------------------------------------------------
@@ -36,7 +34,7 @@ import { downloadReportExcel } from './exportExcel'
 // days, hours and people), Dishes (each dish's plates and how long its tickets
 // ran) and Details (the raw ticket list behind it all). The period, the cook
 // and the station filter all four at once, and the whole report exports to
-// PDF or Excel from the header.
+// Excel from the header.
 // ---------------------------------------------------------------------------
 
 const PERIODS: { label: string; value: AnalysisPeriod }[] = [
@@ -123,6 +121,19 @@ function fmtDayLong(date: string): string {
   })
 }
 
+/** A custom window, spelled out where a pill label would go — on screen
+ *  states and on the export subtitle. Handles a single bound too. */
+function rangeLabel(from: string, to: string): string {
+  const day = (d: string) =>
+    new Date(`${d}T00:00:00`).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  if (from && to) return from === to ? day(from) : `${day(from)} – ${day(to)}`
+  return from ? `From ${day(from)}` : `Until ${day(to)}`
+}
+
 /** Round axis maximum, so ticks land on 1/2/5×10ⁿ. The top tick always clears
  *  the data — an axis that stops short would plot the peak off the chart. */
 function niceTicks(max: number): number[] {
@@ -138,9 +149,15 @@ function niceTicks(max: number): number[] {
 
 export default function PosChefPerformance() {
   const [period, setPeriod] = useState<AnalysisPeriod>('week')
+  // A picked From/To window (local YYYY-MM-DD) overrides the preset pills;
+  // either bound may stand alone.
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [chefId, setChefId] = useState<number | null>(null)
   const [station, setStation] = useState<Station | ''>('')
   const [tab, setTab] = useState<Tab>('Overview')
+
+  const customRange = from !== '' || to !== ''
 
   const [data, setData] = useState<ChefPerformanceData | null>(null)
   const [roster, setRoster] = useState<Chef[]>([])
@@ -156,7 +173,13 @@ export default function PosChefPerformance() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchChefPerformance({ period, chefId, station: station || null })
+    fetchChefPerformance({
+      period: customRange ? '' : period,
+      chefId,
+      station: station || null,
+      from: from || null,
+      to: to || null,
+    })
       .then((res) => {
         if (!cancelled) setData(res)
       })
@@ -170,7 +193,7 @@ export default function PosChefPerformance() {
     return () => {
       cancelled = true
     }
-  }, [period, chefId, station, refreshKey])
+  }, [period, customRange, from, to, chefId, station, refreshKey])
 
   // The filter lists everyone on the roster, not just whoever cooked in the
   // window — picking a quiet cook and seeing zero is an answer too.
@@ -210,7 +233,9 @@ export default function PosChefPerformance() {
   const overview = data?.overview
   const empty = !!data && data.overview.rounds === 0
 
-  const periodLabel = PERIODS.find((p) => p.value === period)?.label ?? 'All Time'
+  const periodLabel = customRange
+    ? rangeLabel(from, to)
+    : (PERIODS.find((p) => p.value === period)?.label ?? 'All Time')
   // "This Week — Bopha — Kitchen": the filters, spelled out on the export.
   const chefName = chefId === null ? null : (roster.find((c) => c.id === chefId)?.name ?? null)
   const exportSubtitle = [periodLabel, chefName, station ? titleCase(station) : null]
@@ -229,21 +254,57 @@ export default function PosChefPerformance() {
               Every ticket a cook started on a display board — how many, how much, how fast.
             </p>
           </div>
-          <div className="inline-flex divide-x divide-neutral-300 overflow-hidden rounded-[3px] border border-neutral-300">
-            {PERIODS.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => setPeriod(p.value)}
-                className={`px-3 py-1.5 text-[13px] transition ${
-                  period === p.value
-                    ? 'bg-[#57779a] text-white'
-                    : 'bg-white text-neutral-600 hover:bg-neutral-50'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
+          <div className="flex flex-col items-end gap-2">
+            <div className="inline-flex divide-x divide-neutral-300 overflow-hidden rounded-[3px] border border-neutral-300">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    setPeriod(p.value)
+                    setFrom('')
+                    setTo('')
+                  }}
+                  className={`px-3 py-1.5 text-[13px] transition ${
+                    !customRange && period === p.value
+                      ? 'bg-[#57779a] text-white'
+                      : 'bg-white text-neutral-600 hover:bg-neutral-50'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {/* Or an exact window — picking a date takes over from the pills. */}
+            <div className="flex items-center gap-1.5 text-[13px] text-neutral-500">
+              <input
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => setFrom(e.target.value)}
+                className="rounded-[3px] border border-neutral-300 bg-white px-2 py-1 text-[13px] text-neutral-700 outline-none transition focus:border-sky-600"
+              />
+              <span>to</span>
+              <input
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+                className="rounded-[3px] border border-neutral-300 bg-white px-2 py-1 text-[13px] text-neutral-700 outline-none transition focus:border-sky-600"
+              />
+              {customRange && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrom('')
+                    setTo('')
+                  }}
+                  className="text-[13px] text-neutral-500 underline-offset-2 transition hover:text-neutral-700 hover:underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -309,16 +370,7 @@ export default function PosChefPerformance() {
             <span className="mx-1 h-5 w-px bg-neutral-200" />
             <button
               type="button"
-              onClick={() => data && exportReport('pdf', data, exportSubtitle)}
-              disabled={!canExport}
-              className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
-            >
-              <LuDownload className="h-3.5 w-3.5" />
-              PDF
-            </button>
-            <button
-              type="button"
-              onClick={() => data && exportReport('excel', data, exportSubtitle)}
+              onClick={() => data && exportReport(data, exportSubtitle)}
               disabled={!canExport}
               className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
             >
@@ -1042,16 +1094,7 @@ function Details({
           </button>
           <button
             type="button"
-            onClick={() => exportDetails('pdf', rows, periodLabel)}
-            disabled={rows.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
-          >
-            <LuDownload className="h-3.5 w-3.5" />
-            PDF
-          </button>
-          <button
-            type="button"
-            onClick={() => exportDetails('excel', rows, periodLabel)}
+            onClick={() => exportDetails(rows, periodLabel)}
             disabled={rows.length === 0}
             className="inline-flex items-center gap-1.5 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 text-[13px] text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
           >
@@ -1132,36 +1175,62 @@ function Details({
                       <div className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">
                         Dishes on this ticket
                       </div>
-                      <ul className="mt-1.5 flex flex-col gap-1">
-                        {r.lines.length === 0 ? (
-                          <li className="text-[13px] italic text-neutral-500">
-                            No line survived on this ticket — the round was edited or voided.
-                          </li>
-                        ) : (
-                          r.lines.map((l, i) => (
-                            <li key={`${l.name}-${i}`} className="flex items-baseline gap-2">
-                              <span className="w-8 shrink-0 text-right font-semibold tabular-nums text-neutral-800">
-                                x{l.quantity}
-                              </span>
-                              <span className="text-neutral-800">{l.name}</span>
-                              {l.note && (
-                                <span className="text-[12px] italic text-neutral-500">
-                                  — {l.note}
-                                </span>
-                              )}
-                              {/* The dish's own maker and clock, when the board
-                                  timed the plate itself. */}
-                              {(l.chef || l.prep_seconds != null) && (
-                                <span className="ml-auto shrink-0 pl-2 text-[12px] tabular-nums text-neutral-500">
-                                  {l.chef}
-                                  {l.chef && l.prep_seconds != null && ' · '}
-                                  {l.prep_seconds != null && fmtPrep(l.prep_seconds)}
-                                </span>
-                              )}
-                            </li>
-                          ))
-                        )}
-                      </ul>
+                      {r.lines.length === 0 ? (
+                        <p className="mt-1.5 text-[13px] italic text-neutral-500">
+                          No line survived on this ticket — the round was edited or voided.
+                        </p>
+                      ) : (
+                        /* Each dish's own paper trail: who made it, its two
+                           stamps, its clock. Whole-card-era lines carry no
+                           stamps of their own and dash out — the ticket row
+                           above still holds the card's clock. */
+                        <table className="mt-1.5 w-full max-w-3xl text-[13px]">
+                          <thead>
+                            <tr className="text-left text-[12px] text-neutral-400">
+                              <th className="w-8 py-1 pr-2 text-right font-semibold">Qty</th>
+                              <th className="py-1 pr-4 font-semibold">Dish</th>
+                              <th className="w-[18%] py-1 pr-4 font-semibold">Chef</th>
+                              <th className="w-[11%] py-1 pr-4 text-right font-semibold">Start</th>
+                              <th className="w-[11%] py-1 pr-4 text-right font-semibold">Ready</th>
+                              <th className="w-[14%] py-1 text-right font-semibold">Cook time</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {r.lines.map((l, i) => (
+                              <tr key={`${l.name}-${i}`} className="text-neutral-700">
+                                <td className="py-1 pr-2 text-right font-semibold tabular-nums text-neutral-800">
+                                  x{l.quantity}
+                                </td>
+                                <td className="py-1 pr-4">
+                                  <span className="text-neutral-800">{l.name}</span>
+                                  {l.note && (
+                                    <span className="text-[12px] italic text-neutral-500">
+                                      {' '}
+                                      — {l.note}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-1 pr-4">{l.chef ?? '—'}</td>
+                                <td className="py-1 pr-4 text-right tabular-nums">
+                                  {fmtClock(l.started_at ?? null)}
+                                </td>
+                                <td className="py-1 pr-4 text-right tabular-nums">
+                                  {fmtClock(l.ready_at ?? null)}
+                                </td>
+                                <td className="py-1 text-right tabular-nums">
+                                  {l.prep_seconds != null ? (
+                                    fmtPrep(l.prep_seconds)
+                                  ) : l.started_at ? (
+                                    <span className="italic text-neutral-400">cooking…</span>
+                                  ) : (
+                                    '—'
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                     </td>
                   </tr>
                 ),
@@ -1174,12 +1243,18 @@ function Details({
   )
 }
 
-/** "x2 Fish Amok · x1 Lok Lak" — the ticket in one line. */
-function dishList(r: ChefTicket): string {
-  return r.lines.map((l) => `x${l.quantity} ${l.name}`).join(' · ')
+/** "x2 Fish Amok · x1 Lok Lak" — the ticket in one line. Exports ask for the
+ *  timed version, "x2 Fish Amok (7m 12s) · …", since the file has no expand. */
+function dishList(r: ChefTicket, withTimes = false): string {
+  return r.lines
+    .map((l) => {
+      const time = withTimes && l.prep_seconds != null ? ` (${fmtPrep(l.prep_seconds)})` : ''
+      return `x${l.quantity} ${l.name}${time}`
+    })
+    .join(' · ')
 }
 
-// --- Export — the same rows, as a PDF or an Excel workbook ------------------
+// --- Export — the same rows, as an Excel workbook ---------------------------
 
 type Cell = string | number | null | undefined
 type Column = { header: string; align?: 'left' | 'right' }
@@ -1189,9 +1264,7 @@ type Column = { header: string; align?: 'left' | 'right' }
 const excelMinutes = (seconds: number | null): Cell =>
   seconds === null ? '' : Number((seconds / 60).toFixed(1))
 
-// On paper the duration reads as "4m 18s"; the workbook gets plain minutes the
-// reader can average, so the header carries the unit there.
-const ticketColumns = (excel: boolean): Column[] => [
+const ticketColumns: Column[] = [
   { header: 'Fired' },
   { header: 'Order' },
   { header: 'Table' },
@@ -1203,10 +1276,10 @@ const ticketColumns = (excel: boolean): Column[] => [
   { header: 'Units', align: 'right' },
   { header: 'Start', align: 'right' },
   { header: 'Ready', align: 'right' },
-  { header: excel ? 'Cook time (min)' : 'Cook time', align: 'right' },
+  { header: 'Cook time (min)', align: 'right' },
 ]
 
-function ticketRow(r: ChefTicket, excel: boolean): Cell[] {
+function ticketRow(r: ChefTicket): Cell[] {
   return [
     fmtStamp(r.created_at),
     r.order_number ?? `#${r.order_id}`,
@@ -1214,23 +1287,21 @@ function ticketRow(r: ChefTicket, excel: boolean): Cell[] {
     `R${r.round_no}`,
     titleCase(r.station ?? ''),
     r.chef,
-    dishList(r),
+    dishList(r, true),
     r.dishes,
     r.items,
     fmtClock(r.started_at),
     fmtClock(r.ready_at),
-    excel ? excelMinutes(r.prep_seconds) : fmtPrep(r.prep_seconds),
+    excelMinutes(r.prep_seconds),
   ]
 }
 
-/** The whole report as one file: Summary, Per cook, Per day, Per dish and the
- *  ticket list — the PDF stacks them as sections, the workbook as sheets. */
-function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle: string) {
-  const excel = kind === 'excel'
-  // On paper a duration reads best as "7m 12s"; in a spreadsheet it should be
-  // a number the reader can average, so the workbook gets minutes.
-  const time = excel ? excelMinutes : fmtPrep
-  const timeHeader = excel ? 'Avg cook (min)' : 'Avg cook time'
+/** The whole report as one workbook: Summary, Per cook, Per day, Per dish and
+ *  the ticket list, one sheet each. Durations are plain minutes the reader can
+ *  sum and average, so the headers carry the unit. */
+function exportReport(data: ChefPerformanceData, subtitle: string) {
+  const time = excelMinutes
+  const timeHeader = 'Avg cook (min)'
   const o = data.overview
 
   const summaryRows: Cell[][] = [
@@ -1288,64 +1359,30 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
     r.chef, r.name, r.units, r.rounds, r.timed_rounds, time(r.avg_prep_seconds),
   ])
 
-  const capped = data.details.length < data.details_total
-  const ticketsTitle = capped
-    ? `Tickets (newest ${num(data.details.length)} of ${num(data.details_total)})`
-    : 'Tickets'
-  const ticketRows = data.details.map((r) => ticketRow(r, excel))
-
-  if (excel) {
-    void downloadReportExcel({
-      fileName: 'chef-performance.xlsx',
-      title: 'Chef Performance',
-      subtitle,
-      sheets: [
-        { name: 'Summary', columns: [{ header: 'Measure' }, { header: 'Value', align: 'right' }], rows: summaryRows },
-        { name: 'Per Cook', columns: chefColumns, rows: chefRows },
-        { name: 'Per Day', columns: dayColumns, rows: dayRows },
-        { name: 'Per Dish', columns: dishColumns, rows: dishRows },
-        { name: 'Per Cook Per Dish', columns: chefDishColumns, rows: chefDishRows },
-        { name: 'Tickets', columns: ticketColumns(true), rows: ticketRows },
-      ],
-    })
-  } else {
-    void downloadReportPdf({
-      fileName: 'chef-performance.pdf',
-      title: 'Chef Performance',
-      subtitle,
-      sections: [
-        // Blank headers — the PDF prints the Summary as a plain key/value list.
-        { sectionTitle: 'Summary', columns: [{ header: '' }, { header: '', align: 'right' }], rows: summaryRows, numbered: false },
-        { sectionTitle: 'Per cook', columns: chefColumns, rows: chefRows },
-        { sectionTitle: 'Per day', columns: dayColumns, rows: dayRows },
-        { sectionTitle: 'Per dish', columns: dishColumns, rows: dishRows },
-        { sectionTitle: 'Per cook, per dish', columns: chefDishColumns, rows: chefDishRows },
-        { sectionTitle: ticketsTitle, columns: ticketColumns(false), rows: ticketRows },
-      ],
-    })
-  }
+  void downloadReportExcel({
+    fileName: 'chef-performance.xlsx',
+    title: 'Chef Performance',
+    subtitle,
+    sheets: [
+      { name: 'Summary', columns: [{ header: 'Measure' }, { header: 'Value', align: 'right' }], rows: summaryRows },
+      { name: 'Per Cook', columns: chefColumns, rows: chefRows },
+      { name: 'Per Day', columns: dayColumns, rows: dayRows },
+      { name: 'Per Dish', columns: dishColumns, rows: dishRows },
+      { name: 'Per Cook Per Dish', columns: chefDishColumns, rows: chefDishRows },
+      { name: 'Tickets', columns: ticketColumns, rows: data.details.map(ticketRow) },
+    ],
+  })
 }
 
 /** Just the ticket list as it stands on screen — same search, same order. */
-function exportDetails(kind: 'pdf' | 'excel', rows: ChefTicket[], subtitleBase: string) {
+function exportDetails(rows: ChefTicket[], subtitleBase: string) {
   const subtitle = `${subtitleBase} — ${rows.length} ticket${rows.length === 1 ? '' : 's'}`
-  if (kind === 'excel') {
-    void downloadReportExcel({
-      fileName: 'chef-performance-tickets.xlsx',
-      title: 'Chef Performance',
-      subtitle,
-      sheets: [{ name: 'Tickets', columns: ticketColumns(true), rows: rows.map((r) => ticketRow(r, true)) }],
-    })
-  } else {
-    void downloadTablePdf({
-      fileName: 'chef-performance-tickets.pdf',
-      title: 'Chef Performance',
-      subtitle,
-      sectionTitle: 'Tickets',
-      columns: ticketColumns(false),
-      rows: rows.map((r) => ticketRow(r, false)),
-    })
-  }
+  void downloadReportExcel({
+    fileName: 'chef-performance-tickets.xlsx',
+    title: 'Chef Performance',
+    subtitle,
+    sheets: [{ name: 'Tickets', columns: ticketColumns, rows: rows.map(ticketRow) }],
+  })
 }
 
 // --- Shared bits ------------------------------------------------------------

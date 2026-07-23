@@ -406,14 +406,26 @@ class ReportController extends Controller
      * ticket's whole crew, like the leaderboard), and
      * `details` (newest first, capped — `details_total` is the real count).
      *
-     * Filters: ?period= today|week|month|year (default: all), ?chef_id= to
-     * single out one person, ?station= kitchen|bar. Day and hour buckets are
-     * cut in the caller's timezone via ?tz= (minutes east of UTC, as
+     * Filters: ?period= today|week|month|year (default: all), or a custom
+     * ?from= / ?to= window of ISO instants — either bound may stand alone, and
+     * a custom window overrides the preset. ?chef_id= singles out one person,
+     * ?station= kitchen|bar. Day and hour buckets are cut in the caller's
+     * timezone via ?tz= (minutes east of UTC, as
      * `-new Date().getTimezoneOffset()`), since the app itself stores UTC.
      */
     public function chefPerformance(Request $request): JsonResponse
     {
-        $start = match ($request->string('period')->toString()) {
+        $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        // Shifted to UTC like salesDetails — the client sends instants that
+        // carry its offset, and the bindings must match the stored clock.
+        $from = $request->filled('from') ? $request->date('from')->utc() : null;
+        $to = $request->filled('to') ? $request->date('to')->utc() : null;
+
+        $start = $from !== null || $to !== null ? $from : match ($request->string('period')->toString()) {
             'today' => now()->startOfDay(),
             'week' => now()->startOfWeek(),
             'month' => now()->startOfMonth(),
@@ -436,6 +448,7 @@ class ReportController extends Controller
             ->where(fn ($q) => $q->whereNotNull('chef_id')->orWhereHas('chefs'))
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled']))
             ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
+            ->when($to, fn ($q) => $q->where('created_at', '<=', $to))
             // Filtering to one cook means every ticket they worked on, not only
             // the ones they led — a shared card counts for both of them.
             ->when($chefId, fn ($q) => $q->where(fn ($w) => $w
@@ -726,12 +739,15 @@ class ReportController extends Controller
                     ? (int) abs($round->ready_at->diffInSeconds($round->started_at))
                     : null,
                 // What the cook actually made, dish by dish — since per-dish
-                // tracking, each line names its own maker and its own clock.
+                // tracking, each line names its own maker, its own two stamps
+                // and its own clock.
                 'lines' => $round->items->map(fn ($line) => [
                     'name' => $line->name,
                     'quantity' => (int) $line->quantity,
                     'note' => $line->note,
                     'chef' => $line->chef?->name,
+                    'started_at' => $line->started_at?->toIso8601String(),
+                    'ready_at' => $line->ready_at?->toIso8601String(),
                     'prep_seconds' => $line->started_at && $line->ready_at
                         ? (int) abs($line->ready_at->diffInSeconds($line->started_at))
                         : null,

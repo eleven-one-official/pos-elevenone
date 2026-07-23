@@ -229,6 +229,9 @@ export type ChefTicketLine = {
   quantity: number
   note: string | null
   chef?: string | null
+  /** The dish's own two stamps — null on whole-card-era lines. */
+  started_at?: string | null
+  ready_at?: string | null
   prep_seconds?: number | null
 }
 
@@ -284,6 +287,10 @@ export type ChefPerformanceFilters = {
   /** One cook, or null for everyone. */
   chefId?: number | null
   station?: Station | null
+  /** Custom window as local YYYY-MM-DD dates — either bound may stand alone;
+   *  when set, the backend ignores `period`. */
+  from?: string | null
+  to?: string | null
 }
 
 /** Overview + per-cook rows + trends + the ticket list, in one call. Day and
@@ -293,6 +300,10 @@ export function fetchChefPerformance(filters: ChefPerformanceFilters): Promise<C
   if (filters.period) params.set('period', filters.period)
   if (filters.chefId) params.set('chef_id', String(filters.chefId))
   if (filters.station) params.set('station', filters.station)
+  // Calendar days on the venue's clock → ISO instants, so the backend's UTC
+  // window covers the picked days exactly (same contract as Sales Details).
+  if (filters.from) params.set('from', new Date(`${filters.from}T00:00:00`).toISOString())
+  if (filters.to) params.set('to', new Date(`${filters.to}T23:59:59.999`).toISOString())
   return api<ChefPerformanceData>(`/reports/chef-performance?${params}`)
 }
 
