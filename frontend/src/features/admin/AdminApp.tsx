@@ -23,7 +23,6 @@ import ModulePlaceholder from './ModulePlaceholder'
 import PosAuditLog from './PosAuditLog'
 import PosBackup from './PosBackup'
 import PosCategories from './PosCategories'
-import PosChefAnalytics from './PosChefAnalytics'
 import PosChefPerformance from './PosChefPerformance'
 import PosCustomers from './PosCustomers'
 import PosDashboard from './PosDashboard'
@@ -93,7 +92,6 @@ const POS_MENUS: { label: string; items?: { id: string; label: string }[] }[] = 
       { id: 'sales-dashboard', label: 'Sales Dashboard' },
       { id: 'reporting-orders', label: 'Orders' },
       { id: 'chef-performance', label: 'Chef Performance' },
-      { id: 'chef-analytics', label: 'Chef Analytics' },
       { id: 'sales-details', label: 'Sales Details' },
       { id: 'audit-log', label: 'Audit Log' },
     ],
@@ -254,8 +252,6 @@ export default function AdminApp({
       <PosSalesDashboard />
     ) : tab.menu === 'Reporting' && tab.item === 'Chef Performance' ? (
       <PosChefPerformance />
-    ) : tab.menu === 'Reporting' && tab.item === 'Chef Analytics' ? (
-      <PosChefAnalytics />
     ) : tab.menu === 'Reporting' ? (
       // Odoo shows Sales Details as a dialog OVER the Orders Analysis screen.
       <>

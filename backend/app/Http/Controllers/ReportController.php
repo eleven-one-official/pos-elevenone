@@ -395,12 +395,15 @@ class ReportController extends Controller
      * full for each of them, so the per-cook rows deliberately add up to more
      * than the `overview`, which counts every ticket once.
      *
-     * Returns five views over the same set of tickets so the screen can show an
-     * overview, a per-cook comparison, a trend, a per-dish cut and the raw list
-     * without five round trips: `overview`, `chefs`, `by_day` / `by_hour` /
-     * `by_station`, `by_item` (each dish's plates and its average clock — the
-     * dish's own, now the board times every plate; tickets from the whole-card
-     * era fall back to the ticket's clock), and
+     * Returns six views over the same set of tickets so the screen can show an
+     * overview, a per-cook comparison, a trend, a per-dish cut, a per-cook
+     * per-dish cut and the raw list without six round trips: `overview`,
+     * `chefs`, `by_day` / `by_hour` / `by_station`, `by_item` (each dish's
+     * plates and its average clock — the dish's own, now the board times every
+     * plate; tickets from the whole-card era fall back to the ticket's clock),
+     * `by_chef_item` (each cook's own dishes — a tracked line credits only its
+     * real maker with its own clock; a whole-card-era line credits the
+     * ticket's whole crew, like the leaderboard), and
      * `details` (newest first, capped — `details_total` is the real count).
      *
      * Filters: ?period= today|week|month|year (default: all), ?chef_id= to
@@ -453,7 +456,7 @@ class ReportController extends Controller
 
         // One bucket bag per dimension, all filled in the same pass.
         /** @var array<string, array<array-key, array<string, mixed>>> $bags */
-        $bags = ['chef' => [], 'day' => [], 'hour' => [], 'station' => [], 'item' => []];
+        $bags = ['chef' => [], 'day' => [], 'hour' => [], 'station' => [], 'item' => [], 'chef_item' => []];
 
         $orderIds = [];
         $items = 0;
@@ -569,6 +572,50 @@ class ReportController extends Controller
                 $bags['item'][$key] = $bucket;
             }
 
+            // Who made what: a line the board tracked credits only its real
+            // maker, with the line's own clock; a whole-card-era line credits
+            // the ticket's whole crew (each in full, like the leaderboard)
+            // with each cook's span of the card. Folded per (cook, dish)
+            // within the round first, so a ticket counts once per pairing.
+            $chefDishes = [];
+            foreach ($round->items as $line) {
+                $credits = $line->chef_id
+                    ? [[$line->chef_id, $line->chef?->name ?? 'Unknown', $clock($line) ?? $prep]]
+                    : array_map(fn ($t) => [$t[1]['chef_id'], $t[1]['chef'], $t[2]], $chefTargets);
+                foreach ($credits as [$creditId, $creditName, $linePrep]) {
+                    $pairKey = $creditId.'|'.$line->name;
+                    $slot = $chefDishes[$pairKey] ?? [
+                        'chef_id' => $creditId,
+                        'chef' => $creditName,
+                        'name' => $line->name,
+                        'qty' => 0,
+                        'prep_total' => 0,
+                        'prep_lines' => 0,
+                    ];
+                    $slot['qty'] += (int) $line->quantity;
+                    if ($linePrep !== null) {
+                        $slot['prep_total'] += $linePrep;
+                        $slot['prep_lines']++;
+                    }
+                    $chefDishes[$pairKey] = $slot;
+                }
+            }
+            foreach ($chefDishes as $pairKey => $dish) {
+                $bucket = $bags['chef_item'][$pairKey] ?? $blank([
+                    'chef_id' => $dish['chef_id'],
+                    'chef' => $dish['chef'],
+                    'name' => $dish['name'],
+                ]);
+                $bucket['order_ids'][$round->order_id] = true;
+                $bucket['rounds']++;
+                $bucket['items'] += $dish['qty'];
+                if ($dish['prep_lines'] > 0) {
+                    $bucket['prep_seconds_total'] += (int) round($dish['prep_total'] / $dish['prep_lines']);
+                    $bucket['prep_count']++;
+                }
+                $bags['chef_item'][$pairKey] = $bucket;
+            }
+
             $orderIds[$round->order_id] = true;
             $items += $roundItems;
             if ($prep !== null) {
@@ -633,6 +680,23 @@ class ReportController extends Controller
         // Most-cooked dish first.
         usort($itemRows, fn ($a, $b) => $b['units'] <=> $a['units']);
 
+        // Each cook's own menu, one row per (cook, dish) — how many plates of
+        // it they made and their own clock on it.
+        $chefItemRows = array_values(array_map(fn (array $b) => [
+            'chef_id' => $b['chef_id'],
+            'chef' => $b['chef'],
+            'name' => $b['name'],
+            'units' => $b['items'],
+            'rounds' => $b['rounds'],
+            'orders' => count($b['order_ids']),
+            'timed_rounds' => $b['prep_count'],
+            'avg_prep_seconds' => $avg($b),
+        ], $bags['chef_item']));
+        // Grouped per cook in leaderboard order, each cook's biggest dish first.
+        $chefOrder = array_flip(array_column($chefRows, 'chef_id'));
+        usort($chefItemRows, fn ($a, $b) => (($chefOrder[$a['chef_id']] ?? PHP_INT_MAX) <=> ($chefOrder[$b['chef_id']] ?? PHP_INT_MAX))
+            ?: $b['units'] <=> $a['units']);
+
         // Newest ticket first, capped — a year of service is thousands of rows
         // and the list is meant to be read, not paged through.
         $detailRounds = $rounds
@@ -693,6 +757,7 @@ class ReportController extends Controller
             'by_hour' => $hourRows,
             'by_station' => $stationRows,
             'by_item' => $itemRows,
+            'by_chef_item' => $chefItemRows,
             'details' => $details,
             'details_total' => $rounds->count(),
         ]);

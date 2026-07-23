@@ -205,6 +205,22 @@ export type ChefDishRow = {
   avg_prep_seconds: number | null
 }
 
+/** One cook × one dish — the row behind the By Chef view. A line the board
+ *  tracked credits only its real maker with its own clock; a whole-card-era
+ *  line credits the ticket's whole crew, the way the leaderboard does. */
+export type ChefDishDetailRow = {
+  chef_id: number
+  chef: string
+  name: string
+  /** Plates of this dish the cook made — line quantities added up. */
+  units: number
+  /** Tickets where this cook made this dish. */
+  rounds: number
+  orders: number
+  timed_rounds: number
+  avg_prep_seconds: number | null
+}
+
 /** One dish on a ticket, as it was fired to the board. Since per-dish
  *  tracking each line also names its own maker and carries its own cook time
  *  (null on lines from the whole-card era, or dishes never started). */
@@ -256,6 +272,8 @@ export type ChefPerformanceData = {
   by_station: ChefBucket[]
   /** Most-cooked dish first. */
   by_item: ChefDishRow[]
+  /** Grouped per cook in leaderboard order, each cook's biggest dish first. */
+  by_chef_item: ChefDishDetailRow[]
   /** Newest first, capped by the backend — compare with details_total. */
   details: ChefTicket[]
   details_total: number

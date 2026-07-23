@@ -7,10 +7,8 @@ import {
   LuClock,
   LuDownload,
   LuFileSpreadsheet,
-  LuGauge,
   LuLayers,
   LuSearch,
-  LuTimer,
   LuUsers,
 } from 'react-icons/lu'
 import { Loader } from '../../components/ui/Loader'
@@ -18,6 +16,7 @@ import { fetchChefs, type Chef } from '../../services/api/chefs'
 import {
   fetchChefPerformance,
   type AnalysisPeriod,
+  type ChefDishDetailRow,
   type ChefDishRow,
   type ChefPerformanceData,
   type ChefTicket,
@@ -48,7 +47,7 @@ const PERIODS: { label: string; value: AnalysisPeriod }[] = [
   { label: 'All Time', value: '' },
 ]
 
-const TABS = ['Overview', 'Analysis', 'Dishes', 'Details'] as const
+const TABS = ['Overview', 'Analysis', 'Dishes', 'By Chef', 'Details'] as const
 type Tab = (typeof TABS)[number]
 
 const STATIONS: { label: string; value: Station | '' }[] = [
@@ -358,6 +357,15 @@ export default function PosChefPerformance() {
           {tab === 'Overview' && <Overview data={data} />}
           {tab === 'Analysis' && <Analysis data={data} />}
           {tab === 'Dishes' && <Dishes rows={data.by_item} />}
+          {tab === 'By Chef' && (
+            <ByChef
+              rows={
+                chefId === null
+                  ? (data.by_chef_item ?? [])
+                  : (data.by_chef_item ?? []).filter((r) => r.chef_id === chefId)
+              }
+            />
+          )}
           {tab === 'Details' && (
             <Details
               rows={details}
@@ -388,13 +396,13 @@ export default function PosChefPerformance() {
 // --- Overview ---------------------------------------------------------------
 
 function Overview({ data }: { data: ChefPerformanceData }) {
-  const { overview, chefs, by_station } = data
+  const { overview, chefs } = data
   const maxRounds = chefs.reduce((max, r) => Math.max(max, r.rounds), 0)
   const totalRounds = overview.rounds
 
   return (
     <>
-      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={<LuChefHat className="h-4 w-4" />}
           label="Orders cooked"
@@ -424,32 +432,6 @@ function Overview({ data }: { data: ChefPerformanceData }) {
           label="Cooks working"
           value={num(overview.chefs)}
           hint={overview.busiest_chef ? `${overview.busiest_chef} led` : undefined}
-        />
-      </div>
-
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard
-          icon={<LuGauge className="h-4 w-4" />}
-          label="Fastest ticket"
-          value={fmtPrep(overview.fastest_seconds)}
-          small
-        />
-        <StatCard
-          icon={<LuTimer className="h-4 w-4" />}
-          label="Slowest ticket"
-          value={fmtPrep(overview.slowest_seconds)}
-          small
-        />
-        <StatCard
-          icon={<LuLayers className="h-4 w-4" />}
-          label="Ticket split"
-          value={
-            by_station.map((s) => `${titleCase(s.station ?? '')} ${num(s.rounds)}`).join(' · ') || '—'
-          }
-          hint={by_station
-            .map((s) => `${titleCase(s.station ?? '')} avg ${fmtPrep(s.avg_prep_seconds)}`)
-            .join(' · ')}
-          small
         />
       </div>
 
@@ -844,6 +826,148 @@ function Dishes({ rows }: { rows: ChefDishRow[] }) {
   )
 }
 
+// --- By Chef ----------------------------------------------------------------
+
+/** Each cook's own menu, one card per person: every dish they made in the
+ *  window, how many plates of it, and their own clock on it. Lines the board
+ *  tracked credit only their real maker; whole-card-era lines credit the
+ *  ticket's whole crew, so old shared cards still show under both cooks. */
+function ByChef({ rows }: { rows: ChefDishDetailRow[] }) {
+  const [search, setSearch] = useState('')
+  const q = search.trim().toLowerCase()
+
+  // Rows arrive grouped — leaderboard order, biggest dish first — so one pass
+  // cuts them back into a block per cook.
+  const groups = useMemo(() => {
+    const out: { chef_id: number; chef: string; dishes: ChefDishDetailRow[] }[] = []
+    for (const r of rows) {
+      const last = out[out.length - 1]
+      if (last && last.chef_id === r.chef_id) last.dishes.push(r)
+      else out.push({ chef_id: r.chef_id, chef: r.chef, dishes: [r] })
+    }
+    return out
+  }, [rows])
+
+  // A cook's name keeps their whole card; a dish name trims every card down
+  // to the cooks who actually made it.
+  const shown = q
+    ? groups
+        .map((g) =>
+          g.chef.toLowerCase().includes(q)
+            ? g
+            : { ...g, dishes: g.dishes.filter((d) => d.name.toLowerCase().includes(q)) },
+        )
+        .filter((g) => g.dishes.length > 0)
+    : groups
+
+  if (rows.length === 0) {
+    return <Blank>No cooked dish carries a cook&apos;s name in this window yet.</Blank>
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <div className="relative">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Find a cook or a dish…"
+            className="w-64 rounded-[3px] border border-neutral-300 bg-white px-3 py-1.5 pr-9 text-sm outline-none transition focus:border-sky-600"
+          />
+          <LuSearch className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+        </div>
+      </div>
+
+      {shown.length === 0 ? (
+        <Blank>No cook or dish matches this search.</Blank>
+      ) : (
+        shown.map((g) => <ChefCard key={g.chef_id} chef={g.chef} dishes={g.dishes} />)
+      )}
+    </div>
+  )
+}
+
+/** One cook's card: their headline numbers and their dish-by-dish table. */
+function ChefCard({ chef, dishes }: { chef: string; dishes: ChefDishDetailRow[] }) {
+  const plates = dishes.reduce((sum, d) => sum + d.units, 0)
+  const maxUnits = dishes.reduce((max, d) => Math.max(max, d.units), 0)
+  // The cook's overall pace, rebuilt from the same rows the table shows —
+  // each dish's clock weighted by how many timed tickets stand behind it.
+  const timed = dishes.reduce((sum, d) => sum + d.timed_rounds, 0)
+  const avg =
+    timed > 0
+      ? Math.round(
+          dishes.reduce((sum, d) => sum + (d.avg_prep_seconds ?? 0) * d.timed_rounds, 0) / timed,
+        )
+      : null
+
+  return (
+    <Panel
+      title={chef}
+      subtitle={`${num(plates)} plate${plates === 1 ? '' : 's'} across ${num(dishes.length)} dish${
+        dishes.length === 1 ? '' : 'es'
+      }${avg !== null ? ` — ${fmtPrep(avg)} per dish on average` : ''}`}
+    >
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="border-b border-neutral-200 text-left text-neutral-800">
+            <th className="py-2.5 pr-4 font-bold">Dish</th>
+            <th className="w-[28%] py-2.5 pr-4 font-bold" title="Plates of this dish the cook made">
+              Plates
+            </th>
+            <th className="w-[9%] py-2.5 pr-4 text-right font-bold" title="Of the cook's own plates">
+              Share
+            </th>
+            <th className="w-[10%] py-2.5 pr-4 text-right font-bold" title="Tickets where the cook made this dish">
+              Tickets
+            </th>
+            <th className="w-[10%] py-2.5 pr-4 text-right font-bold" title="Tickets carrying both a Start and a Ready stamp">
+              Timed
+            </th>
+            <th className="w-[14%] py-2.5 pr-4 text-right font-bold" title="The cook's own average clock on this dish">
+              Avg cook time
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {dishes.map((d) => (
+            <tr key={d.name} className="border-b border-neutral-100 text-neutral-700">
+              <td className="py-2.5 pr-4 font-medium text-neutral-800">{d.name}</td>
+              <td className="py-2.5 pr-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100">
+                    <div
+                      className="h-full rounded-full bg-[#57779a]"
+                      style={{ width: `${maxUnits > 0 ? (d.units / maxUnits) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <span className="w-10 shrink-0 text-right tabular-nums">{num(d.units)}</span>
+                </div>
+              </td>
+              <td className="py-2.5 pr-4 text-right tabular-nums">
+                {plates > 0 ? `${Math.round((d.units / plates) * 100)}%` : '—'}
+              </td>
+              <td className="py-2.5 pr-4 text-right tabular-nums">{num(d.rounds)}</td>
+              <td className="py-2.5 pr-4 text-right tabular-nums">{num(d.timed_rounds)}</td>
+              <td className="py-2.5 pr-4 text-right tabular-nums">{fmtPrep(d.avg_prep_seconds)}</td>
+            </tr>
+          ))}
+          <tr className="bg-neutral-50/70 font-bold text-neutral-800">
+            <td className="py-2.5 pr-4">Total</td>
+            <td className="py-2.5 pr-4 text-right tabular-nums">{num(plates)}</td>
+            <td className="py-2.5 pr-4 text-right tabular-nums">100%</td>
+            {/* A ticket with two of the cook's dishes sits on two rows, so the
+                ticket columns don't add up to anything honest — left out. */}
+            <td className="py-2.5 pr-4" />
+            <td className="py-2.5 pr-4" />
+            <td className="py-2.5 pr-4 text-right tabular-nums">{fmtPrep(avg)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </Panel>
+  )
+}
+
 // --- Details ----------------------------------------------------------------
 
 function Details({
@@ -1116,8 +1240,6 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
     ['Cooks working', num(o.chefs)],
     ['Timed tickets', num(o.timed_rounds)],
     ['Avg cook time', fmtPrep(o.avg_prep_seconds)],
-    ['Fastest ticket', fmtPrep(o.fastest_seconds)],
-    ['Slowest ticket', fmtPrep(o.slowest_seconds)],
   ]
 
   const chefColumns: Column[] = [
@@ -1153,6 +1275,19 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
     r.name, r.units, r.rounds, r.timed_rounds, time(r.avg_prep_seconds),
   ])
 
+  // Each cook's own menu — the By Chef view, flattened to one row per pairing.
+  const chefDishColumns: Column[] = [
+    { header: 'Chef' },
+    { header: 'Dish' },
+    { header: 'Plates', align: 'right' },
+    { header: 'Tickets', align: 'right' },
+    { header: 'Timed', align: 'right' },
+    { header: timeHeader, align: 'right' },
+  ]
+  const chefDishRows = (data.by_chef_item ?? []).map((r): Cell[] => [
+    r.chef, r.name, r.units, r.rounds, r.timed_rounds, time(r.avg_prep_seconds),
+  ])
+
   const capped = data.details.length < data.details_total
   const ticketsTitle = capped
     ? `Tickets (newest ${num(data.details.length)} of ${num(data.details_total)})`
@@ -1169,6 +1304,7 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
         { name: 'Per Cook', columns: chefColumns, rows: chefRows },
         { name: 'Per Day', columns: dayColumns, rows: dayRows },
         { name: 'Per Dish', columns: dishColumns, rows: dishRows },
+        { name: 'Per Cook Per Dish', columns: chefDishColumns, rows: chefDishRows },
         { name: 'Tickets', columns: ticketColumns(true), rows: ticketRows },
       ],
     })
@@ -1177,13 +1313,13 @@ function exportReport(kind: 'pdf' | 'excel', data: ChefPerformanceData, subtitle
       fileName: 'chef-performance.pdf',
       title: 'Chef Performance',
       subtitle,
-      landscape: true,
       sections: [
         // Blank headers — the PDF prints the Summary as a plain key/value list.
         { sectionTitle: 'Summary', columns: [{ header: '' }, { header: '', align: 'right' }], rows: summaryRows, numbered: false },
         { sectionTitle: 'Per cook', columns: chefColumns, rows: chefRows },
         { sectionTitle: 'Per day', columns: dayColumns, rows: dayRows },
         { sectionTitle: 'Per dish', columns: dishColumns, rows: dishRows },
+        { sectionTitle: 'Per cook, per dish', columns: chefDishColumns, rows: chefDishRows },
         { sectionTitle: ticketsTitle, columns: ticketColumns(false), rows: ticketRows },
       ],
     })
@@ -1206,7 +1342,6 @@ function exportDetails(kind: 'pdf' | 'excel', rows: ChefTicket[], subtitleBase: 
       title: 'Chef Performance',
       subtitle,
       sectionTitle: 'Tickets',
-      landscape: true,
       columns: ticketColumns(false),
       rows: rows.map((r) => ticketRow(r, false)),
     })
