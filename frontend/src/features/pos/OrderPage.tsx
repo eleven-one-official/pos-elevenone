@@ -34,6 +34,7 @@ import { Loader, LoadingState } from '../../components/ui/Loader'
 import Toast from '../../components/ui/Toast'
 import PaymentPage, { type PaymentResult } from './PaymentPage'
 import ReceiptPage from './ReceiptPage'
+import { billTableLabel, buildBillHtml, printBillDocket } from './printBill'
 import {
   createOrder,
   fetchOpenOrderForTable,
@@ -156,6 +157,7 @@ export default function OrderPage({
   // Menu + floor from the backend (floor is only needed for the Transfer popup).
   const { products, loading: menuLoading, error: menuError, reload: reloadMenu } = useMenu()
   const { tables, reload: reloadTables } = useTables()
+  const { khrRate } = useSettings()
 
   // Backend order — the table's open bill when there is one, otherwise created
   // on the first "Send to Kitchen" / payment and updated after that.
@@ -413,8 +415,18 @@ export default function OrderPage({
     }
   }
 
+  // Print the proforma bill on the thermal printer in the bilingual layout the
+  // venue uses (Khmer / English, "BILL" heading, dual-currency Grand Total).
+  // The docket is rendered into its own iframe so only the bill hits the paper.
+  // No payment yet, so it prints as the pre-payment 'bill' (no Cash Received).
   function printBill() {
-    window.print()
+    printBillDocket({
+      kind: 'bill',
+      tableLabel: billTableLabel(activeTable),
+      orderRef: orderNo,
+      lines: lines.filter((l) => l.qty > 0),
+      khrRate,
+    })
   }
 
   const round2 = (n: number) => Math.round(n * 100) / 100
@@ -1141,11 +1153,8 @@ export default function OrderPage({
       {dialog === 'bill' && (
         <BillDialog
           table={activeTable}
-          guests={guestCount}
-          customerName={customer?.name}
+          orderRef={orderNo}
           lines={lines}
-          subtotal={subtotal}
-          total={total}
           onPrint={printBill}
           onClose={closeDialog}
         />
@@ -1220,27 +1229,35 @@ function InfoDialog({
   )
 }
 
+// The preview renders the *exact* bill that prints — same builder, shown in a
+// small iframe — so what the cashier sees is what comes out of the printer.
 function BillDialog({
   table,
-  guests,
-  customerName,
+  orderRef,
   lines,
-  subtotal,
-  total,
   onPrint,
   onClose,
 }: {
   table: PosTable
-  guests: number
-  customerName?: string
+  orderRef: string
   lines: OrderLine[]
-  subtotal: number
-  total: number
   onPrint: () => void
   onClose: () => void
 }) {
   const { khrRate } = useSettings()
-  const riel = (value: number) => `៛ ${Math.round(value * khrRate).toLocaleString('en-US')}`
+  const html = useMemo(
+    () =>
+      buildBillHtml({
+        kind: 'bill',
+        tableLabel: billTableLabel(table),
+        orderRef,
+        khrRate,
+        lines: lines.filter((l) => l.qty > 0),
+      }),
+    [table, orderRef, khrRate, lines],
+  )
+  // Grow the frame to its content so the bill shows in full, no inner scrollbar.
+  const [height, setHeight] = useState(360)
   return (
     <Modal
       title="Bill Preview"
@@ -1266,36 +1283,18 @@ function BillDialog({
         </div>
       }
     >
-      <div className="mb-3 flex justify-between text-sm text-neutral-500">
-        <span>Table {table.label}</span>
-        <span>{guests} guest(s)</span>
-      </div>
-      {customerName && <div className="mb-3 text-sm text-neutral-500">Customer: {customerName}</div>}
-      <div className="divide-y divide-neutral-100">
-        {lines.map((l) => (
-          <div key={l.id} className="flex items-start justify-between py-2 text-sm">
-            <span className="text-neutral-800">
-              {l.name}
-              <span className="ml-1 text-neutral-400">x{l.qty}</span>
-              {l.discount ? <span className="ml-1 text-rose-500">−{l.discount}%</span> : null}
-            </span>
-            <span className="font-medium text-neutral-800">{money(lineNet(l))}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 space-y-1.5 border-t border-neutral-200 pt-3 text-sm tabular-nums">
-        <div className="flex justify-between text-neutral-500">
-          <span>Subtotal</span>
-          <span>{money(subtotal)}</span>
-        </div>
-        <div className="flex justify-between pt-1 text-lg font-bold text-neutral-900">
-          <span>Total</span>
-          <span>{money(total)}</span>
-        </div>
-        <div className="flex justify-between font-bold text-neutral-900">
-          <span>Total (KHR)</span>
-          <span>{riel(total)}</span>
-        </div>
+      <div className="flex justify-center rounded-xl bg-neutral-100 py-4">
+        <iframe
+          title="Bill preview"
+          srcDoc={html}
+          scrolling="no"
+          onLoad={(e) => {
+            const doc = e.currentTarget.contentDocument
+            if (doc) setHeight(doc.body.scrollHeight)
+          }}
+          style={{ width: 302, height, border: 0 }}
+          className="rounded bg-white shadow-sm"
+        />
       </div>
     </Modal>
   )

@@ -18,6 +18,7 @@ import ZoomControl from '../../components/ui/ZoomControl'
 import Modal from '../../components/ui/Modal'
 import { Loader } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
+import { billTableLabel, printBillDocket } from './printBill'
 import { emailReceipt } from '../../services/api/orders'
 import { ApiError } from '../../services/api/client'
 import type { Cashier } from '../auth/CashierLoginDialog'
@@ -137,7 +138,22 @@ export default function ReceiptPage({
   const initials = cashier.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   const guests = guestsProp ?? (table.guests > 0 ? table.guests : 2)
 
-  const printReceipt = () => window.print()
+  // Print the bilingual 80mm thermal invoice (the reference the venue uses) —
+  // same builder as the "Bill" popup, now carrying the settled tender so the
+  // "Cash Received" section shows how the guest actually paid. Rendered into its
+  // own iframe so only the invoice hits the paper (never this screen behind it).
+  const printReceipt = () =>
+    printBillDocket({
+      kind: 'invoice',
+      tableLabel: billTableLabel(table),
+      orderRef: orderNo,
+      lines,
+      khrRate,
+      payment: {
+        tenders: payment.paid.map((p) => ({ label: p.label, amount: p.amount, inKhr: p.inKhr })),
+        change: payment.change,
+      },
+    })
 
   async function sendEmail() {
     if (emailBusy || orderId == null) return
