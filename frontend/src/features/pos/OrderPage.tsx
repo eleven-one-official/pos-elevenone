@@ -8,10 +8,8 @@ import {
   LuHouse,
   LuInfo,
   LuMenu,
-  LuMinus,
   LuNotebookPen,
   LuPercent,
-  LuPlus,
   LuPrinter,
   LuReceipt,
   LuRefreshCw,
@@ -496,23 +494,18 @@ export default function OrderPage({
   )
   const splitTotal = splitLines.reduce((s, l) => s + lineNet(l), 0)
 
-  function addToSplit(id: string) {
+  // Odoo-style selection: each tap moves one more unit into the split; a tap
+  // on a fully-selected line clears it again.
+  function tapSplitLine(id: string) {
     setSplitQty((prev) => {
       const cur = prev[id] ?? 0
       const max = lines.find((l) => l.id === id)?.qty ?? 0
-      if (cur >= max) return prev
+      if (cur >= max) {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      }
       return { ...prev, [id]: cur + 1 }
-    })
-  }
-
-  function removeFromSplit(id: string) {
-    setSplitQty((prev) => {
-      const cur = prev[id] ?? 0
-      if (cur <= 0) return prev
-      const next = { ...prev }
-      if (cur - 1 <= 0) delete next[id]
-      else next[id] = cur - 1
-      return next
     })
   }
 
@@ -1172,12 +1165,10 @@ export default function OrderPage({
       )}
 
       {dialog === 'split' && (
-        <SplitDialog
+        <SplitBillScreen
           lines={lines}
           splitQty={splitQty}
-          onAdd={addToSplit}
-          onRemove={removeFromSplit}
-          splitLines={splitLines}
+          onTap={tapSplitLine}
           splitTotal={splitTotal}
           onPay={paySplit}
           onClose={closeDialog}
@@ -1360,112 +1351,96 @@ function TransferDialog({
   )
 }
 
-function SplitDialog({
+// Full-screen Odoo-style "Bill Splitting" view: the order's items on the
+// left (tap to move units into the split), the split total and Payment
+// button on the right.
+function SplitBillScreen({
   lines,
   splitQty,
-  onAdd,
-  onRemove,
-  splitLines,
+  onTap,
   splitTotal,
   onPay,
   onClose,
 }: {
   lines: OrderLine[]
   splitQty: Record<string, number>
-  onAdd: (id: string) => void
-  onRemove: (id: string) => void
-  splitLines: OrderLine[]
+  onTap: (id: string) => void
   splitTotal: number
   onPay: () => void
   onClose: () => void
 }) {
   return (
-    <Modal
-      title="Split the Bill"
-      subtitle="Tap items to move them to the portion you want to pay now"
-      onClose={onClose}
-      width="max-w-3xl"
-      footer={
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-sm text-neutral-500">
-            Split total <span className="ml-1 text-lg font-bold text-neutral-900">{money(splitTotal)}</span>
-          </div>
-          <button
-            type="button"
-            onClick={onPay}
-            disabled={splitTotal <= 0}
-            className="flex items-center gap-2 rounded-xl bg-[#2b2138] px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-[#37294a] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <LuChevronRight className="h-5 w-5" />
-            Pay {money(splitTotal)}
-          </button>
-        </div>
-      }
-    >
-      <div className="grid grid-cols-2 gap-4">
-        {/* Remaining order */}
-        <div>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">Stays on order</h3>
-          <div className="space-y-1.5">
+    <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col bg-white">
+      {/* Title bar */}
+      <div className="relative flex shrink-0 items-center px-4 py-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="z-10 flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-neutral-100 px-5 py-2.5 font-semibold text-neutral-700 shadow-sm transition hover:bg-neutral-200"
+        >
+          <LuChevronLeft className="h-5 w-5" />
+          Back
+        </button>
+        <h2 className="pointer-events-none absolute inset-x-0 text-center text-2xl font-semibold text-neutral-800">
+          Bill Splitting
+        </h2>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left — order items */}
+        <div className="flex w-1/2 flex-col overflow-hidden p-4 pt-2">
+          <div className="flex-1 overflow-y-auto rounded-md border border-neutral-200">
             {lines.map((l) => {
-              const remaining = l.qty - (splitQty[l.id] ?? 0)
+              const sel = splitQty[l.id] ?? 0
+              const qty = Number(l.qty.toFixed(2))
               return (
                 <button
                   key={l.id}
                   type="button"
-                  onClick={() => onAdd(l.id)}
-                  disabled={remaining <= 0}
-                  className="flex w-full items-center justify-between rounded-xl border border-neutral-200 px-3 py-2.5 text-left transition hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-40 disabled:hover:border-neutral-200 disabled:hover:bg-transparent"
+                  onClick={() => onTap(l.id)}
+                  disabled={l.qty <= 0}
+                  className={`flex w-full items-start justify-between gap-3 border-b border-neutral-100 px-4 py-3 text-left transition disabled:opacity-40 ${
+                    sel > 0
+                      ? 'border-l-4 border-l-emerald-500 bg-emerald-50'
+                      : 'border-l-4 border-l-transparent hover:bg-neutral-50'
+                  }`}
                 >
-                  <span className="text-sm font-medium text-neutral-800">{l.name}</span>
-                  <span className="flex items-center gap-2 text-sm text-neutral-500">
-                    ×{remaining}
-                    <LuPlus className="h-4 w-4 text-emerald-500" />
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-neutral-800">{l.name}</p>
+                    <p
+                      className={`mt-0.5 pl-3 text-sm tabular-nums ${
+                        sel > 0 ? 'font-semibold text-emerald-700' : 'text-neutral-500'
+                      }`}
+                    >
+                      {sel > 0 ? `${sel} / ${qty}` : qty} at {money(l.price)}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-semibold tabular-nums text-neutral-700">{money(lineNet(l))}</span>
                 </button>
               )
             })}
           </div>
         </div>
 
-        {/* Split portion */}
-        <div>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">Pay now</h3>
-          {splitLines.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-neutral-200 py-8 text-center text-sm text-neutral-400">
-              No items yet
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {splitLines.map((l) => (
-                <div
-                  key={l.id}
-                  className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5"
-                >
-                  <span className="text-sm font-medium text-neutral-800">{l.name}</span>
-                  <span className="flex items-center gap-2 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => onRemove(l.id)}
-                      className="flex h-6 w-6 items-center justify-center rounded-md bg-white text-rose-500 shadow-sm transition hover:bg-rose-50"
-                    >
-                      <LuMinus className="h-4 w-4" />
-                    </button>
-                    <span className="w-6 text-center font-semibold text-neutral-700">x{l.qty}</span>
-                    <span className="w-16 text-right font-semibold text-emerald-700">{money(lineNet(l))}</span>
-                  </span>
-                </div>
-              ))}
-              <div className="mt-2 space-y-1 border-t border-neutral-200 pt-2 text-sm tabular-nums">
-                <div className="flex justify-between text-neutral-500">
-                  <span>Subtotal</span>
-                  <span>{money(splitTotal)}</span>
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Divider */}
+        <div className="w-px shrink-0 bg-neutral-200" />
+
+        {/* Right — split total + payment */}
+        <div className="flex w-1/2 flex-col gap-10 px-8 pt-8">
+          <div className="text-center text-6xl font-semibold tabular-nums tracking-tight text-emerald-600">
+            {money(splitTotal)}
+          </div>
+          <button
+            type="button"
+            onClick={onPay}
+            disabled={splitTotal <= 0}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 py-6 text-lg font-semibold text-neutral-700 shadow-sm transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <LuChevronRight className="h-5 w-5" />
+            Payment
+          </button>
         </div>
       </div>
-    </Modal>
+    </div>
   )
 }
