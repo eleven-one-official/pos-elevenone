@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Chef extends Model
 {
-    use Auditable;
+    use Auditable, BelongsToBranch;
 
     protected $fillable = ['name', 'is_active', 'sort_order'];
 

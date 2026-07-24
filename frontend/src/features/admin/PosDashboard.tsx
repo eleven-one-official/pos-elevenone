@@ -8,6 +8,8 @@ import {
   LuSearch,
 } from 'react-icons/lu'
 import { LoadingState } from '../../components/ui/Loader'
+import { fetchBranches } from '../../services/api/branches'
+import { getBranchId } from '../../services/api/client'
 import { fetchPosConfigs, type PosConfigStats } from '../../services/api/reports'
 import SearchMenus, { toggleIn } from './SearchMenus'
 
@@ -50,6 +52,25 @@ export default function PosDashboard({
     null,
   )
   const [loadError, setLoadError] = useState<string | null>(null)
+  // The register cards carry the branch's short tag ("TTP", "BKK") so the
+  // dashboard reads as this branch's registers, not another shop's.
+  const [branchTag, setBranchTag] = useState('POS')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchBranches()
+      .then((list) => {
+        const current = list.find((b) => String(b.id) === getBranchId()) ?? list[0]
+        // "ElevenOne TTP" → "TTP" — the cards read like Odoo register names.
+        if (!cancelled && current) setBranchTag(current.name.replace(/^ElevenOne\s+/i, ''))
+      })
+      .catch(() => {
+        // Offline — keep the generic tag.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const load = () => {
     setLoadError(null)
@@ -82,21 +103,21 @@ export default function PosDashboard({
   }
 
   const configs: PosConfig[] = [
-    { id: 'ttp', name: 'TTP', kind: 'cashier', stats: stats.cashier },
-    { id: 'ttp-waiter', name: 'TTP Waiter', kind: 'waiter', stats: stats.waiter },
+    { id: 'register', name: branchTag, kind: 'cashier', stats: stats.cashier },
+    { id: 'register-waiter', name: `${branchTag} Waiter`, kind: 'waiter', stats: stats.waiter },
     // The station displays aren't registers (no cash, no closing) — they're
     // live screens, one per station: the kitchen takes the food half of every
     // send, the bar the drinks. Both reuse the same card + session-login gate
     // as an entry point.
     {
-      id: 'ttp-kitchen',
-      name: 'TTP Kitchen',
+      id: 'register-kitchen',
+      name: `${branchTag} Kitchen`,
       kind: 'kitchen',
       stats: { open_orders: 0, last_closing_date: null, last_closing_cash: null },
     },
     {
-      id: 'ttp-bar',
-      name: 'TTP Bar',
+      id: 'register-bar',
+      name: `${branchTag} Bar`,
       kind: 'bar',
       stats: { open_orders: 0, last_closing_date: null, last_closing_cash: null },
     },

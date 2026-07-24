@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { IconType } from 'react-icons'
 import {
   LuBoxes,
@@ -17,6 +17,8 @@ import type { Cashier } from '../auth/CashierLoginDialog'
 import type { Waiter } from '../waiter/WaiterLoginDialog'
 import type { Kitchen } from '../kitchen/KitchenLoginDialog'
 import type { Bar } from '../bar/BarLoginDialog'
+import { fetchBranches, type Branch } from '../../services/api/branches'
+import { getBranchId, setBranchId } from '../../services/api/client'
 import ZoomControl from '../../components/ui/ZoomControl'
 import HrEmployees from './HrEmployees'
 import ModulePlaceholder from './ModulePlaceholder'
@@ -118,9 +120,9 @@ const MODULE_MENUS: Partial<Record<ModuleKey, typeof POS_MENUS>> = {
   employees: EMPLOYEE_MENUS,
 }
 
-// Companies for the Odoo-style switcher in the top bar — placeholder list
-// until the backend models branches.
-const COMPANIES = ['ElevenOne BKK', 'ElevenOne TTP', 'Crums']
+// Branches for the Odoo-style switcher in the top bar come from the backend;
+// the active one is the device's stored branch (see getBranchId), and every
+// screen only ever shows that branch's data.
 
 type PosTab = { menu: string; item?: string }
 
@@ -161,11 +163,28 @@ export default function AdminApp({
     import.meta.env.DEV ? new URLSearchParams(window.location.search).get('pos-menu') : null,
   )
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  // Multi-company switcher — checkboxes pick the active set (records from all
-  // checked companies show), clicking a name makes it the current company.
+  // Branch switcher — data is strictly one branch at a time, so switching
+  // stores the new branch and reloads (every screen refetches under the new
+  // X-Branch-Id header).
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
-  const [currentCompany, setCurrentCompany] = useState('ElevenOne TTP')
-  const [activeCompanies, setActiveCompanies] = useState<string[]>(['ElevenOne TTP'])
+  const [branches, setBranches] = useState<Branch[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchBranches()
+      .then((list) => {
+        if (!cancelled) setBranches(list)
+      })
+      .catch(() => {
+        // Server unreachable — the switcher just shows nothing to pick.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const currentBranch =
+    branches.find((b) => String(b.id) === getBranchId()) ?? branches[0] ?? null
   // "Continue selling" hands over the whole screen to the POS session login,
   // Odoo style — no back-office chrome around it. Dev builds can jump straight
   // there with `?pos-login=<config name>` for quick UI iteration (a name
@@ -188,23 +207,12 @@ export default function AdminApp({
 
   const active = MODULES.find((m) => m.key === moduleKey) ?? MODULES[0]
 
-  /** Check/uncheck a company; at least one stays active, Odoo style. */
-  const toggleCompany = (name: string) => {
-    if (!activeCompanies.includes(name)) {
-      setActiveCompanies([...activeCompanies, name])
-      return
-    }
-    if (activeCompanies.length === 1) return
-    const next = activeCompanies.filter((c) => c !== name)
-    setActiveCompanies(next)
-    if (name === currentCompany) setCurrentCompany(next[0])
-  }
-
-  /** Make a company the current one (shown in the top bar) and check it. */
-  const switchCompany = (name: string) => {
-    setCurrentCompany(name)
-    if (!activeCompanies.includes(name)) setActiveCompanies([...activeCompanies, name])
+  /** Switch the whole app onto another branch's data. */
+  const switchBranch = (branch: Branch) => {
     setCompanyMenuOpen(false)
+    if (branch.id === currentBranch?.id) return
+    setBranchId(String(branch.id))
+    window.location.reload()
   }
 
   if (sessionLogin) {
@@ -340,7 +348,8 @@ export default function AdminApp({
         <div className="ml-auto flex items-center gap-1">
           <ZoomControl tone="dark" size="sm" className="mr-1" />
 
-          {/* Company switcher — Odoo-style multi-company dropdown */}
+          {/* Branch switcher — Odoo-style dropdown; picking one reloads the
+              back office onto that branch's data */}
           <div className="relative">
             <button
               type="button"
@@ -349,7 +358,7 @@ export default function AdminApp({
                 companyMenuOpen ? 'bg-white/10 text-white' : 'text-white/90'
               }`}
             >
-              {currentCompany}
+              {currentBranch?.name ?? 'ElevenOne'}
             </button>
 
             {companyMenuOpen && (
@@ -361,26 +370,26 @@ export default function AdminApp({
                   className="fixed inset-0 z-10 cursor-default"
                 />
                 <div className="absolute right-0 z-20 mt-1 w-48 border border-neutral-200/70 bg-white py-1 text-neutral-700 shadow-md">
-                  {COMPANIES.map((name) => (
+                  {branches.map((branch) => (
                     <div
-                      key={name}
+                      key={branch.id}
                       className={`flex items-center gap-2.5 px-3 py-1.5 transition hover:bg-neutral-100 ${
-                        name === currentCompany ? 'bg-[#e7ecf0]' : ''
+                        branch.id === currentBranch?.id ? 'bg-[#e7ecf0]' : ''
                       }`}
                     >
                       <input
                         type="checkbox"
-                        aria-label={`Toggle ${name}`}
-                        checked={activeCompanies.includes(name)}
-                        onChange={() => toggleCompany(name)}
+                        aria-label={`Switch to ${branch.name}`}
+                        checked={branch.id === currentBranch?.id}
+                        onChange={() => switchBranch(branch)}
                         className="h-3.5 w-3.5 shrink-0 accent-[#2f6cad]"
                       />
                       <button
                         type="button"
-                        onClick={() => switchCompany(name)}
+                        onClick={() => switchBranch(branch)}
                         className="min-w-0 flex-1 truncate text-left text-[13px]"
                       >
-                        {name}
+                        {branch.name}
                       </button>
                     </div>
                   ))}

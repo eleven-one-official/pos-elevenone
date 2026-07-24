@@ -23,6 +23,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
         ]);
 
+        // Every API request resolves its branch (X-Branch-Id) before anything
+        // touches the database — login and the public staff roster included,
+        // so the tap-in list is already the right shop's.
+        $middleware->api(prepend: [
+            \App\Http\Middleware\SetCurrentBranch::class,
+        ]);
+
         // Caddy terminates TLS on this machine and proxies over loopback
         // (artisan serve binds 127.0.0.1 only, so nothing else can reach it).
         // Trusting it lets request()->ip() — and the audit log — record the

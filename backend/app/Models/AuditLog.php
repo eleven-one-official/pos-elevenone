@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 
 class AuditLog extends Model
 {
+    use BelongsToBranch;
+
     /** Rows are immutable — written once, never touched again. */
     public $timestamps = false;
 

@@ -26,7 +26,8 @@ import {
   type UserInput,
 } from '../../services/api/users'
 import { deleteChef, fetchChefs, type Chef } from '../../services/api/chefs'
-import { ApiError } from '../../services/api/client'
+import { fetchBranches } from '../../services/api/branches'
+import { ApiError, getBranchId } from '../../services/api/client'
 import ChefForm from './ChefForm'
 import FacetChip, { type Facet } from './FacetChip'
 import { BLUE_SELECT, FIELD_BG, FieldGroup, LABEL, TEXT_INPUT } from './formKit'
@@ -44,9 +45,6 @@ import SearchMenus, { toggleIn, type CustomCondition } from './SearchMenus'
 // login off. Chefs have no login at all — they only name themselves on the KDS.
 // ---------------------------------------------------------------------------
 
-// One venue for now — the top-bar company switcher is placeholder chrome, so
-// the side panel mirrors it rather than modelling real branches.
-const COMPANY = 'ElevenOne TTP'
 const PAGE_SIZE = 80
 
 // Chefs share the list with real employees but live in their own table with an
@@ -186,8 +184,26 @@ export default function HrEmployees() {
   const [activeFavorite, setActiveFavorite] = useState<string | null>(defaultSearch?.name ?? null)
   const [page, setPage] = useState(0)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  // Side panel: "All" vs the (single) company — both list everyone for now.
+  // Side panel: "All" vs the current branch — the API already scopes the
+  // staff list to the device's branch, so both list the same people; the
+  // panel names which branch that is.
   const [company, setCompany] = useState<'all' | 'company'>('all')
+  const [branchName, setBranchName] = useState('ElevenOne')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchBranches()
+      .then((list) => {
+        const current = list.find((b) => String(b.id) === getBranchId()) ?? list[0]
+        if (!cancelled && current) setBranchName(current.name)
+      })
+      .catch(() => {
+        // Offline — keep the generic label.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -792,7 +808,7 @@ export default function HrEmployees() {
                 : 'text-neutral-700 hover:bg-neutral-100'
             }`}
           >
-            <span className="truncate">{COMPANY}</span>
+            <span className="truncate">{branchName}</span>
             <span className="ml-2 shrink-0 text-neutral-400">{allStaff.length}</span>
           </button>
         </aside>

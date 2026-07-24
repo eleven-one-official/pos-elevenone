@@ -74,6 +74,17 @@ class User extends Authenticatable
     }
 
     /**
+     * The branch this user works at. NULL means every branch — admins and the
+     * shared station accounts (Waiter / Kitchen / Bar). Deliberately NOT the
+     * BelongsToBranch trait: a global scope here would break token auth (the
+     * signed-in user must resolve whatever branch the device has picked).
+     */
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
+    /**
      * Orders created by this user (cashier).
      */
     public function orders(): HasMany

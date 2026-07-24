@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\SetCurrentBranch;
 use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -52,6 +53,21 @@ class AuthController extends Controller
             ]);
         }
 
+        // Branch staff only work in their own shop; a NULL branch (admins and
+        // the shared station accounts) signs in anywhere. This keeps a TTP
+        // cashier from booking sales into BKK on a device set to that branch.
+        if ($user->branch_id !== null && (int) $user->branch_id !== SetCurrentBranch::id()) {
+            AuditLog::record('login_failed', $user, [], [
+                'username' => $credentials['username'],
+                'method' => 'password',
+                'reason' => 'wrong branch',
+            ], $credentials['username']);
+
+            throw ValidationException::withMessages([
+                'username' => ['This account belongs to another branch.'],
+            ]);
+        }
+
         $token = $user->createToken('pos-token')->plainTextToken;
 
         AuditLog::record('login', $user, [], ['method' => 'password'], $user->username, $user);
@@ -72,6 +88,11 @@ class AuthController extends Controller
     {
         $query = User::query()
             ->where('is_active', true)
+            // Only this branch's own staff plus the global accounts (NULL
+            // branch: admins, shared stations) are tappable on this device.
+            ->where(function ($q) {
+                $q->whereNull('branch_id')->orWhere('branch_id', SetCurrentBranch::id());
+            })
             ->where(function ($q) {
                 $q->whereNotNull('pin')
                     ->orWhereHas('role', fn ($r) => $r->whereIn('slug', self::PIN_LESS_ROLES));
@@ -145,6 +166,19 @@ class AuthController extends Controller
 
             throw ValidationException::withMessages([
                 'pin' => ['This account is disabled.'],
+            ]);
+        }
+
+        // Same branch rule as the password login — the roster already hides
+        // other branches' staff, so this only catches a hand-crafted request.
+        if ($user->branch_id !== null && (int) $user->branch_id !== SetCurrentBranch::id()) {
+            AuditLog::record('login_failed', $user, [], [
+                'method' => 'pin',
+                'reason' => 'wrong branch',
+            ], $user->username);
+
+            throw ValidationException::withMessages([
+                'pin' => ['This account belongs to another branch.'],
             ]);
         }
 

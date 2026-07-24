@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -19,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class OrderRound extends Model
 {
+    use BelongsToBranch;
+
     /** Rounds a station still has work on — what its display board pulls. */
     public const OPEN_STATUSES = ['new', 'preparing'];
 

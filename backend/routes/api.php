@@ -29,6 +29,11 @@ use Illuminate\Support\Facades\Route;
 */
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 
+// Branch list for the login screen's picker and the admin's top-bar switcher.
+// Public by design: a device must pick its branch before anyone signs in.
+Route::get('/branches', fn () => \App\Models\Branch::orderBy('id')->get(['id', 'name']))
+    ->middleware('throttle:30,1');
+
 // PIN login for POS terminals / waiter tablets: fetch the tappable roster, then
 // authenticate with the chosen staff id + PIN.
 Route::get('/staff', [AuthController::class, 'staffRoster'])->middleware('throttle:30,1');

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\SetCurrentBranch;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -10,12 +12,27 @@ use Illuminate\Support\Facades\Hash;
 class UserController extends Controller
 {
     /**
+     * Roles whose accounts work at every branch (NULL branch_id): the back
+     * office, and the shared per-device station accounts. Everyone else —
+     * cashiers, managers — is hired by one branch and belongs to it.
+     */
+    private const GLOBAL_ROLE_SLUGS = ['admin', 'waiter', 'kitchen', 'bar'];
+
+    /**
      * Staff management is admin-only. (The whole controller sits behind
      * auth:sanctum via the route group; this narrows it to the admin role.)
      */
     private function authorizeAdmin(Request $request): void
     {
         abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can manage staff.');
+    }
+
+    /** The branch a user with this role should carry (null = every branch). */
+    private function branchIdForRole(?int $roleId): ?int
+    {
+        $slug = $roleId ? Role::find($roleId)?->slug : null;
+
+        return in_array($slug, self::GLOBAL_ROLE_SLUGS, true) ? null : SetCurrentBranch::id();
     }
 
     /**
@@ -27,7 +44,7 @@ class UserController extends Controller
      */
     private function present(User $user): array
     {
-        $user->loadMissing('role:id,name,slug');
+        $user->loadMissing(['role:id,name,slug', 'branch:id,name']);
 
         return [
             'id' => $user->id,
@@ -36,6 +53,8 @@ class UserController extends Controller
             'email' => $user->email,
             'phone' => $user->phone,
             'is_active' => (bool) $user->is_active,
+            // null = works at every branch (admins, shared station accounts).
+            'branch' => $user->branch?->only(['id', 'name']),
             'role' => $user->role ? [
                 'id' => $user->role->id,
                 'name' => $user->role->name,
@@ -54,7 +73,12 @@ class UserController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $users = User::with('role:id,name,slug')->orderBy('name')->get();
+        // The Employees screen shows the branch the admin is switched to: its
+        // own hires plus the global accounts. Another branch's staff are that
+        // branch's business.
+        $users = User::with('role:id,name,slug')
+            ->where(fn ($q) => $q->whereNull('branch_id')->orWhere('branch_id', SetCurrentBranch::id()))
+            ->orderBy('name')->get();
 
         return response()->json($users->map(fn (User $u) => $this->present($u))->values());
     }
@@ -74,7 +98,7 @@ class UserController extends Controller
             'is_active' => ['boolean'],
         ]);
 
-        $user = User::create([
+        $user = new User([
             'name' => $data['name'],
             'username' => $data['username'],
             'email' => $data['email'] ?? null,
@@ -85,6 +109,12 @@ class UserController extends Controller
             'pin' => $data['pin'] ?? null,
             'is_active' => $data['is_active'] ?? true,
         ]);
+
+        // A new hire belongs to the branch the admin is switched to; global
+        // roles (admin, shared stations) work everywhere. Not mass-assigned —
+        // the client never chooses a branch directly.
+        $user->branch_id = $this->branchIdForRole($user->role_id);
+        $user->save();
 
         return response()->json($this->present($user), 201);
     }
@@ -129,6 +159,12 @@ class UserController extends Controller
         }
 
         $user->fill(collect($data)->only(['name', 'username', 'email', 'phone', 'role_id', 'is_active'])->all());
+
+        // A role change can move an account between "one branch" and "every
+        // branch" — e.g. promoting a cashier to admin frees them from TTP.
+        if (array_key_exists('role_id', $data)) {
+            $user->branch_id = $this->branchIdForRole($user->role_id);
+        }
 
         if (! empty($data['password'])) {
             $user->password = Hash::make($data['password']);

@@ -31,6 +31,24 @@ export function setToken(next: string | null): void {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
+// Which branch this device works in (ElevenOne TTP / BKK). Picked on the
+// login screen (or the admin's top-bar switcher), persisted per device, and
+// sent as X-Branch-Id on every call — the backend scopes all data to it.
+// Deliberately NOT cleared on logout: a till stays its branch's till.
+const BRANCH_KEY = 'pos_branch_id'
+
+let branchId: string | null = localStorage.getItem(BRANCH_KEY)
+
+export function getBranchId(): string | null {
+  return branchId
+}
+
+export function setBranchId(next: string | null): void {
+  branchId = next
+  if (next) localStorage.setItem(BRANCH_KEY, next)
+  else localStorage.removeItem(BRANCH_KEY)
+}
+
 // Fired when the API rejects the stored token (expired or revoked). The token
 // is already cleared by then; the app drops its session and shows the login
 // screen instead of leaving every screen stuck on failing retries.
@@ -69,6 +87,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
+  if (branchId) headers['X-Branch-Id'] = branchId
 
   let res: Response
   try {
@@ -121,6 +140,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 export async function downloadFile(path: string, fallbackName: string): Promise<void> {
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
+  if (branchId) headers['X-Branch-Id'] = branchId
 
   let res: Response
   try {

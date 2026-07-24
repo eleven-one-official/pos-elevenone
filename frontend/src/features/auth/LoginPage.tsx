@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { LuArrowRight, LuChefHat, LuEye, LuEyeOff, LuLock, LuUser } from 'react-icons/lu'
+import { useEffect, useState } from 'react'
+import { LuArrowRight, LuChefHat, LuEye, LuEyeOff, LuLock, LuStore, LuUser } from 'react-icons/lu'
 import { type Cashier } from './CashierLoginDialog'
 import { passwordLogin } from '../../services/api/auth'
-import { ApiError } from '../../services/api/client'
+import { fetchBranches, type Branch } from '../../services/api/branches'
+import { ApiError, getBranchId, setBranchId } from '../../services/api/client'
 import { Loader } from '../../components/ui/Loader'
 
 function BrandPanel() {
@@ -54,6 +55,37 @@ export default function LoginPage({
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // Which branch this device signs into. The choice is stored per device and
+  // rides on every API call as X-Branch-Id — all data is scoped to it.
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [branch, setBranch] = useState<string>(getBranchId() ?? '')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchBranches()
+      .then((list) => {
+        if (cancelled || list.length === 0) return
+        setBranches(list)
+        // First run (or a stored branch that no longer exists) defaults to the
+        // first branch, so an un-touched device keeps signing into TTP.
+        const stored = getBranchId()
+        const valid = list.some((b) => String(b.id) === stored)
+        const next = valid && stored ? stored : String(list[0].id)
+        setBranch(next)
+        setBranchId(next)
+      })
+      .catch(() => {
+        // Server unreachable — the picker stays hidden; login will surface it.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const pickBranch = (id: string) => {
+    setBranch(id)
+    setBranchId(id)
+  }
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault()
@@ -94,6 +126,29 @@ export default function LoginPage({
             )}
 
             <form className={`${notice ? 'mt-5' : 'mt-11'} space-y-6`} onSubmit={handleSignIn}>
+              {branches.length > 1 && (
+                <div>
+                  <label htmlFor="branch" className="mb-2.5 block font-semibold text-neutral-800">
+                    Branch
+                  </label>
+                  <div className="relative">
+                    <LuStore className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-400" />
+                    <select
+                      id="branch"
+                      value={branch}
+                      onChange={(e) => pickBranch(e.target.value)}
+                      className="h-14 w-full cursor-pointer appearance-none rounded-xl border border-neutral-200 bg-white pl-12 pr-4 text-neutral-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+                    >
+                      {branches.map((b) => (
+                        <option key={b.id} value={String(b.id)}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label htmlFor="username" className="mb-2.5 block font-semibold text-neutral-800">
                   Username

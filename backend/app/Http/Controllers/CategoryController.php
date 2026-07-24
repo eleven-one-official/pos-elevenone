@@ -31,7 +31,11 @@ class CategoryController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', 'unique:categories,slug'],
+            // Unique within the branch — each shop needs its own "drink" slug
+            // (that slug routes products to the bar board).
+            'slug' => ['nullable', 'string', 'max:255',
+                \Illuminate\Validation\Rule::unique('categories', 'slug')
+                    ->where('branch_id', \App\Http\Middleware\SetCurrentBranch::id())],
             'description' => ['nullable', 'string'],
             'image' => ['nullable', 'string'],
             'sort_order' => ['nullable', 'integer'],
@@ -54,7 +58,10 @@ class CategoryController extends Controller
     {
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', 'unique:categories,slug,'.$category->id],
+            'slug' => ['nullable', 'string', 'max:255',
+                \Illuminate\Validation\Rule::unique('categories', 'slug')
+                    ->where('branch_id', \App\Http\Middleware\SetCurrentBranch::id())
+                    ->ignore($category->id)],
             'description' => ['nullable', 'string'],
             'image' => ['nullable', 'string'],
             'sort_order' => ['nullable', 'integer'],

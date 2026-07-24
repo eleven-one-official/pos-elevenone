@@ -43,7 +43,10 @@ class TableController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255', 'unique:tables,name'],
+            // Unique within the branch — both shops can have an "E1".
+            'name' => ['required', 'string', 'max:255',
+                \Illuminate\Validation\Rule::unique('tables', 'name')
+                    ->where('branch_id', \App\Http\Middleware\SetCurrentBranch::id())],
             'type' => ['required', 'in:normal,vip'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'in:available,occupied,reserved'],
@@ -62,7 +65,10 @@ class TableController extends Controller
     public function update(Request $request, Table $table): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['sometimes', 'required', 'string', 'max:255', 'unique:tables,name,'.$table->id],
+            'name' => ['sometimes', 'required', 'string', 'max:255',
+                \Illuminate\Validation\Rule::unique('tables', 'name')
+                    ->where('branch_id', \App\Http\Middleware\SetCurrentBranch::id())
+                    ->ignore($table->id)],
             'type' => ['sometimes', 'required', 'in:normal,vip'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'status' => ['sometimes', 'required', 'in:available,occupied,reserved'],
