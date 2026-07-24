@@ -131,6 +131,20 @@ const ORDER_TYPE_LABEL: Record<ApiStationTicket['order']['order_type'], string> 
   delivery: 'Delivery',
 }
 
+/**
+ * What heads a ticket card: the table's name, or — for a take-away/delivery
+ * bill, which has no table — the floor card it sits on (T3 / D5), so the crew
+ * can call out the right slot when the food is up.
+ */
+function ticketPlaceLabel(order: ApiStationTicket['order']): string {
+  if (order.table?.name) return order.table.name
+  if (order.order_type === 'take_away')
+    return order.takeaway_slot != null ? `T${order.takeaway_slot}` : 'Take Away'
+  if (order.order_type === 'delivery')
+    return order.takeaway_slot != null ? `D${order.takeaway_slot}` : 'Delivery'
+  return '—'
+}
+
 // Age tiers — the longer a ticket sits, the louder it shouts.
 type Tier = { bar: string; chip: string; late: boolean }
 const TIER_FRESH: Tier = { bar: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700', late: false }
@@ -1203,7 +1217,7 @@ export default function StationDisplayPage({
  */
 function HistoryRow({ ticket }: { ticket: ApiStationTicket }) {
   const order = ticket.order
-  const tableLabel = order.table?.name ?? (order.order_type === 'take_away' ? 'Take Away' : '—')
+  const tableLabel = ticketPlaceLabel(order)
   const items = ticket.items.filter((i) => i.quantity > 0)
   // Frozen on the server's own stamps — the same pair the Chef Performance KPI
   // reads, so the drawer can never disagree with the report.
@@ -1323,7 +1337,7 @@ function TicketCard({
   // time to do something about it.
   const makingMs = active ? makeMs(ticket, now) : null
   const tier = tierFor(minutes)
-  const tableLabel = order.table?.name ?? (order.order_type === 'take_away' ? 'Take Away' : '—')
+  const tableLabel = ticketPlaceLabel(order)
   // The table has ordered before on this bill — say so, loudly, so this reads
   // as an extra fire for a table already eating.
   const isRepeat = ticket.round_no > 1

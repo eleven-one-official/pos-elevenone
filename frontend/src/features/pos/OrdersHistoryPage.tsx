@@ -86,9 +86,9 @@ function sectionOf(order: ApiOrder, floor: PosTable[]): string {
 function tableCell(order: ApiOrder, floor: PosTable[]): string {
   const section = sectionOf(order, floor)
   const label =
-    order.order_type === 'take_away'
+    order.order_type === 'take_away' || order.order_type === 'delivery'
       ? order.takeaway_slot != null
-        ? `T${order.takeaway_slot}`
+        ? `${order.order_type === 'delivery' ? 'D' : 'T'}${order.takeaway_slot}`
         : null
       : order.table?.name ?? null
   return label ? `${section} (${label})` : section
@@ -230,7 +230,9 @@ export default function OrdersHistoryPage({
     const label =
       selected.order_type === 'take_away'
         ? `Take Away/${selected.takeaway_slot != null ? `T${selected.takeaway_slot}` : '—'}`
-        : `${sectionOf(selected, floor)}/${selected.table?.name ?? '—'}`
+        : selected.order_type === 'delivery'
+          ? `Delivery/${selected.takeaway_slot != null ? `D${selected.takeaway_slot}` : '—'}`
+          : `${sectionOf(selected, floor)}/${selected.table?.name ?? '—'}`
     printBillDocket({
       kind,
       tableLabel: label,

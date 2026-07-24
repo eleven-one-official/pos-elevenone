@@ -1,16 +1,8 @@
-import {
-  LuCrown,
-  LuLock,
-  LuPower,
-  LuRefreshCw,
-  LuShoppingBag,
-  LuUserCheck,
-  LuUtensilsCrossed,
-} from 'react-icons/lu'
+import { LuLock, LuPower, LuRefreshCw, LuUserCheck } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import ZoomControl from '../../components/ui/ZoomControl'
-import { SectionHeading, TableCard, type PosTable } from '../pos/TableFloorPage'
+import { FloorBody, type PosTable } from '../pos/TableFloorPage'
 import { LoadingState } from '../../components/ui/Loader'
 import { useTables } from '../../hooks/useTables'
 import type { Waiter } from './WaiterLoginDialog'
@@ -61,9 +53,6 @@ export default function WaiterFloorPage({
   // seated/freed in near real time without a manual refresh.
   const { tables, loading, error, reload } = useTables(5000)
   const floor = tables ?? []
-  const dineIn = floor.filter((t) => t.section === 'dine-in')
-  const vip = floor.filter((t) => t.section === 'vip')
-  const takeaway = floor.filter((t) => t.section === 'takeaway')
   const activeOrders = floor.reduce((sum, t) => sum + t.orders, 0)
 
   return (
@@ -120,40 +109,7 @@ export default function WaiterFloorPage({
         </main>
       )}
 
-      {!loading && !error && (
-      <main className="flex flex-1 overflow-auto p-6">
-        {/* Dine-in */}
-        <section className="flex-1 pr-6">
-          <SectionHeading icon={LuUtensilsCrossed} title="Dine In (Tables)" color="#5b6470" />
-          <div className="grid grid-cols-4 gap-3.5">
-            {dineIn.map((table) => (
-              <TableCard key={table.id} table={table} onSelect={onSelectTable} />
-            ))}
-          </div>
-        </section>
-
-        {/* VIP + Take away */}
-        <aside className="flex w-[42%] min-w-[340px] flex-col gap-7 border-l border-neutral-200 pl-6">
-          <section>
-            <SectionHeading icon={LuCrown} title="VIP Tables" color="#f0a11e" />
-            <div className="grid grid-cols-4 gap-3.5">
-              {vip.map((table) => (
-                <TableCard key={table.id} table={table} onSelect={onSelectTable} />
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <SectionHeading icon={LuShoppingBag} title="Take Away / Delivery" color="#5c6bc0" />
-            <div className="grid grid-cols-4 gap-3.5">
-              {takeaway.map((table) => (
-                <TableCard key={table.id} table={table} onSelect={onSelectTable} />
-              ))}
-            </div>
-          </section>
-        </aside>
-      </main>
-      )}
+      {!loading && !error && <FloorBody floor={floor} onSelectTable={onSelectTable} />}
 
       <footer className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-white px-6 py-3">
         <div className="flex items-center gap-6 text-sm text-neutral-500">

@@ -48,6 +48,8 @@ class TableController extends Controller
                 \Illuminate\Validation\Rule::unique('tables', 'name')
                     ->where('branch_id', \App\Http\Middleware\SetCurrentBranch::id())],
             'type' => ['required', 'in:normal,vip'],
+            // Floor tab this table shows under; empty = the classic one-screen floor.
+            'zone' => ['nullable', 'string', 'max:255'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'in:available,occupied,reserved'],
         ]);
@@ -70,6 +72,7 @@ class TableController extends Controller
                     ->where('branch_id', \App\Http\Middleware\SetCurrentBranch::id())
                     ->ignore($table->id)],
             'type' => ['sometimes', 'required', 'in:normal,vip'],
+            'zone' => ['nullable', 'string', 'max:255'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'status' => ['sometimes', 'required', 'in:available,occupied,reserved'],
         ]);

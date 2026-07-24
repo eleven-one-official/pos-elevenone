@@ -86,6 +86,37 @@ class TakeawaySlotTest extends TestCase
         ])->assertOk()->assertJsonPath('takeaway_slot', 1);
     }
 
+    public function test_delivery_and_takeaway_slots_number_independently(): void
+    {
+        $item = MenuItem::factory()->create();
+        Sanctum::actingAs($this->staff('cashier'));
+
+        $this->postJson('/api/orders', $this->payload($item, ['takeaway_slot' => 3]))->assertCreated();
+        // D3 is a different card from T3 — both can hold a live bill at once.
+        $this->postJson('/api/orders', $this->payload($item, [
+            'order_type' => 'delivery', 'takeaway_slot' => 3,
+        ]))->assertCreated();
+        // But a second delivery bill on D3 would fork it, same as any busy slot.
+        $this->postJson('/api/orders', $this->payload($item, [
+            'order_type' => 'delivery', 'takeaway_slot' => 3,
+        ]))->assertStatus(422);
+    }
+
+    public function test_changing_type_alone_still_respects_the_destination_slot(): void
+    {
+        $item = MenuItem::factory()->create();
+        Sanctum::actingAs($this->staff('cashier'));
+
+        $this->postJson('/api/orders', $this->payload($item, [
+            'order_type' => 'delivery', 'takeaway_slot' => 7,
+        ]))->assertCreated();
+        $id = $this->postJson('/api/orders', $this->payload($item, ['takeaway_slot' => 7]))
+            ->assertCreated()->json('id');
+
+        // T7 → D7 keeps the slot number, but D7 is busy — the move must refuse.
+        $this->putJson("/api/orders/{$id}", ['order_type' => 'delivery'])->assertStatus(422);
+    }
+
     public function test_a_bill_cannot_be_moved_onto_an_occupied_slot(): void
     {
         $item = MenuItem::factory()->create();

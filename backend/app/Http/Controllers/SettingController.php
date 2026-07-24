@@ -23,6 +23,10 @@ class SettingController extends Controller
         'default_pricelist_id' => ['nullable', 'integer', 'exists:pricelists,id'],
         // USD the cash drawer starts the day with (Cash In/Out balance base).
         'opening_float' => ['nullable', 'numeric', 'min:0'],
+        // How many Take Away / Delivery cards this branch's floor shows.
+        // 0 delivery slots hides that section entirely (TTP's floor).
+        'takeaway_slots' => ['nullable', 'integer', 'min:1', 'max:100'],
+        'delivery_slots' => ['nullable', 'integer', 'min:0', 'max:100'],
     ];
 
     /** Public-to-authed read: the POS and receipt need store info + tax rate. */

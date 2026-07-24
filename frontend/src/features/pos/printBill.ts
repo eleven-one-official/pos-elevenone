@@ -24,6 +24,7 @@ const SECTION_NAME: Record<PosTable['section'], string> = {
   'dine-in': 'Eat In',
   vip: 'VIP',
   takeaway: 'Take Away',
+  delivery: 'Delivery',
 }
 
 export function billTableLabel(table: PosTable): string {

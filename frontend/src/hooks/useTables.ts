@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchFloorTables } from '../services/api/tables'
+import { useSettings } from './useSettings'
 import type { PosTable } from '../features/pos/TableFloorPage'
 
 /**
@@ -16,13 +17,17 @@ export function useTables(pollMs?: number) {
   const [error, setError] = useState<string | null>(null)
   // Guards against a slow request overlapping the next poll tick.
   const inFlight = useRef(false)
+  // How many Take Away / Delivery cards this branch's floor shows — per-branch
+  // settings, so BKK gets its 15 + 12 while TTP keeps 8 and no Delivery
+  // section. Settings load async, so the floor re-fetches once they arrive.
+  const { takeawaySlots, deliverySlots } = useSettings()
 
   const load = useCallback(async (silent: boolean) => {
     if (inFlight.current) return
     inFlight.current = true
     if (!silent) setError(null)
     try {
-      setTables(await fetchFloorTables())
+      setTables(await fetchFloorTables(takeawaySlots, deliverySlots))
       if (silent) setError(null)
     } catch (e) {
       // A background poll keeps the last good floor rather than replacing it with
@@ -31,7 +36,7 @@ export function useTables(pollMs?: number) {
     } finally {
       inFlight.current = false
     }
-  }, [])
+  }, [takeawaySlots, deliverySlots])
 
   const reload = useCallback(() => load(false), [load])
 

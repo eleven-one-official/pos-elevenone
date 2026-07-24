@@ -15,6 +15,7 @@ class Table extends Model
     protected $fillable = [
         'name',
         'type',
+        'zone',
         'capacity',
         'status',
     ];

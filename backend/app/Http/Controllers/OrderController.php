@@ -290,9 +290,12 @@ class OrderController extends Controller
 
         // Same rule for the take-away slots: one live bill per slot, so a stale
         // floor can't stack a second order on T3 while the first is still open.
+        // Slots are numbered per section — Take Away T3 and Delivery D3 are
+        // different cards — so the check stays within the order's type.
         $slot = $data['order_type'] === 'dine_in' ? null : ($data['takeaway_slot'] ?? null);
         if ($slot !== null) {
             $existing = Order::where('takeaway_slot', $slot)
+                ->where('order_type', $data['order_type'])
                 ->whereIn('status', self::OPEN_STATUSES)
                 ->latest()
                 ->first();
@@ -439,19 +442,28 @@ class OrderController extends Controller
             }
         }
 
-        // Moving a bill onto a take-away slot follows the same rule: the slot
-        // has to be free, or the floor would show two bills on one card.
-        if (array_key_exists('takeaway_slot', $data)) {
-            $targetSlot = $data['takeaway_slot'] === null ? null : (int) $data['takeaway_slot'];
-            if ($targetSlot !== null && $targetSlot !== ($order->takeaway_slot === null ? null : (int) $order->takeaway_slot)) {
+        // Moving a bill onto a take-away/delivery slot follows the same rule:
+        // the slot has to be free, or the floor would show two bills on one
+        // card. Slots are numbered per section (Take Away T3 and Delivery D3
+        // are different cards), so a type change alone is also a move — T3 to
+        // D3 keeps the number but must find D3 free.
+        if (array_key_exists('takeaway_slot', $data) || array_key_exists('order_type', $data)) {
+            $currentSlot = $order->takeaway_slot === null ? null : (int) $order->takeaway_slot;
+            $targetSlot = array_key_exists('takeaway_slot', $data)
+                ? ($data['takeaway_slot'] === null ? null : (int) $data['takeaway_slot'])
+                : $currentSlot;
+            $targetType = $data['order_type'] ?? $order->order_type;
+            if ($targetSlot !== null && $targetType !== 'dine_in'
+                && ($targetSlot !== $currentSlot || $targetType !== $order->order_type)) {
                 $taken = Order::where('takeaway_slot', $targetSlot)
+                    ->where('order_type', $targetType)
                     ->whereKeyNot($order->id)
                     ->whereIn('status', self::OPEN_STATUSES)
                     ->latest()
                     ->first();
                 if ($taken) {
                     return response()->json([
-                        'message' => "That take-away slot already has open order {$taken->order_number} — close it before moving another bill there.",
+                        'message' => "That slot already has open order {$taken->order_number} — close it before moving another bill there.",
                     ], 422);
                 }
             }

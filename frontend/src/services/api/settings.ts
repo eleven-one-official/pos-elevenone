@@ -17,6 +17,10 @@ export type StoreSettings = {
   defaultPricelistId: number | null
   /** USD the cash drawer starts the day with. */
   openingFloat: number
+  /** Take Away cards on this branch's floor (T1…Tn). */
+  takeawaySlots: number
+  /** Delivery cards (D1…Dn); 0 hides the Delivery section entirely. */
+  deliverySlots: number
 }
 
 /** Fallbacks used before the API responds or if it can't be reached. */
@@ -27,6 +31,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   khrRate: 4100,
   defaultPricelistId: null,
   openingFloat: 100,
+  takeawaySlots: 8,
+  deliverySlots: 0,
 }
 
 type RawSettings = Record<string, string | null>
@@ -46,6 +52,8 @@ function parse(raw: RawSettings): StoreSettings {
     khrRate: num(raw.currency_khr_rate, DEFAULT_SETTINGS.khrRate),
     defaultPricelistId: pricelist > 0 ? pricelist : null,
     openingFloat: num(raw.opening_float, DEFAULT_SETTINGS.openingFloat),
+    takeawaySlots: num(raw.takeaway_slots, DEFAULT_SETTINGS.takeawaySlots),
+    deliverySlots: num(raw.delivery_slots, DEFAULT_SETTINGS.deliverySlots),
   }
 }
 

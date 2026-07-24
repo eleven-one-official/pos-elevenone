@@ -98,20 +98,23 @@ class ReportController extends Controller
             ->where('orders.status', 'completed')
             ->whereDate('orders.created_at', $date);
 
-        // Sales grouped by section. A take-away/delivery bill is "Take Away"; a
-        // dine-in bill on a VIP table is "VIP"; everything else is "Eat In".
+        // Sales grouped by section, mirroring the floor's cards: Take Away and
+        // Delivery are their own rows (a branch with no delivery orders simply
+        // never grows the row); a dine-in bill on a VIP table is "VIP";
+        // everything else is "Eat In".
         $sections = $base()
             ->leftJoin('tables', 'orders.table_id', '=', 'tables.id')
             ->selectRaw(
                 "CASE
-                    WHEN orders.order_type IN ('take_away', 'delivery') THEN 'Take Away'
+                    WHEN orders.order_type = 'take_away' THEN 'Take Away'
+                    WHEN orders.order_type = 'delivery' THEN 'Delivery'
                     WHEN tables.type = 'vip' THEN 'VIP'
                     ELSE 'Eat In'
                 END AS label,
                 SUM(orders.subtotal) AS total"
             )
             ->groupBy('label')
-            ->orderByRaw("FIELD(label, 'Eat In', 'VIP', 'Take Away')")
+            ->orderByRaw("FIELD(label, 'Eat In', 'VIP', 'Take Away', 'Delivery')")
             ->get()
             ->map(fn ($r) => ['label' => $r->label, 'total' => (float) $r->total]);
 

@@ -29,7 +29,7 @@ class KitchenController extends Controller
         'items.chefs:id,name',
         'chef:id,name',
         'chefs:id,name',
-        'order:id,order_number,order_type,table_id,transferred_from_table_id,user_id,guest_count,status',
+        'order:id,order_number,order_type,table_id,takeaway_slot,transferred_from_table_id,user_id,guest_count,status',
         'order.table:id,name',
         'order.transferredFrom:id,name',
         'order.user:id,name,username',

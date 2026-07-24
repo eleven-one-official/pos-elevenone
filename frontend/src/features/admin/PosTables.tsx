@@ -201,9 +201,10 @@ export default function PosTables() {
               </th>
               <th className="w-8" />
               <th className="py-2.5 pr-4 font-bold">Table</th>
-              <th className="w-[18%] py-2.5 pr-4 font-bold">Type</th>
-              <th className="w-[14%] py-2.5 pr-4 text-right font-bold">Seats</th>
-              <th className="w-[18%] py-2.5 pr-4 font-bold">Status</th>
+              <th className="w-[15%] py-2.5 pr-4 font-bold">Type</th>
+              <th className="w-[20%] py-2.5 pr-4 font-bold">Floor</th>
+              <th className="w-[12%] py-2.5 pr-4 text-right font-bold">Seats</th>
+              <th className="w-[16%] py-2.5 pr-4 font-bold">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -229,6 +230,7 @@ export default function PosTables() {
                 <td className="py-2 pr-4">
                   {TABLE_TYPES.find((x) => x.value === t.type)?.label ?? t.type}
                 </td>
+                <td className="py-2 pr-4">{t.zone || <span className="text-neutral-400">—</span>}</td>
                 <td className="py-2 pr-4 text-right">{t.capacity}</td>
                 <td className="py-2 pr-4">
                   <span
@@ -305,6 +307,7 @@ function TableForm({
 }) {
   const [name, setName] = useState(table?.name ?? '')
   const [type, setType] = useState<TableType>(table?.type ?? 'normal')
+  const [zone, setZone] = useState(table?.zone ?? '')
   const [capacity, setCapacity] = useState(table ? String(table.capacity) : '6')
   const [status, setStatus] = useState<TableStatus>(table?.status ?? 'available')
   const [saving, setSaving] = useState(false)
@@ -321,7 +324,13 @@ function TableForm({
       setError('Seats must be at least 1.')
       return
     }
-    const input: TableInput = { name: name.trim(), type, capacity: seats, status }
+    const input: TableInput = {
+      name: name.trim(),
+      type,
+      zone: zone.trim() || null,
+      capacity: seats,
+      status,
+    }
     setSaving(true)
     setError(null)
     try {
@@ -414,6 +423,14 @@ function TableForm({
                 placeholder="e.g. 4"
                 className={`${TEXT_INPUT} max-w-40`}
               />
+
+              <label className={LABEL}>Floor</label>
+              <input
+                value={zone}
+                onChange={(e) => setZone(e.target.value)}
+                placeholder="e.g. BKK Eat In"
+                className={TEXT_INPUT}
+              />
             </FieldGroup>
 
             <FieldGroup>
@@ -433,8 +450,10 @@ function TableForm({
           </div>
 
           <p className="mt-8 border-t border-neutral-200 pt-4 text-[12.5px] italic text-neutral-500">
-            VIP tables show in the floor's VIP section; everything else lands in Dine-in. Status
-            normally flips on its own during service — only correct it here when a table is stuck.
+            VIP tables show in the floor's VIP section; everything else lands in Dine-in. Tables
+            sharing a Floor name become a tab of their own on the POS screen (leave it empty for
+            the classic one-screen floor). Status normally flips on its own during service — only
+            correct it here when a table is stuck.
           </p>
         </div>
       </div>

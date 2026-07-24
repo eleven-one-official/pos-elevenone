@@ -185,21 +185,28 @@ export async function fetchOpenOrderForTable(tableId: number): Promise<ApiOrder 
   return orders.find((o) => OPEN_STATUSES.includes(o.status)) ?? null
 }
 
+/** The order type a floor slot card carries (T cards vs D cards). */
+export type SlotOrderType = 'take_away' | 'delivery'
+
 /**
- * Every take-away bill still running, whichever terminal opened it. The floor
- * uses this to light up the slot cards — a take-away order carries no table, so
- * its slot number is the only thing tying it back to a card.
+ * Every take-away (or delivery) bill still running, whichever terminal opened
+ * it. The floor uses this to light up the slot cards — these orders carry no
+ * table, so the slot number is the only thing tying one back to a card. Each
+ * section numbers its own slots, so T3 and D3 never collide.
  */
-export async function fetchOpenTakeawayOrders(): Promise<ApiOrder[]> {
+export async function fetchOpenSlotOrders(type: SlotOrderType): Promise<ApiOrder[]> {
   const orders = await api<ApiOrder[]>(
-    `/orders?order_type=take_away&status=${OPEN_STATUSES.join(',')}`,
+    `/orders?order_type=${type}&status=${OPEN_STATUSES.join(',')}`,
   )
   return orders.filter((o) => o.takeaway_slot != null)
 }
 
-/** The live bill on a take-away slot, or null when the slot is free. */
-export async function fetchOpenOrderForTakeawaySlot(slot: number): Promise<ApiOrder | null> {
-  const orders = await fetchOpenTakeawayOrders()
+/** The live bill on a take-away/delivery slot, or null when the slot is free. */
+export async function fetchOpenOrderForSlot(
+  type: SlotOrderType,
+  slot: number,
+): Promise<ApiOrder | null> {
+  const orders = await fetchOpenSlotOrders(type)
   // Newest-first from the index, so the first match is the current bill.
   return orders.find((o) => o.takeaway_slot === slot) ?? null
 }
@@ -255,6 +262,8 @@ export type ApiStationTicket = {
     id: number
     order_number: string
     order_type: ApiOrder['order_type']
+    /** Floor slot of a take-away/delivery bill (T1/D1 = 1); null on dine-in. */
+    takeaway_slot?: number | null
     guest_count: number
     table?: { id: number; name: string } | null
     transferred_from?: { id: number; name: string } | null

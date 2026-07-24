@@ -35,18 +35,19 @@ import {
 } from '../pos/catalog'
 import {
   createOrder,
+  fetchOpenOrderForSlot,
   fetchOpenOrderForTable,
-  fetchOpenOrderForTakeawaySlot,
   orderCancelledLines,
   orderToLines,
   updateOrder,
   type CancelledLine,
   type OrderPayload,
 } from '../../services/api/orders'
+import { sectionOrderType } from '../../services/api/tables'
 import { ApiError } from '../../services/api/client'
 import { useMenu } from '../../hooks/useMenu'
 import { useTables } from '../../hooks/useTables'
-import type { PosTable } from '../pos/TableFloorPage'
+import { isSlotSection, type PosTable } from '../pos/TableFloorPage'
 import type { Waiter } from './WaiterLoginDialog'
 
 // The waiter takes and fires orders only — payment, discounts, splits and
@@ -97,10 +98,11 @@ export default function WaiterOrderPage({
   const [guestCount, setGuestCount] = useState(table.guests > 0 ? table.guests : 2)
   // Dine-in tables must have a guest count before the menu opens: the popup
   // fires as soon as the table is entered, and cancelling it goes back to the
-  // floor. Takeaway has no seated guests, so it skips straight to the menu.
-  // Real tables first load any open order — when it carries a saved guest
-  // count that answers the question, so the popup only fires when it doesn't.
-  const askGuestsOnEntry = table.section !== 'takeaway' && !(table.guests > 0)
+  // floor. Takeaway/delivery slots have no seated guests, so they skip
+  // straight to the menu. Real tables first load any open order — when it
+  // carries a saved guest count that answers the question, so the popup only
+  // fires when it doesn't.
+  const askGuestsOnEntry = !isSlotSection(table.section) && !(table.guests > 0)
   const [guestsSet, setGuestsSet] = useState(!askGuestsOnEntry)
   const [dialog, setDialog] = useState<DialogKind>(
     askGuestsOnEntry && table.backendId == null ? 'guests' : null,
@@ -162,14 +164,17 @@ export default function WaiterOrderPage({
   // or another station fired earlier — so re-entering an occupied table shows
   // the guest's items instead of a blank order. The saved guest count comes
   // back with it; the guests popup only fires when there is none on record.
-  // Take-away slots carry no table row, so their order is found by slot number.
+  // Take-away/delivery slots carry no table row, so their order is found by
+  // slot number (each section numbers its own — T3 and D3 are different bills).
   useEffect(() => {
     const tableId = table.backendId
     const slot = table.takeawaySlot
     if (tableId == null && slot == null) return
     let alive = true
     const pending =
-      tableId != null ? fetchOpenOrderForTable(tableId) : fetchOpenOrderForTakeawaySlot(slot!)
+      tableId != null
+        ? fetchOpenOrderForTable(tableId)
+        : fetchOpenOrderForSlot(table.section === 'delivery' ? 'delivery' : 'take_away', slot!)
     pending
       .then((order) => {
         if (!alive) return
@@ -202,7 +207,7 @@ export default function WaiterOrderPage({
     return () => {
       alive = false
     }
-  }, [table.backendId, table.takeawaySlot, reloadKey])
+  }, [table.backendId, table.takeawaySlot, table.section, reloadKey])
 
   function retryLoad() {
     setLoadError(null)
@@ -349,7 +354,7 @@ export default function WaiterOrderPage({
     setTransferError(null)
     try {
       const moved = await updateOrder(backendOrderId, {
-        order_type: t.section === 'takeaway' ? 'take_away' : 'dine_in',
+        order_type: sectionOrderType(t.section),
         table_id: t.backendId ?? null,
         takeaway_slot: t.takeawaySlot ?? null,
       })
@@ -387,7 +392,7 @@ export default function WaiterOrderPage({
     setSending(true)
     try {
       const payload: OrderPayload = {
-        order_type: activeTable.section === 'takeaway' ? 'take_away' : 'dine_in',
+        order_type: sectionOrderType(activeTable.section),
         table_id: activeTable.backendId ?? null,
         // Binds the order to its floor card — without it a take-away order has
         // nothing to reappear on once the waiter leaves this screen.
