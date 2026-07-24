@@ -84,6 +84,14 @@ class OrderController extends Controller
         $rowsByProduct = [];
         $orphans = [];
         foreach ($order->items()->orderByDesc('id')->get() as $row) {
+            // A dish the kitchen struck off ("not available") is no longer the
+            // kitchen's: it stays on the bill only as the trace the floor
+            // reads, so the diff must neither count it as sent nor trim or
+            // drop it. Ordering the dish again after a restock therefore
+            // fires a genuinely fresh line.
+            if ($row->cancelled_at !== null) {
+                continue;
+            }
             if ($row->menu_item_id === null) {
                 $orphans[] = $row;
 

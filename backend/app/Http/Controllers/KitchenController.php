@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\OrderItem;
 use App\Models\OrderRound;
 use Illuminate\Http\JsonResponse;
@@ -155,13 +156,20 @@ class KitchenController extends Controller
      * dish. The older single `chef_id` still works and simply names a crew of
      * one; either way the first cook given leads.
      *
+     * `cancelled` is the kitchen saying "we can't make this" — out of stock,
+     * usually. The dish is struck off the ticket and the bill in one tap: it
+     * stops counting toward the round (a card whose every dish is struck
+     * leaves the board), the money comes off the order's totals, and the line
+     * survives on the bill only as the trace the floor shows the waiter, so
+     * the guests hear it from a person and not from a missing plate.
+     *
      * Returns the whole refreshed ticket: the tap changes the round's status
      * and crew too, and the board wants one truth, not a line to merge.
      */
     public function updateItem(Request $request, OrderRound $round, OrderItem $item): JsonResponse
     {
         $data = $request->validate([
-            'status' => ['required', 'in:preparing,ready'],
+            'status' => ['required', 'in:preparing,ready,cancelled'],
             'chef_id' => ['nullable', 'exists:chefs,id'],
             'chef_ids' => ['nullable', 'array'],
             'chef_ids.*' => ['integer', 'exists:chefs,id'],
@@ -178,6 +186,46 @@ class KitchenController extends Controller
         if (in_array($round->order?->status, self::DEAD_ORDER_STATUSES, true)) {
             return response()->json([
                 'message' => 'That bill has been closed — its tickets are no longer on the board.',
+            ], 422);
+        }
+
+        if ($data['status'] === 'cancelled') {
+            // A plated dish is on the table — taking it back is a void, and
+            // voids are the cashier's call, not the kitchen's.
+            if ($item->ready_at !== null) {
+                return response()->json([
+                    'message' => 'That dish is already plated — ask the cashier to void it.',
+                ], 422);
+            }
+
+            DB::transaction(function () use ($item, $round) {
+                // Stamped once — a re-tap on a slow connection never rewrites
+                // when the kitchen first struck the dish.
+                if ($item->cancelled_at === null) {
+                    $item->cancelled_at = now();
+                    $item->save();
+
+                    // Food struck off is money off the bill, so it leaves the
+                    // same paper trail a void does.
+                    AuditLog::record('kitchen_item_cancelled', $item->order, [], [
+                        'item' => $item->name,
+                        'quantity' => (int) $item->quantity,
+                        'line_total' => (float) $item->line_total,
+                    ], $item->order?->order_number);
+                }
+
+                $round->syncFromItems();
+                $item->order?->recalculateTotals();
+            });
+
+            return response()->json($round->load(self::WITH));
+        }
+
+        // The kitchen already said it can't make this — cooking or plating it
+        // anyway would put struck food back on the bill.
+        if ($item->cancelled_at !== null) {
+            return response()->json([
+                'message' => 'That dish was cancelled — the floor has been told it’s not available.',
             ], 422);
         }
 

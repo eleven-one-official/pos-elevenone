@@ -107,8 +107,22 @@ class OrderRound extends Model
     {
         // Zero-quantity lines are edits' leftovers — nothing to cook, so they
         // must not hold the ticket open.
-        $items = $this->items()->where('quantity', '>', 0)->with('chefs:chefs.id')->get();
+        $all = $this->items()->where('quantity', '>', 0)->with('chefs:chefs.id')->get();
+        if ($all->isEmpty()) {
+            return;
+        }
+
+        // A struck dish ("can't make this") is out of the ticket's work: it
+        // holds nothing open and names no cook. A card whose every dish is
+        // struck has nothing left to make, so it leaves the board — as
+        // `cancelled`, not `ready`: nothing was plated, so it belongs in
+        // neither the history drawer nor the chef KPI.
+        $items = $all->whereNull('cancelled_at');
         if ($items->isEmpty()) {
+            $this->status = 'cancelled';
+            $this->save();
+            $this->order?->syncStatusFromRounds();
+
             return;
         }
 

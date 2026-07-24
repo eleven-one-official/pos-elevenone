@@ -471,11 +471,22 @@ function OrderDetail({
               </thead>
               <tbody>
                 {order.items.map((line) => (
-                  <tr key={line.id} className="border-b border-neutral-100 text-neutral-700">
-                    <td className="py-2 pr-4 text-neutral-800">{line.name}</td>
+                  // A struck line ("kitchen couldn't make it") stays on the
+                  // record but was never charged — struck through, not summed.
+                  <tr
+                    key={line.id}
+                    className={`border-b border-neutral-100 ${
+                      line.cancelled_at ? 'text-rose-400 line-through' : 'text-neutral-700'
+                    }`}
+                  >
+                    <td className={`py-2 pr-4 ${line.cancelled_at ? '' : 'text-neutral-800'}`}>
+                      {line.name}
+                    </td>
                     <td className="py-2 pr-4 text-right">{money(line.price)}</td>
                     <td className="py-2 pr-4 text-right">x{line.quantity}</td>
-                    <td className="py-2 pr-4">{line.note ?? ''}</td>
+                    <td className="py-2 pr-4">
+                      {line.cancelled_at ? 'Kitchen: not available' : line.note ?? ''}
+                    </td>
                     <td className="py-2 text-right">{money(line.line_total)}</td>
                   </tr>
                 ))}

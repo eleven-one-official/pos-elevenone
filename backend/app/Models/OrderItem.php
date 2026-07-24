@@ -20,6 +20,7 @@ class OrderItem extends Model
         'chef_id',
         'started_at',
         'ready_at',
+        'cancelled_at',
     ];
 
     protected function casts(): array
@@ -30,6 +31,7 @@ class OrderItem extends Model
             'line_total' => 'decimal:2',
             'started_at' => 'datetime',
             'ready_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 

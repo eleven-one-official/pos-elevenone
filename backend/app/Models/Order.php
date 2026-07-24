@@ -136,7 +136,11 @@ class Order extends Model
             return;
         }
 
-        $rounds = $this->rounds()->get();
+        // A round the kitchen struck off entirely ("can't make any of it") is
+        // no statement about the rest of the bill — it neither holds the order
+        // in the queue nor marks it ready. A bill whose every round was struck
+        // simply keeps the status it had; the floor decides what happens next.
+        $rounds = $this->rounds()->get()->where('status', '!=', 'cancelled');
         if ($rounds->isEmpty()) {
             return;
         }
@@ -164,11 +168,13 @@ class Order extends Model
     }
 
     /**
-     * Recalculate subtotal/total from the current line items.
+     * Recalculate subtotal/total from the current line items. A dish the
+     * kitchen struck off ("not available") stays on the bill as a visible
+     * trace but is never charged, so it stays out of the sum.
      */
     public function recalculateTotals(): void
     {
-        $subtotal = $this->items()->sum('line_total');
+        $subtotal = $this->items()->whereNull('cancelled_at')->sum('line_total');
         $this->subtotal = $subtotal;
         $this->total = max(0, $subtotal - (float) $this->discount + (float) $this->tax);
         $this->save();

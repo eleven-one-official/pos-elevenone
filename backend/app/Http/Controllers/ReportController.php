@@ -256,6 +256,9 @@ class ReportController extends Controller
         };
 
         $lines = OrderItem::query()
+            // Dishes the kitchen struck off were never charged, so they never
+            // sold anything.
+            ->whereNull('cancelled_at')
             ->with(['order:id,status,discount,subtotal,created_at', 'menuItem:id,category_id', 'menuItem.category:id,name'])
             ->whereHas('order', function ($q) use ($start, $end, $sideFilter) {
                 $q->where('status', 'completed')->whereBetween('created_at', [$start, $end]);
@@ -386,6 +389,8 @@ class ReportController extends Controller
         $typeLabels = ['dine_in' => 'Dine-in', 'take_away' => 'Take-away', 'delivery' => 'Delivery'];
 
         $lines = OrderItem::query()
+            // Struck dishes were never charged — no sale, no margin.
+            ->whereNull('cancelled_at')
             ->with(['order.user:id,name', 'menuItem:id,category_id,cost', 'menuItem.category:id,name'])
             ->whereHas('order', function ($q) use ($start) {
                 $q->whereNotIn('status', ['cancelled', 'refunded']);
@@ -523,6 +528,8 @@ class ReportController extends Controller
             // Attributed to somebody — the lead, or a crewmate still on the
             // roster after the lead was removed.
             ->where(fn ($q) => $q->whereNotNull('chef_id')->orWhereHas('chefs'))
+            // A ticket the kitchen struck off entirely was never cooked.
+            ->where('status', '!=', 'cancelled')
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled']))
             ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
             ->when($to, fn ($q) => $q->where('created_at', '<=', $to))
@@ -533,14 +540,18 @@ class ReportController extends Controller
                 ->orWhereHas('chefs', fn ($c) => $c->where('chefs.id', $chefId))))
             ->when($station, fn ($q) => $q->where('station', $station))
             ->with(['chef:id,name', 'chefs:id,name', 'order:id,order_number,table_id', 'order.table:id,name'])
-            ->withSum('items as items_count', 'quantity')
+            // Struck dishes ("can't make it") aren't work the kitchen did, so
+            // they count nowhere in the KPI.
+            ->withSum(['items as items_count' => fn ($q) => $q->whereNull('cancelled_at')], 'quantity')
             ->get();
 
         // Every ticket's dish lines ride along — the per-dish cut below needs
         // them all, and the capped details list reuses the same loaded relation.
         // Since per-dish tracking, a line carries its own cook and clock.
+        // Struck dishes stay behind here too, for the same reason as above.
         $rounds->load([
-            'items:id,order_round_id,name,quantity,note,chef_id,started_at,ready_at',
+            'items' => fn ($q) => $q->whereNull('cancelled_at')
+                ->select('id', 'order_round_id', 'name', 'quantity', 'note', 'chef_id', 'started_at', 'ready_at'),
             'items.chef:id,name',
             'items.chefs:id,name',
         ]);
@@ -888,6 +899,8 @@ class ReportController extends Controller
             DB::raw('SUM(line_total) as total_sales')
         )
             ->whereNotNull('menu_item_id')
+            // Dishes the kitchen struck off were never sold.
+            ->whereNull('cancelled_at')
             // Dead orders don't make best-sellers.
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled', 'refunded']))
             ->groupBy('menu_item_id', 'name')

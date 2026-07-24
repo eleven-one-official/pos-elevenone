@@ -30,7 +30,8 @@
         <hr style="margin:16px 0;border:none;border-top:1px dashed #d1d5db;">
 
         <table style="width:100%;font-size:13px;" cellpadding="4" cellspacing="0">
-            @foreach ($order->items as $item)
+            {{-- Dishes the kitchen struck off ("not available") were never charged, so they don't print. --}}
+            @foreach ($order->items->whereNull('cancelled_at') as $item)
                 <tr>
                     <td style="color:#111827;">{{ $item->quantity }} × {{ $item->name }}</td>
                     <td align="right" style="color:#111827;">${{ number_format((float) $item->line_total, 2) }}</td>

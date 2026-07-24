@@ -463,15 +463,31 @@ export default function OrdersHistoryPage({
               {/* Lines */}
               <div className="space-y-2 text-sm tabular-nums">
                 {detail.items.map((line) => (
+                  // A struck line ("kitchen couldn't make it") stays on the
+                  // record but was never charged — struck through, not summed.
                   <div key={line.id} className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <span className="text-neutral-800">{line.name}</span>
+                      <span
+                        className={
+                          line.cancelled_at ? 'text-rose-400 line-through' : 'text-neutral-800'
+                        }
+                      >
+                        {line.name}
+                      </span>
                       <span className="ml-1.5 text-neutral-400">x{line.quantity}</span>
-                      {line.note && (
-                        <div className="text-xs italic text-neutral-400">{line.note}</div>
+                      {line.cancelled_at ? (
+                        <div className="text-xs italic text-rose-400">Kitchen: not available</div>
+                      ) : (
+                        line.note && (
+                          <div className="text-xs italic text-neutral-400">{line.note}</div>
+                        )
                       )}
                     </div>
-                    <span className="shrink-0 font-medium text-neutral-800">
+                    <span
+                      className={`shrink-0 font-medium ${
+                        line.cancelled_at ? 'text-rose-400 line-through' : 'text-neutral-800'
+                      }`}
+                    >
                       {money(Number(line.price) * line.quantity)}
                     </span>
                   </div>

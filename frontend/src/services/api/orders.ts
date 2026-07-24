@@ -47,6 +47,14 @@ export type ApiOrderItem = {
   chefs?: { id: number; name: string }[]
   started_at?: string | null
   ready_at?: string | null
+  /**
+   * When the kitchen struck this dish off ("can't make it — not available"),
+   * tapped on the dish at the kitchen display. A struck line stays on the
+   * order as the trace the floor shows the waiter, but is charged nowhere:
+   * the backend keeps it out of the totals and the POS keeps it out of the
+   * editable cart.
+   */
+  cancelled_at?: string | null
 }
 
 /** A payment recorded against an order (loaded with the order). */
@@ -223,7 +231,8 @@ export type ApiStationTicket = {
   order_id: number
   /** 1 for the table's first order, 2 for what they added after, … */
   round_no: number
-  status: 'new' | 'preparing' | 'ready'
+  /** `cancelled` = every dish on the round was struck off ("can't make it"). */
+  status: 'new' | 'preparing' | 'ready' | 'cancelled'
   /** When *this round* was fired — the age the card counts up from. */
   created_at: string
   started_at: string | null
@@ -335,14 +344,35 @@ export function markTicketItemReady(
 }
 
 /**
+ * The kitchen can't make one dish — out of stock, usually. Strikes the line
+ * off the ticket and the bill in one tap: it stops counting toward the round
+ * and the money, but stays visible both places as "not available", so the
+ * waiter hears it from the screen instead of waiting on a plate that will
+ * never come. Returns the refreshed ticket; a round whose every dish is
+ * struck comes back `cancelled` and leaves the board.
+ */
+export function cancelTicketItem(
+  roundId: number,
+  itemId: number,
+  station: Station,
+): Promise<ApiStationTicket> {
+  return api<ApiStationTicket>(`${STATION_PATH[station]}/${roundId}/items/${itemId}`, {
+    method: 'PUT',
+    body: { status: 'cancelled' },
+  })
+}
+
+/**
  * Rebuild editable order lines from a saved order. The backend keeps one
  * order-level discount rather than per-line ones, and the POS only ever applies
  * a uniform "Discount All", so spreading it back as a flat percentage restores
  * the same total. Lines whose product has since been deleted carry no
- * menu_item_id and can no longer be re-sent, so they are dropped.
+ * menu_item_id and can no longer be re-sent, so they are dropped. Dishes the
+ * kitchen struck off ("not available") are dropped too — they are not charged
+ * and must not be re-fired; `orderCancelledLines` is where they surface.
  */
 export function orderToLines(order: ApiOrder): OrderLine[] {
-  const items = order.items.filter((i) => i.menu_item_id != null)
+  const items = order.items.filter((i) => i.menu_item_id != null && !i.cancelled_at)
   const gross = items.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0)
   const discount = Number(order.discount)
   const percent = gross > 0 && discount > 0 ? (discount / gross) * 100 : 0
@@ -368,4 +398,24 @@ export function orderToLines(order: ApiOrder): OrderLine[] {
     })
   }
   return [...byProduct.values()]
+}
+
+/** One dish the kitchen struck off a bill, folded per name for the strip. */
+export type CancelledLine = { name: string; qty: number }
+
+/**
+ * The dishes the kitchen struck off this bill ("not available"), for the red
+ * strip the POS and waiter carts show. Struck lines never reach the editable
+ * cart — `orderToLines` drops them — so this strip is how the floor learns
+ * why a dish won't be coming, and knows to offer the guests something else.
+ */
+export function orderCancelledLines(order: ApiOrder): CancelledLine[] {
+  const byName = new Map<string, CancelledLine>()
+  for (const item of order.items) {
+    if (!item.cancelled_at || item.quantity <= 0) continue
+    const row = byName.get(item.name)
+    if (row) row.qty += item.quantity
+    else byName.set(item.name, { name: item.name, qty: item.quantity })
+  }
+  return [...byName.values()]
 }

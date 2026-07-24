@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IconType } from 'react-icons'
 import {
+  LuBan,
   LuBell,
   LuBellOff,
   LuCheck,
@@ -23,6 +24,7 @@ import ZoomControl from '../../components/ui/ZoomControl'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 import { fetchActiveChefs, type Chef } from '../../services/api/chefs'
 import {
+  cancelTicketItem,
   fetchStationHistory,
   fetchStationTickets,
   markTicketItemReady,
@@ -342,6 +344,13 @@ export default function StationDisplayPage({
   } | null>(null)
   // The names ticked so far, in tap order — order matters, the first leads.
   const [picked, setPicked] = useState<Chef[]>([])
+  // The dish a cook is about to strike off ("can't make it") — the tap asks
+  // before it takes food off a guest's bill, because there is no undo from
+  // this screen. Null = no confirmation open.
+  const [cancelFor, setCancelFor] = useState<{
+    ticket: ApiStationTicket
+    item: ApiOrderItem
+  } | null>(null)
   // The history drawer — today's plated tickets. A bumped card leaves the board
   // for good, so this is the only way back to one. Fetched when the drawer is
   // opened rather than polled: it's a look-up, not a live rail.
@@ -738,6 +747,36 @@ export default function StationDisplayPage({
     }
   }
 
+  // The kitchen can't make one dish — out of stock, usually. One tap strikes
+  // it off the ticket and the bill: the money comes off the order and the
+  // floor sees the line come back as "not available", so the waiter can offer
+  // the guests something else instead of waiting on a plate that won't come.
+  // The backend rolls the ticket up without it: with everything else already
+  // plated the round comes back `ready`; with nothing left to make at all it
+  // comes back `cancelled` — either way the card leaves the board.
+  async function cancelDish(ticket: ApiStationTicket, item: ApiOrderItem) {
+    setCancelFor(null)
+    patchDish(ticket.id, item.id, { cancelled_at: item.cancelled_at ?? new Date().toISOString() })
+    try {
+      const round = await cancelTicketItem(ticket.id, item.id, station)
+      if (round.status === 'ready' || round.status === 'cancelled') {
+        setHiddenIds((prev) => new Set(prev).add(ticket.id))
+        setToast({
+          text:
+            round.status === 'cancelled'
+              ? `${ticketLabel(ticket)} struck off — nothing left to make`
+              : `${item.name} struck off — ${ticketLabel(ticket)} ready`,
+        })
+        return
+      }
+      replaceTicket(round)
+      setToast({ text: `${item.name} struck off — the floor will see it's not available` })
+    } catch {
+      setToast({ text: 'Could not cancel it — check the connection', tone: 'error' })
+      void load()
+    }
+  }
+
   async function bump(ticket: ApiStationTicket) {
     setHiddenIds((prev) => new Set(prev).add(ticket.id))
     try {
@@ -909,6 +948,7 @@ export default function StationDisplayPage({
                 onReady={() => void bump(ticket)}
                 onStartDish={(item) => openPicker(ticket, item)}
                 onReadyDish={(item) => void readyDish(ticket, item)}
+                onCancelDish={(item) => setCancelFor({ ticket, item })}
               />
             ))}
           </div>
@@ -1104,6 +1144,50 @@ export default function StationDisplayPage({
         </div>
       )}
 
+      {/* Strike-off confirmation — cancelling takes food off a guest's bill
+          and there is no undo from this screen, so one stray tap must never
+          be enough. */}
+      {cancelFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start gap-3 px-5 pt-5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                <LuBan className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 leading-tight">
+                <div className="text-base font-bold text-neutral-900">
+                  Can’t make x{cancelFor.item.quantity} {cancelFor.item.name}?
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  {cancelFor.ticket.order.table?.name
+                    ? `${cancelFor.ticket.order.table.name} · `
+                    : ''}
+                  {ticketLabel(cancelFor.ticket)} — the dish comes off the bill and the floor
+                  sees it’s not available, so the waiter can offer something else.
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2 border-t border-neutral-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setCancelFor(null)}
+                className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                onClick={() => void cancelDish(cancelFor.ticket, cancelFor.item)}
+                className="flex items-center gap-2 rounded-xl bg-rose-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-rose-600 active:scale-[0.98]"
+              >
+                <LuBan className="h-4 w-4" />
+                Not available
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation popup — a bump is the last word on a ticket, so it lands
           in the middle of the screen, where a cook standing back from the pass
           is already looking, instead of as a strip along the bottom edge. */}
@@ -1166,18 +1250,31 @@ function HistoryRow({ ticket }: { ticket: ApiStationTicket }) {
           // own frozen clock — the answer to "who made it, and how long?".
           const tookMs = item.ready_at ? dishMs(item, new Date(item.ready_at).getTime()) : null
           const crew = dishCrewLabel(item)
+          // A dish struck off mid-ticket ("couldn't make it") stays in the
+          // record, struck through — it was never plated, so no clock, no crew.
+          const struck = !!item.cancelled_at
           return (
             <li key={item.id} className="flex items-baseline gap-2 text-sm text-neutral-700">
               <span className="min-w-6 shrink-0 rounded bg-neutral-100 px-1.5 text-center font-bold tabular-nums text-neutral-800">
                 x{item.quantity}
               </span>
-              <span className="min-w-0 leading-tight">{item.name}</span>
-              {(crew || tookMs !== null) && (
-                <span className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums text-neutral-500">
-                  {crew}
-                  {crew && tookMs !== null && ' · '}
-                  {tookMs !== null && durationLabel(tookMs)}
+              <span
+                className={`min-w-0 leading-tight ${struck ? 'text-rose-400 line-through' : ''}`}
+              >
+                {item.name}
+              </span>
+              {struck ? (
+                <span className="ml-auto shrink-0 text-[10px] font-bold uppercase tracking-wide text-rose-400">
+                  Not available
                 </span>
+              ) : (
+                (crew || tookMs !== null) && (
+                  <span className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums text-neutral-500">
+                    {crew}
+                    {crew && tookMs !== null && ' · '}
+                    {tookMs !== null && durationLabel(tookMs)}
+                  </span>
+                )
               )}
             </li>
           )
@@ -1196,6 +1293,7 @@ function TicketCard({
   onReady,
   onStartDish,
   onReadyDish,
+  onCancelDish,
 }: {
   ticket: ApiStationTicket
   look: StationLook
@@ -1205,6 +1303,7 @@ function TicketCard({
   onReady: () => void
   onStartDish: (item: ApiOrderItem) => void
   onReadyDish: (item: ApiOrderItem) => void
+  onCancelDish: (item: ApiOrderItem) => void
 }) {
   const [bumping, setBumping] = useState(false)
   const order = ticket.order
@@ -1229,9 +1328,13 @@ function TicketCard({
   // as an extra fire for a table already eating.
   const isRepeat = ticket.round_no > 1
   const items = ticket.items.filter((i) => i.quantity > 0)
-  const totalItems = items.reduce((sum, i) => sum + i.quantity, 0)
-  // The kitchen's progress line: plated dishes over dishes on the card.
-  const readyDishes = items.filter((i) => i.ready_at).length
+  // A struck dish ("can't make it") still shows on the card — the cooks see
+  // what was told to the floor — but it is no longer work, so the counts and
+  // the progress bar read over the live dishes only.
+  const liveItems = items.filter((i) => !i.cancelled_at)
+  const totalItems = liveItems.reduce((sum, i) => sum + i.quantity, 0)
+  // The kitchen's progress line: plated dishes over dishes still on the card.
+  const readyDishes = liveItems.filter((i) => i.ready_at).length
 
   return (
     <article
@@ -1317,6 +1420,7 @@ function TicketCard({
               now={now}
               onStart={() => onStartDish(item)}
               onReady={() => onReadyDish(item)}
+              onCancel={() => onCancelDish(item)}
             />
           ) : (
             <li key={item.id}>
@@ -1327,8 +1431,8 @@ function TicketCard({
                 <span className="text-base font-semibold leading-tight text-neutral-800">{item.name}</span>
               </div>
               {item.note && (
-                <div className="ml-9 mt-1 flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-700">
-                  <LuStickyNote className="h-3.5 w-3.5 shrink-0" />
+                <div className="ml-9 mt-1.5 flex items-center gap-2 rounded-lg border border-red-200 bg-red-100 px-3 py-1.5 text-lg font-bold text-red-700">
+                  <LuStickyNote className="h-5 w-5 shrink-0" />
                   {item.note}
                 </div>
               )}
@@ -1358,11 +1462,13 @@ function TicketCard({
             <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-100">
               <div
                 className="h-full rounded-full bg-emerald-500 transition-all"
-                style={{ width: `${items.length > 0 ? (readyDishes / items.length) * 100 : 0}%` }}
+                style={{
+                  width: `${liveItems.length > 0 ? (readyDishes / liveItems.length) * 100 : 0}%`,
+                }}
               />
             </div>
             <span className="shrink-0 text-xs font-bold tabular-nums text-neutral-600">
-              {readyDishes}/{items.length} dish{items.length === 1 ? '' : 'es'} ready
+              {readyDishes}/{liveItems.length} dish{liveItems.length === 1 ? '' : 'es'} ready
             </span>
           </div>
         ) : active ? (
@@ -1404,37 +1510,58 @@ function TicketCard({
  * One dish on a kitchen card — its own little ticket. Untaken it offers
  * Start; while it cooks it shows its maker and a live clock beside the Ready
  * control; plated it freezes on the time the Chef Performance KPI will read.
+ * Until it's plated it also carries a strike-off control — the kitchen's
+ * "can't make this", which takes the dish off the bill and tells the floor.
  */
 function DishRow({
   item,
   now,
   onStart,
   onReady,
+  onCancel,
 }: {
   item: ApiOrderItem
   now: number
   onStart: () => void
   onReady: () => void
+  onCancel: () => void
 }) {
   const ms = dishMs(item, now)
-  const done = !!item.ready_at
-  const cooking = !done && !!item.started_at
+  const struck = !!item.cancelled_at
+  const done = !struck && !!item.ready_at
+  const cooking = !struck && !done && !!item.started_at
   // Everyone on the plate — "Bopha + Rithy" when a dish is shared.
   const crew = dishCrewLabel(item)
 
   return (
     <li
       className={`rounded-xl px-3 py-2.5 transition ${
-        done
-          ? 'border border-emerald-200 bg-emerald-50/70'
-          : cooking
-            ? // A cook owns this dish — the colour runs around its row until
-              // they tap Ready (the class brings its own border and fill).
-              'kds-dish-cooking'
-            : 'border border-neutral-200 bg-white'
+        struck
+          ? 'border border-rose-200 bg-rose-50/70'
+          : done
+            ? 'border border-emerald-200 bg-emerald-50/70'
+            : cooking
+              ? // A cook owns this dish — the colour runs around its row until
+                // they tap Ready (the class brings its own border and fill).
+                'kds-dish-cooking'
+              : 'border border-neutral-200 bg-white'
       }`}
     >
-      {done ? (
+      {struck ? (
+        // Struck off — kept on the card so the cooks can see what the floor
+        // was told, but no longer anyone's work: no clock, no buttons.
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white">
+            <LuBan className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-rose-400 line-through">
+            <span className="font-extrabold tabular-nums">x{item.quantity}</span> {item.name}
+          </span>
+          <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-rose-500">
+            Not available
+          </span>
+        </div>
+      ) : done ? (
         <div className="flex items-center gap-2.5">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
             <LuCheck className="h-4 w-4" />
@@ -1481,33 +1608,62 @@ function DishRow({
             ) : (
               <span />
             )}
-            <button
-              type="button"
-              onClick={onReady}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.98]"
-            >
-              <LuCheck className="h-4 w-4" />
-              Ready
-            </button>
+            <span className="flex shrink-0 items-center gap-2">
+              {/* Ran out mid-cook — strike it off and the floor hears why. */}
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label={`Can't make ${item.name}`}
+                title="Can't make it — not available"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/70 text-rose-500 transition hover:bg-rose-100 active:scale-[0.98]"
+              >
+                <LuBan className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onReady}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.98]"
+              >
+                <LuCheck className="h-4 w-4" />
+                Ready
+              </button>
+            </span>
           </div>
         </>
       ) : (
-        <button type="button" onClick={onStart} className="flex w-full items-center gap-2.5 text-left">
-          <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
-            x{item.quantity}
-          </span>
-          <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-neutral-800">
-            {item.name}
-          </span>
-          <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-bold text-primary">
-            <LuPlay className="h-4 w-4" />
-            Start
-          </span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onStart}
+            className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          >
+            <span className="min-w-7 shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-center text-base font-extrabold tabular-nums text-neutral-900">
+              x{item.quantity}
+            </span>
+            <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-neutral-800">
+              {item.name}
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-bold text-primary">
+              <LuPlay className="h-4 w-4" />
+              Start
+            </span>
+          </button>
+          {/* Out of stock before anyone started — the "we can't make this"
+              answer back to the floor. */}
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label={`Can't make ${item.name}`}
+            title="Can't make it — not available"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-500 transition hover:bg-rose-100 active:scale-[0.98]"
+          >
+            <LuBan className="h-4 w-4" />
+          </button>
+        </div>
       )}
-      {item.note && (
-        <div className="ml-9 mt-1 flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-700">
-          <LuStickyNote className="h-3.5 w-3.5 shrink-0" />
+      {item.note && !struck && (
+        <div className="ml-9 mt-1.5 flex items-center gap-2 rounded-lg border border-red-200 bg-red-100 px-3 py-1.5 text-lg font-bold text-red-700">
+          <LuStickyNote className="h-5 w-5 shrink-0" />
           {item.note}
         </div>
       )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   LuArrowRight,
   LuArrowRightLeft,
+  LuBan,
   LuCheck,
   LuChevronLeft,
   LuDelete,
@@ -36,8 +37,10 @@ import {
   createOrder,
   fetchOpenOrderForTable,
   fetchOpenOrderForTakeawaySlot,
+  orderCancelledLines,
   orderToLines,
   updateOrder,
+  type CancelledLine,
   type OrderPayload,
 } from '../../services/api/orders'
 import { ApiError } from '../../services/api/client'
@@ -108,6 +111,11 @@ export default function WaiterOrderPage({
   // top of this is what the next "Order" fires as a new round — and everything
   // at or below it is food already being cooked, which a waiter can't take back.
   const [sentQty, setSentQty] = useState<Record<string, number>>({})
+  // Dishes the kitchen struck off this bill ("can't make it") — the kitchen's
+  // answer back to the floor. They never re-enter the editable lines; the red
+  // strip above the order is where the waiter reads them, then tells the
+  // guests and offers something else.
+  const [kitchenCancelled, setKitchenCancelled] = useState<CancelledLine[]>([])
   // Transfer is a server round-trip: block the grid while it flies and keep the
   // dialog open with the reason when it fails.
   const [transferring, setTransferring] = useState(false)
@@ -169,6 +177,7 @@ export default function WaiterOrderPage({
           const saved = orderToLines(order)
           setBackendOrderId(order.id)
           setTransferredFrom(order.transferred_from?.name ?? null)
+          setKitchenCancelled(orderCancelledLines(order))
           setLines(saved)
           // Everything on a saved order has already been fired, so it becomes
           // the baseline: only what the waiter adds on top goes to the kitchen.
@@ -398,6 +407,8 @@ export default function WaiterOrderPage({
       setBackendOrderId(order.id)
       // The kitchen now has all of this, so the next round starts from here.
       setSentQty(Object.fromEntries(cook.map((l) => [l.id, l.qty])))
+      // The response is the freshest word on what the kitchen struck off.
+      setKitchenCancelled(orderCancelledLines(order))
       notify(
         hasSent
           ? `${fired} more item${fired === 1 ? '' : 's'} sent to the kitchen`
@@ -498,6 +509,31 @@ export default function WaiterOrderPage({
         <div className="flex w-[42%] min-w-[440px] flex-col border-r border-neutral-200 bg-white">
           {/* Order lines */}
           <div className="flex-1 overflow-y-auto">
+            {/* The kitchen's answer back: dishes it can't make. They're off
+                the bill already — this strip is the waiter's cue to tell the
+                guests and offer something else. */}
+            {kitchenCancelled.length > 0 && (
+              <div className="border-b border-rose-200 bg-rose-50 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-rose-700">
+                  <LuBan className="h-4 w-4 shrink-0" />
+                  Kitchen can’t make these — tell the guests
+                </div>
+                <ul className="mt-1.5 space-y-1">
+                  {kitchenCancelled.map((c) => (
+                    <li
+                      key={c.name}
+                      className="flex items-baseline gap-2 text-sm font-semibold text-rose-600"
+                    >
+                      <span className="tabular-nums">x{c.qty}</span>
+                      <span className="min-w-0 line-through">{c.name}</span>
+                      <span className="ml-auto shrink-0 text-[10px] font-bold uppercase tracking-wide">
+                        Not available
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {lines.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-neutral-400">
                 <LuUtensils className="h-8 w-8" />
@@ -530,8 +566,8 @@ export default function WaiterOrderPage({
                       </div>
                       <p className="mt-0.5 text-sm text-neutral-500">{money(line.price)} / unit</p>
                       {line.note ? (
-                        <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
-                          <LuStickyNote className="h-3.5 w-3.5" />
+                        <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-100 px-2.5 py-1 text-sm font-bold text-red-700">
+                          <LuStickyNote className="h-4 w-4" />
                           {line.note}
                         </span>
                       ) : null}

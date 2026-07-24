@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LuArrowRight,
   LuArrowRightLeft,
+  LuBan,
   LuChevronLeft,
   LuChevronRight,
   LuDelete,
@@ -37,8 +38,10 @@ import {
   createOrder,
   fetchOpenOrderForTable,
   fetchOpenOrderForTakeawaySlot,
+  orderCancelledLines,
   orderToLines,
   updateOrder,
+  type CancelledLine,
   type OrderPayload,
 } from '../../services/api/orders'
 import { recordPayment } from '../../services/api/payments'
@@ -160,6 +163,10 @@ export default function OrderPage({
   // Backend order — the table's open bill when there is one, otherwise created
   // on the first "Send to Kitchen" / payment and updated after that.
   const [backendOrderId, setBackendOrderId] = useState<number | null>(null)
+  // Dishes the kitchen struck off this bill ("can't make it"). Already off the
+  // totals server-side and out of the editable lines — the red strip above the
+  // order is where the cashier reads them.
+  const [kitchenCancelled, setKitchenCancelled] = useState<CancelledLine[]>([])
   // Local placeholder until the backend issues the real order number.
   const [orderNo, setOrderNo] = useState(() =>
     String(Math.floor(Date.now() / 1000) % 1000000).padStart(6, '0'),
@@ -200,6 +207,7 @@ export default function OrderPage({
         setBackendOrderId(order.id)
         setOrderNo(order.order_number)
         setTransferredFrom(order.transferred_from?.name ?? null)
+        setKitchenCancelled(orderCancelledLines(order))
         setLines(orderToLines(order))
         if (order.guest_count > 0) setGuestCount(order.guest_count)
         if (order.customer) setCustomer({ id: order.customer.id, name: order.customer.name, phone: null })
@@ -475,6 +483,8 @@ export default function OrderPage({
           : await updateOrder(backendOrderId, payload)
       setBackendOrderId(order.id)
       setOrderNo(order.order_number)
+      // The response is the freshest word on what the kitchen struck off.
+      setKitchenCancelled(orderCancelledLines(order))
       notify(`Order #${order.order_number} sent to the kitchen`)
     } catch {
       notify('Could not send to the kitchen — check the connection and try again')
@@ -764,6 +774,31 @@ export default function OrderPage({
         <div className="flex w-[42%] min-w-[440px] flex-col border-r border-neutral-200 bg-white">
           {/* Order lines */}
           <div className="flex-1 overflow-y-auto">
+            {/* The kitchen's answer back: dishes it can't make. Already off
+                the totals — this strip is why the bill is lighter than the
+                guests expect, and the cue to offer something else. */}
+            {kitchenCancelled.length > 0 && (
+              <div className="border-b border-rose-200 bg-rose-50 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-rose-700">
+                  <LuBan className="h-4 w-4 shrink-0" />
+                  Kitchen can’t make these — not charged
+                </div>
+                <ul className="mt-1.5 space-y-1">
+                  {kitchenCancelled.map((c) => (
+                    <li
+                      key={c.name}
+                      className="flex items-baseline gap-2 text-sm font-semibold text-rose-600"
+                    >
+                      <span className="tabular-nums">x{c.qty}</span>
+                      <span className="min-w-0 line-through">{c.name}</span>
+                      <span className="ml-auto shrink-0 text-[10px] font-bold uppercase tracking-wide">
+                        Not available
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {lines.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-neutral-400">
                 <LuUtensils className="h-8 w-8" />
@@ -801,8 +836,8 @@ export default function OrderPage({
                           </span>
                         ) : null}
                         {line.note ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
-                            <LuStickyNote className="h-3.5 w-3.5" />
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-100 px-2.5 py-1 text-sm font-bold text-red-700">
+                            <LuStickyNote className="h-4 w-4" />
                             {line.note}
                           </span>
                         ) : null}
