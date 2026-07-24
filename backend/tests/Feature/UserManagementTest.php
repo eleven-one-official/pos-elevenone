@@ -40,7 +40,11 @@ class UserManagementTest extends TestCase
     public function test_admin_lists_users_with_role_and_pin_flag(): void
     {
         $this->actingAsAdmin();
-        $cashier = $this->staff('cashier', ['name' => 'Pin Cashier', 'pin' => '1234']);
+        $cashier = $this->staff('cashier', [
+            'name' => 'Pin Cashier',
+            'pin' => '1234',
+            'password_plain' => 'secret-123',
+        ]);
 
         $response = $this->getJson('/api/users')->assertOk();
 
@@ -49,9 +53,12 @@ class UserManagementTest extends TestCase
             'has_pin' => true,
             // Admins see the PIN itself — that's how staff get handed theirs.
             'pin' => '1234',
+            // The recoverable password copy is admin-viewable the same way.
+            'password' => 'secret-123',
+            'has_password' => true,
         ]);
-        // Passwords (hashes included) never leave the server.
-        $this->assertStringNotContainsString('password', $response->getContent());
+        // The one-way bcrypt hash still never leaves the server.
+        $this->assertStringNotContainsString('$2y$', $response->getContent());
     }
 
     // ------------------------------------------------------------------
