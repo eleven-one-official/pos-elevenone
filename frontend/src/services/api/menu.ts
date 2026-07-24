@@ -25,8 +25,19 @@ const CATEGORY_BY_SLUG: Record<string, Category> = {
   dessert: 'Desserts',
 }
 
+// Admins create categories per branch, so slugs drift ("desserts", "Drink").
+// Try the slug then the name, singular and plural, before falling back to Food.
+function toCategory(item: ApiMenuItem): Category {
+  for (const raw of [item.category?.slug, item.category?.name]) {
+    const key = (raw ?? '').toLowerCase()
+    const match = CATEGORY_BY_SLUG[key] ?? CATEGORY_BY_SLUG[key.replace(/s$/, '')]
+    if (match) return match
+  }
+  return 'Food'
+}
+
 function toProduct(item: ApiMenuItem): Product {
-  const category = CATEGORY_BY_SLUG[item.category?.slug ?? ''] ?? 'Food'
+  const category = toCategory(item)
   return {
     id: String(item.id), // order lines key on the string id; parse back for POSTs
     name: item.name,
