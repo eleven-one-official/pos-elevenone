@@ -46,9 +46,9 @@ on the server from Cloudflare's published ranges:
 ```
 
 Without it every visitor looks like a Cloudflare edge IP, which would turn the
-per-IP login throttle (`throttle:10,1` on `/api/login`) into one shared bucket
-for the whole restaurant and fill the audit log with Cloudflare addresses.
-Re-run it if Cloudflare adds ranges.
+per-IP login throttles on the `/api` credential endpoints into one shared
+bucket for the whole restaurant and fill the audit log with Cloudflare
+addresses. Re-run it if Cloudflare adds ranges.
 
 ## Redeploying
 

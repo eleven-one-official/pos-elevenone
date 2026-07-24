@@ -9,8 +9,7 @@ import {
   LuRefreshCw,
   LuX,
 } from 'react-icons/lu'
-import { fetchStaffRoster, staffLogin, type StaffMember } from '../../services/api/auth'
-import { ApiError } from '../../services/api/client'
+import { fetchStaffRoster, loginErrorMessage, staffLogin, type StaffMember } from '../../services/api/auth'
 import { Loader, LoadingState } from '../../components/ui/Loader'
 
 // Tap-a-name login used by both the cashier station and the waiter tablets.
@@ -96,7 +95,7 @@ export default function StaffLoginDialog({
           role: user.role?.name ?? member.role_name ?? undefined,
         })
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Login failed. Try again.')
+        setError(loginErrorMessage(err))
         setSubmitting(false)
         setTappingId(null)
       }
@@ -125,7 +124,7 @@ export default function StaffLoginDialog({
         role: user.role?.name ?? selected.role_name ?? undefined,
       })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Login failed. Try again.')
+      setError(loginErrorMessage(err))
       setSubmitting(false)
     }
   }

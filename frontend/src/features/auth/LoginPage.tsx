@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { LuArrowRight, LuChefHat, LuEye, LuEyeOff, LuLock, LuStore, LuUser } from 'react-icons/lu'
 import { type Cashier } from './CashierLoginDialog'
-import { passwordLogin } from '../../services/api/auth'
+import { loginErrorMessage, passwordLogin } from '../../services/api/auth'
 import { fetchBranches, type Branch } from '../../services/api/branches'
-import { ApiError, getBranchId, setBranchId } from '../../services/api/client'
+import { getBranchId, setBranchId } from '../../services/api/client'
 import { Loader } from '../../components/ui/Loader'
 
 function BrandPanel() {
@@ -100,7 +100,7 @@ export default function LoginPage({
       const user = await passwordLogin(username.trim(), password)
       onLogin?.({ id: String(user.id), name: user.name, role: user.role?.name, slug: user.role?.slug })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Login failed. Try again.')
+      setError(loginErrorMessage(err))
       setSubmitting(false)
     }
   }

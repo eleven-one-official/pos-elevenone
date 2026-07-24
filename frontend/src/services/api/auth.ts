@@ -1,4 +1,4 @@
-import { api, setToken } from './client'
+import { api, ApiError, setToken } from './client'
 
 // ---------------------------------------------------------------------------
 // Types mirroring the Laravel API payloads
@@ -55,6 +55,18 @@ export async function passwordLogin(username: string, password: string): Promise
   })
   setToken(token)
   return user
+}
+
+/** Message for a failed sign-in. The rate limiter's bare "Too Many Attempts."
+ *  (429) gets turned into actual advice — the block clears on its own within
+ *  a minute, and staff should wait rather than keep tapping. */
+export function loginErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    return err.status === 429
+      ? 'Too many attempts — please wait a minute, then try again.'
+      : err.message
+  }
+  return 'Login failed. Try again.'
 }
 
 /** The user behind the stored token — used to restore a session on app boot. */
