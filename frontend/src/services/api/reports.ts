@@ -55,6 +55,40 @@ export function fetchDailySales(date?: string): Promise<DailySales> {
   return api<DailySales>(`/reports/daily-sales${date ? `?date=${date}` : ''}`)
 }
 
+// --- Cashier "Summary Report" docket ---------------------------------------
+
+/** One row of the sales-by-section block (Eat In / VIP / Take Away), gross. */
+export type SummarySection = { label: string; total: number }
+
+/** One income line, grouped into Bank (card/ABA/KHQR) or Cash by journal. */
+export type SummaryChannel = {
+  group: 'Bank' | 'Cash'
+  /** Journal name — "Cash USD", "ABA", "Grab Merchant", … */
+  label: string
+  amount: number
+  count: number
+}
+
+/** Everything the cashier's printed Summary Report needs, in one call.
+ *  grand_total is gross (the section rows add up to it); total_paid is what the
+ *  income channels collected. Cashier-accessible, unlike the other reports. */
+export type DailySummary = {
+  date: string
+  sections: SummarySection[]
+  channels: SummaryChannel[]
+  /** Number of completed bills — the "Total Receipt" line. */
+  orders_count: number
+  guests: number
+  grand_total: number
+  discount: number
+  total_paid: number
+}
+
+/** The day's summary behind the cashier's Print Summary docket (default today). */
+export function fetchDailySummary(date?: string): Promise<DailySummary> {
+  return api<DailySummary>(`/reports/summary${date ? `?date=${date}` : ''}`)
+}
+
 export type TopItem = {
   menu_item_id: number
   name: string

@@ -80,6 +80,83 @@ class ReportController extends Controller
     }
 
     /**
+     * The cashier's end-of-day "Summary Report" docket for a given
+     * ?date=YYYY-MM-DD (default today). Three blocks, matching the printed
+     * report the venue is used to:
+     *   • sales by floor section (Eat In / VIP / Take Away), gross, so the rows
+     *     add up to the Grand Total;
+     *   • income by journal grouped Bank (card / ABA / KHQR) vs Cash;
+     *   • the day's totals — guests, receipts, grand total, discount, paid.
+     * Completed orders only; amounts in USD (the stored currency).
+     */
+    public function dailySummary(Request $request): JsonResponse
+    {
+        $date = $request->filled('date') ? $request->date('date') : now();
+
+        // Qualified so the tables join below stays unambiguous.
+        $base = fn () => Order::query()
+            ->where('orders.status', 'completed')
+            ->whereDate('orders.created_at', $date);
+
+        // Sales grouped by section. A take-away/delivery bill is "Take Away"; a
+        // dine-in bill on a VIP table is "VIP"; everything else is "Eat In".
+        $sections = $base()
+            ->leftJoin('tables', 'orders.table_id', '=', 'tables.id')
+            ->selectRaw(
+                "CASE
+                    WHEN orders.order_type IN ('take_away', 'delivery') THEN 'Take Away'
+                    WHEN tables.type = 'vip' THEN 'VIP'
+                    ELSE 'Eat In'
+                END AS label,
+                SUM(orders.subtotal) AS total"
+            )
+            ->groupBy('label')
+            ->orderByRaw("FIELD(label, 'Eat In', 'VIP', 'Take Away')")
+            ->get()
+            ->map(fn ($r) => ['label' => $r->label, 'total' => (float) $r->total]);
+
+        // Income by journal (Cash USD, ABA, Grab Merchant, …), split Bank/Cash
+        // by the journal's channel; older payments with no journal fall back to
+        // their raw channel code. Anchored on the order's day/status so it
+        // reconciles with the totals below.
+        $channels = Payment::where('payments.status', 'paid')
+            ->whereHas('order', fn ($q) => $q->where('status', 'completed')->whereDate('created_at', $date))
+            ->leftJoin('payment_methods', 'payments.payment_method_id', '=', 'payment_methods.id')
+            ->select(
+                DB::raw('COALESCE(payment_methods.channel, payments.method) AS channel'),
+                DB::raw('COALESCE(payment_methods.label, payments.method) AS label'),
+                DB::raw('SUM(payments.amount) AS amount'),
+                DB::raw('COUNT(*) AS count'),
+            )
+            // Group by the expressions, not the aliases — under ONLY_FULL_GROUP_BY
+            // a bare `channel` resolves to payment_methods.channel (the column
+            // wins over the alias), which no longer covers the COALESCE fallback.
+            ->groupBy(
+                DB::raw('COALESCE(payment_methods.channel, payments.method)'),
+                DB::raw('COALESCE(payment_methods.label, payments.method)'),
+            )
+            ->orderByDesc(DB::raw('SUM(payments.amount)'))
+            ->get()
+            ->map(fn ($r) => [
+                'group' => $r->channel === 'cash' ? 'Cash' : 'Bank',
+                'label' => $r->label,
+                'amount' => (float) $r->amount,
+                'count' => (int) $r->count,
+            ]);
+
+        return response()->json([
+            'date' => $date->toDateString(),
+            'sections' => $sections,
+            'channels' => $channels,
+            'orders_count' => $base()->count(),
+            'guests' => (int) $base()->sum('orders.guest_count'),
+            'grand_total' => round((float) $base()->sum('orders.subtotal'), 2),
+            'discount' => round((float) $base()->sum('orders.discount'), 2),
+            'total_paid' => round($channels->sum('amount'), 2),
+        ]);
+    }
+
+    /**
      * Stats behind the dashboard's register cards. There is no session model;
      * the registers are the two "sides" (cashier POS vs waiter tablets), told
      * apart by the role of the user who fired the order. "Last closing" is the

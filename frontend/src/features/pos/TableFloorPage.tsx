@@ -5,6 +5,7 @@ import {
   LuCrown,
   LuLock,
   LuPower,
+  LuPrinter,
   LuRefreshCw,
   LuShoppingBag,
   LuUserCheck,
@@ -15,7 +16,10 @@ import type { IconType } from 'react-icons'
 import type { Cashier } from '../auth/CashierLoginDialog'
 import ElevenOneLogo from '../../components/ElevenOneLogo'
 import ZoomControl from '../../components/ui/ZoomControl'
+import Toast from '../../components/ui/Toast'
 import CashInOutDialog, { type CashMovement } from './CashInOutDialog'
+import OrdersHistoryPage from './OrdersHistoryPage'
+import { printSummary } from './printSummary'
 import { LoadingState } from '../../components/ui/Loader'
 import { useSettings } from '../../hooks/useSettings'
 import { useTables } from '../../hooks/useTables'
@@ -24,6 +28,7 @@ import {
   fetchCashMovements,
   type ApiCashMovement,
 } from '../../services/api/cashMovements'
+import { fetchDailySummary } from '../../services/api/reports'
 import { ApiError } from '../../services/api/client'
 
 // ---------------------------------------------------------------------------
@@ -123,11 +128,15 @@ function HeaderBar({
   cashierName,
   activeOrders,
   onCashInOut,
+  onOrders,
+  onPrintSummary,
   onLogout,
 }: {
   cashierName: string
   activeOrders: number
   onCashInOut: () => void
+  onOrders: () => void
+  onPrintSummary: () => void
   onLogout: () => void
 }) {
   return (
@@ -137,7 +146,10 @@ function HeaderBar({
         <ElevenOneLogo />
         <div className="mx-3 h-8 w-px bg-white/15" />
         <HeaderAction icon={LuArrowLeftRight} label="Cash In/Out" onClick={onCashInOut} />
-        <HeaderAction icon={LuClipboardList} label="Orders" badge={activeOrders} />
+        {/* Invoice history — every order, searchable, with reprint. */}
+        <HeaderAction icon={LuClipboardList} label="Orders" badge={activeOrders} onClick={onOrders} />
+        {/* End-of-day X-report — today's sales + payment breakdown on an 80mm docket. */}
+        <HeaderAction icon={LuPrinter} label="Print Summary" onClick={onPrintSummary} />
       </div>
 
       {/* Center: signed-in cashier */}
@@ -272,10 +284,42 @@ export default function TableFloorPage({
 
   // Cash drawer — the log lives on the server so every terminal sees the same
   // day and each movement is audited; the opening float is an admin setting.
-  const { openingFloat } = useSettings()
+  // storeName heads the daily Summary Report docket.
+  const { openingFloat, storeName } = useSettings()
   const [cashOpen, setCashOpen] = useState(false)
+  // The header's "Orders" screen — invoice history shown in place of the floor.
+  const [ordersOpen, setOrdersOpen] = useState(false)
   const [movements, setMovements] = useState<CashMovement[]>([])
   const [drawerError, setDrawerError] = useState<string | null>(null)
+
+  // Daily "Summary" docket — fetch today's totals, then print silently. Guard
+  // against a double-tap while the fetch is in flight; a failure flashes a toast.
+  const [summaryBusy, setSummaryBusy] = useState(false)
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), toast.tone === 'error' ? 3500 : 1500)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  async function printDailySummary() {
+    if (summaryBusy) return
+    setSummaryBusy(true)
+    try {
+      const data = await fetchDailySummary()
+      printSummary({ storeName }, data)
+      // The docket prints silently under kiosk printing, so confirm on screen.
+      setToast({ message: 'Today’s summary sent to printer', tone: 'success' })
+    } catch (e: unknown) {
+      setToast({
+        message: e instanceof ApiError ? e.message : 'Could not load today’s summary.',
+        tone: 'error',
+      })
+    } finally {
+      setSummaryBusy(false)
+    }
+  }
 
   // Refresh the day's log every time the drawer opens, so movements recorded
   // on another terminal are already in the list.
@@ -311,16 +355,20 @@ export default function TableFloorPage({
         cashierName={cashier.name}
         activeOrders={activeOrders}
         onCashInOut={() => setCashOpen(true)}
+        onOrders={() => setOrdersOpen(true)}
+        onPrintSummary={() => void printDailySummary()}
         onLogout={onLogout}
       />
 
-      {loading && (
+      {ordersOpen && <OrdersHistoryPage floor={floor} onBack={() => setOrdersOpen(false)} />}
+
+      {!ordersOpen && loading && (
         <main className="flex flex-1 items-center justify-center">
           <LoadingState label="Loading tables…" />
         </main>
       )}
 
-      {error && (
+      {!ordersOpen && error && (
         <main className="flex flex-1 flex-col items-center justify-center gap-3">
           <p className="text-sm text-rose-500">{error}</p>
           <button
@@ -334,7 +382,7 @@ export default function TableFloorPage({
         </main>
       )}
 
-      {!loading && !error && (
+      {!ordersOpen && !loading && !error && (
       <main className="flex flex-1 overflow-auto p-6">
         {/* Dine-in */}
         <section className="flex-1 pr-6">
@@ -369,6 +417,7 @@ export default function TableFloorPage({
       </main>
       )}
 
+      {!ordersOpen && (
       <footer className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-white px-6 py-3">
         <div className="flex items-center gap-6 text-sm">
           <LegendItem color="#4caf50" label="Available" />
@@ -382,6 +431,7 @@ export default function TableFloorPage({
           </div>
         </div>
       </footer>
+      )}
 
       {cashOpen && (
         <CashInOutDialog
@@ -392,6 +442,8 @@ export default function TableFloorPage({
           onClose={() => setCashOpen(false)}
         />
       )}
+
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
     </div>
   )
 }

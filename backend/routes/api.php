@@ -119,6 +119,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Re-send a settled bill to the guest's inbox.
         Route::post('/orders/{order}/email-receipt', [OrderController::class, 'emailReceipt']);
+
+        // The cashier's end-of-day "Summary Report" docket (floor screen → Print
+        // Summary): today's sales by section, income by journal (Bank/Cash) and
+        // the day's totals. Open to cashiers; every other /reports/* endpoint
+        // stays admin/manager-only below.
+        Route::get('/reports/summary', [ReportController::class, 'dailySummary']);
     });
 
     /*
