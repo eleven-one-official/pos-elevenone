@@ -44,6 +44,9 @@ class CategoryController extends Controller
 
         $data['slug'] ??= Str::slug($data['name']);
 
+        // The column is NOT NULL — an omitted sequence lands at the end.
+        $data['sort_order'] ??= ((int) Category::max('sort_order')) + 1;
+
         $category = Category::create($data);
 
         return response()->json($category, 201);
@@ -67,6 +70,11 @@ class CategoryController extends Controller
             'sort_order' => ['nullable', 'integer'],
             'is_active' => ['boolean'],
         ]);
+
+        // NOT NULL column — clearing the sequence keeps the current position.
+        if (array_key_exists('sort_order', $data) && $data['sort_order'] === null) {
+            unset($data['sort_order']);
+        }
 
         $category->update($data);
 

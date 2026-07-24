@@ -61,6 +61,9 @@ class MenuItemController extends Controller
 
         $data['slug'] ??= Str::slug($data['name']);
 
+        // The column is NOT NULL — an omitted sequence lands at the end.
+        $data['sort_order'] ??= ((int) MenuItem::max('sort_order')) + 1;
+
         if ($request->hasFile('image')) {
             $data['image'] = '/storage/'.$request->file('image')->store('menu-items', 'public');
         } else {
@@ -97,6 +100,11 @@ class MenuItemController extends Controller
             'is_archived' => ['boolean'],
             'sort_order' => ['nullable', 'integer'],
         ]);
+
+        // NOT NULL column — clearing the sequence keeps the current position.
+        if (array_key_exists('sort_order', $data) && $data['sort_order'] === null) {
+            unset($data['sort_order']);
+        }
 
         // Uploaded file replaces (and deletes) the old one; an explicit null
         // clears it; an absent key leaves the current image untouched.

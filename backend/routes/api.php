@@ -25,19 +25,23 @@ use Illuminate\Support\Facades\Route;
 | Public routes
 |--------------------------------------------------------------------------
 | Credential endpoints are throttled per IP to slow password/PIN brute
-| forcing (PINs are only 4-6 digits, so this limit matters).
+| forcing (PINs are only 4-6 digits, so this limit matters). Each route gets
+| its own named bucket (the 3rd throttle arg) — without it, Laravel keys every
+| inline throttle by domain|IP alone, so roster/branch fetches from the login
+| screen ate the login budget and a first correct PIN could 429.
+| The whole shop shares one public IP, so limits cover every terminal at once.
 */
-Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1,login');
 
 // Branch list for the login screen's picker and the admin's top-bar switcher.
 // Public by design: a device must pick its branch before anyone signs in.
 Route::get('/branches', fn () => \App\Models\Branch::orderBy('id')->get(['id', 'name']))
-    ->middleware('throttle:30,1');
+    ->middleware('throttle:30,1,branches');
 
 // PIN login for POS terminals / waiter tablets: fetch the tappable roster, then
 // authenticate with the chosen staff id + PIN.
-Route::get('/staff', [AuthController::class, 'staffRoster'])->middleware('throttle:30,1');
-Route::post('/staff-login', [AuthController::class, 'staffLogin'])->middleware('throttle:10,1');
+Route::get('/staff', [AuthController::class, 'staffRoster'])->middleware('throttle:30,1,staff-roster');
+Route::post('/staff-login', [AuthController::class, 'staffLogin'])->middleware('throttle:20,1,staff-login');
 
 /*
 |--------------------------------------------------------------------------
