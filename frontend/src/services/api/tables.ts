@@ -9,12 +9,18 @@ import type { PosTable, Section } from '../../features/pos/TableFloorPage'
 export type TableType = 'normal' | 'vip'
 export type TableStatus = 'available' | 'occupied' | 'reserved'
 
+export type TableShape = 'wide' | 'round' | 'tall'
+
 export type ApiTable = {
   id: number
   name: string
   type: TableType
   /** Floor tab this table shows under (e.g. "BKK Eat In"); null = classic floor. */
   zone?: string | null
+  /** Spot on the floor-plan canvas (% of its width/height); null = plain grid. */
+  pos_x?: number | null
+  pos_y?: number | null
+  shape?: TableShape | null
   capacity: number
   status: TableStatus
   /** Guests on the table's open order; null when no order is running. */
@@ -34,6 +40,9 @@ function toPosTable(t: ApiTable): PosTable {
     backendId: t.id,
     label: t.name,
     zone: t.zone ?? undefined,
+    posX: t.pos_x ?? undefined,
+    posY: t.pos_y ?? undefined,
+    shape: t.shape ?? undefined,
     seats: t.capacity,
     guests: t.guest_count ?? 0,
     orders: t.status === 'occupied' ? 1 : 0, // occupied → show the corner badge
@@ -114,6 +123,9 @@ export type TableInput = {
   name: string
   type: TableType
   zone?: string | null
+  pos_x?: number | null
+  pos_y?: number | null
+  shape?: TableShape | null
   capacity: number
   status?: TableStatus
 }

@@ -16,6 +16,9 @@ class Table extends Model
         'name',
         'type',
         'zone',
+        'pos_x',
+        'pos_y',
+        'shape',
         'capacity',
         'status',
     ];
@@ -24,6 +27,8 @@ class Table extends Model
     {
         return [
             'capacity' => 'integer',
+            'pos_x' => 'float',
+            'pos_y' => 'float',
         ];
     }
 

@@ -48,6 +48,11 @@ export type PosTable = {
   takeawaySlot?: number
   /** Floor tab this table shows under (e.g. "BKK Eat In"); absent = classic floor. */
   zone?: string
+  /** Spot on the floor-plan canvas (% of its width/height); absent = plain grid. */
+  posX?: number
+  posY?: number
+  /** Card shape on the canvas: double-width room, garden pill, full-height pill. */
+  shape?: 'wide' | 'round' | 'tall'
   label: string
   seats: number
   /** Guests currently seated — numerator of the bottom pill. */
@@ -219,11 +224,16 @@ export function TableCard({ table, onSelect }: { table: PosTable; onSelect: (tab
       : '-'
     : `${table.guests}/${table.seats}`
 
+  // Garden pills and the long G12 read as their real-world shapes on the canvas.
+  const pill = table.shape === 'round' || table.shape === 'tall'
+
   return (
     <button
       type="button"
       onClick={() => onSelect(table)}
-      className={`group relative flex min-h-[104px] flex-col justify-between rounded-xl p-3 text-left text-white shadow-sm outline-none transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-offset-2 ${ui.card} ${ui.ring}`}
+      className={`group relative flex min-h-[104px] w-full flex-col justify-between text-left text-white shadow-sm outline-none transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-offset-2 ${
+        table.shape === 'tall' ? 'h-full' : ''
+      } ${pill ? 'rounded-[44px] px-5 py-4' : 'rounded-xl p-3'} ${ui.card} ${ui.ring}`}
     >
       {table.orders > 0 && (
         <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-rose-500 text-xs font-bold text-white shadow ring-2 ring-white">
@@ -376,6 +386,48 @@ function buildTabs(floor: PosTable[], branchTag: string): FloorTab[] {
   return tabs
 }
 
+/**
+ * Odoo-style floor plan: each card pinned at its stored spot (percent of the
+ * canvas), so the screen mirrors where the tables physically stand.
+ */
+function FloorCanvas({
+  tables,
+  onSelectTable,
+}: {
+  tables: PosTable[]
+  onSelectTable: (table: PosTable) => void
+}) {
+  // A table someone created without a spot must still be tappable — those
+  // queue along the bottom edge until an admin gives them coordinates.
+  let stray = 0
+
+  return (
+    <main className="flex-1 overflow-auto p-6">
+      <div className="relative h-full min-h-[640px]">
+        {tables.map((table) => {
+          const placed = table.posX != null && table.posY != null
+          const x = placed ? table.posX! : (stray++ * 12) % 96
+          const y = placed ? table.posY! : 86
+          return (
+            <div
+              key={table.id}
+              className="absolute"
+              style={{
+                left: `${x}%`,
+                top: `${y}%`,
+                width: table.shape === 'wide' ? '21%' : '10.5%',
+                height: table.shape === 'tall' ? '44%' : undefined,
+              }}
+            >
+              <TableCard table={table} onSelect={onSelectTable} />
+            </div>
+          )
+        })}
+      </div>
+    </main>
+  )
+}
+
 /** One tab's floor: a slot grid, a plain table grid, or tables + VIP two-pane. */
 function TabFloor({
   tables,
@@ -401,6 +453,11 @@ function TabFloor({
         </div>
       </main>
     )
+  }
+
+  // Tables with stored coordinates render as a floor plan instead of a grid.
+  if (tables.some((t) => t.posX != null && t.posY != null)) {
+    return <FloorCanvas tables={tables} onSelectTable={onSelectTable} />
   }
 
   const dineIn = tables.filter((t) => t.section === 'dine-in')

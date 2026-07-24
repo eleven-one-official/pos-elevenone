@@ -50,6 +50,10 @@ class TableController extends Controller
             'type' => ['required', 'in:normal,vip'],
             // Floor tab this table shows under; empty = the classic one-screen floor.
             'zone' => ['nullable', 'string', 'max:255'],
+            // Spot on the floor-plan canvas (% of its width/height) + card shape.
+            'pos_x' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pos_y' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'shape' => ['nullable', 'in:wide,round,tall'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'in:available,occupied,reserved'],
         ]);
@@ -73,6 +77,9 @@ class TableController extends Controller
                     ->ignore($table->id)],
             'type' => ['sometimes', 'required', 'in:normal,vip'],
             'zone' => ['nullable', 'string', 'max:255'],
+            'pos_x' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pos_y' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'shape' => ['nullable', 'in:wide,round,tall'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'status' => ['sometimes', 'required', 'in:available,occupied,reserved'],
         ]);

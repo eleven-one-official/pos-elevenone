@@ -8,6 +8,7 @@ import {
   updateTable,
   type ApiTable,
   type TableInput,
+  type TableShape,
   type TableStatus,
   type TableType,
 } from '../../services/api/tables'
@@ -30,6 +31,13 @@ const TABLE_STATUSES: { value: TableStatus; label: string }[] = [
   { value: 'available', label: 'Available' },
   { value: 'occupied', label: 'Occupied' },
   { value: 'reserved', label: 'Reserved' },
+]
+
+const TABLE_SHAPES: { value: TableShape | ''; label: string }[] = [
+  { value: '', label: 'Standard card' },
+  { value: 'wide', label: 'Wide (private room)' },
+  { value: 'round', label: 'Round (garden pill)' },
+  { value: 'tall', label: 'Tall (long table)' },
 ]
 
 const STATUS_BADGE: Record<TableStatus, string> = {
@@ -308,6 +316,9 @@ function TableForm({
   const [name, setName] = useState(table?.name ?? '')
   const [type, setType] = useState<TableType>(table?.type ?? 'normal')
   const [zone, setZone] = useState(table?.zone ?? '')
+  const [posX, setPosX] = useState(table?.pos_x != null ? String(table.pos_x) : '')
+  const [posY, setPosY] = useState(table?.pos_y != null ? String(table.pos_y) : '')
+  const [shape, setShape] = useState<TableShape | ''>(table?.shape ?? '')
   const [capacity, setCapacity] = useState(table ? String(table.capacity) : '6')
   const [status, setStatus] = useState<TableStatus>(table?.status ?? 'available')
   const [saving, setSaving] = useState(false)
@@ -324,10 +335,21 @@ function TableForm({
       setError('Seats must be at least 1.')
       return
     }
+    const px = posX.trim() === '' ? null : Number(posX)
+    const py = posY.trim() === '' ? null : Number(posY)
+    for (const value of [px, py]) {
+      if (value !== null && (!Number.isFinite(value) || value < 0 || value > 100)) {
+        setError('Position X and Y are percentages — between 0 and 100.')
+        return
+      }
+    }
     const input: TableInput = {
       name: name.trim(),
       type,
       zone: zone.trim() || null,
+      pos_x: px,
+      pos_y: py,
+      shape: shape || null,
       capacity: seats,
       status,
     }
@@ -441,6 +463,37 @@ function TableForm({
                 className={BLUE_SELECT}
               >
                 {TABLE_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+
+              <label className={LABEL}>Position X (%)</label>
+              <input
+                inputMode="decimal"
+                value={posX}
+                onChange={(e) => setPosX(e.target.value.replace(/[^\d.]/g, ''))}
+                placeholder="e.g. 25 — empty = plain grid"
+                className={`${TEXT_INPUT} max-w-40`}
+              />
+
+              <label className={LABEL}>Position Y (%)</label>
+              <input
+                inputMode="decimal"
+                value={posY}
+                onChange={(e) => setPosY(e.target.value.replace(/[^\d.]/g, ''))}
+                placeholder="e.g. 50 — empty = plain grid"
+                className={`${TEXT_INPUT} max-w-40`}
+              />
+
+              <label className={LABEL}>Shape</label>
+              <select
+                value={shape}
+                onChange={(e) => setShape(e.target.value as TableShape | '')}
+                className={BLUE_SELECT}
+              >
+                {TABLE_SHAPES.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
